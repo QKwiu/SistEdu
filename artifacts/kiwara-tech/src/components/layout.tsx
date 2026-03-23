@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ArrowRight } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Menu, X, ChevronDown, Bot, BarChart2, GraduationCap } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -9,9 +9,29 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const SERVICES_DROPDOWN = [
+  {
+    href: "/servicos#ia",
+    label: "Agência de IA",
+    sublabel: "Automação de processos",
+    icon: <Bot className="w-5 h-5 text-primary" />,
+  },
+  {
+    href: "/servicos#dados",
+    label: "Análise de Dados",
+    sublabel: "Insights e visualização",
+    icon: <BarChart2 className="w-5 h-5 text-primary" />,
+  },
+  {
+    href: "/solucoes/escolar",
+    label: "Sistema de Gestão Escolar",
+    sublabel: "Plataforma SaaS para colégios",
+    icon: <GraduationCap className="w-5 h-5 text-primary" />,
+  },
+];
+
 const NAV_LINKS = [
   { href: "/", label: "Início" },
-  { href: "/servicos", label: "Serviços" },
   { href: "/solucoes/escolar", label: "Solução Escolar" },
 ];
 
@@ -19,6 +39,8 @@ export function Navbar() {
   const [location] = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [servicesOpen, setServicesOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -26,7 +48,16 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Don't show public navbar on dashboard
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setServicesOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   if (location.startsWith("/dashboard")) return null;
 
   return (
@@ -38,29 +69,92 @@ export function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent p-0.5 shadow-lg group-hover:shadow-primary/25 transition-all">
-              <div className="w-full h-full bg-white rounded-[10px] flex items-center justify-center">
-                 <img src={`${import.meta.env.BASE_URL}images/logo.png`} alt="Kiwara Tech" className="w-6 h-6 object-contain" />
-              </div>
+          {/* Logo + Company name */}
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg group-hover:shadow-primary/30 transition-all">
+              <span className="text-white font-extrabold text-lg leading-none">K</span>
             </div>
-            <span className="font-display font-bold text-xl tracking-tight">Kiwara <span className="text-primary">Tech</span></span>
+            <span className="font-display font-bold text-xl tracking-tight text-slate-900">
+              Kiwara <span className="text-primary">Tech</span>
+            </span>
           </Link>
 
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
+            <Link
+              href="/"
+              className={cn(
+                "text-sm font-medium transition-colors hover:text-primary",
+                location === "/" ? "text-primary" : "text-slate-600"
+              )}
+            >
+              Início
+            </Link>
+
+            {/* Serviços dropdown */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setServicesOpen(!servicesOpen)}
                 className={cn(
-                  "text-sm font-medium transition-colors hover:text-primary",
-                  location === link.href ? "text-primary" : "text-slate-600"
+                  "flex items-center gap-1 text-sm font-medium transition-colors hover:text-primary",
+                  location.startsWith("/servicos") ? "text-primary" : "text-slate-600"
                 )}
               >
-                {link.label}
-              </Link>
-            ))}
+                O que fazemos
+                <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", servicesOpen && "rotate-180")} />
+              </button>
+
+              <AnimatePresence>
+                {servicesOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden"
+                  >
+                    <div className="p-2">
+                      {SERVICES_DROPDOWN.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setServicesOpen(false)}
+                          className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors group/item"
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-primary/8 flex items-center justify-center shrink-0">
+                            {item.icon}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900 group-hover/item:text-primary transition-colors">{item.label}</p>
+                            <p className="text-xs text-slate-500">{item.sublabel}</p>
+                          </div>
+                        </Link>
+                      ))}
+                      <div className="border-t border-slate-100 mt-2 pt-2">
+                        <Link
+                          href="/servicos"
+                          onClick={() => setServicesOpen(false)}
+                          className="flex items-center justify-center p-2 text-sm font-medium text-primary hover:bg-primary/5 rounded-xl transition-colors"
+                        >
+                          Ver todos os serviços →
+                        </Link>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <Link
+              href="/solucoes/escolar"
+              className={cn(
+                "text-sm font-medium transition-colors hover:text-primary",
+                location === "/solucoes/escolar" ? "text-primary" : "text-slate-600"
+              )}
+            >
+              Solução Escolar
+            </Link>
+
             <div className="w-px h-6 bg-slate-200 mx-2" />
             <Link
               href="/escolar"
@@ -89,19 +183,33 @@ export function Navbar() {
             exit={{ opacity: 0, y: -20 }}
             className="absolute top-full left-0 right-0 bg-white border-b border-slate-100 shadow-xl md:hidden flex flex-col p-4"
           >
-            {NAV_LINKS.map((link) => (
+            <Link
+              href="/"
+              onClick={() => setMobileMenuOpen(false)}
+              className={cn(
+                "p-4 text-base font-medium rounded-xl transition-colors",
+                location === "/" ? "bg-primary/5 text-primary" : "text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              Início
+            </Link>
+
+            <p className="px-4 pt-4 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">O que fazemos</p>
+            {SERVICES_DROPDOWN.map((item) => (
               <Link
-                key={link.href}
-                href={link.href}
+                key={item.href}
+                href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className={cn(
-                  "p-4 text-base font-medium rounded-xl transition-colors",
-                  location === link.href ? "bg-primary/5 text-primary" : "text-slate-600 hover:bg-slate-50"
-                )}
+                className="flex items-center gap-3 p-4 rounded-xl text-slate-600 hover:bg-slate-50 transition-colors"
               >
-                {link.label}
+                {item.icon}
+                <div>
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="text-xs text-slate-400">{item.sublabel}</p>
+                </div>
               </Link>
             ))}
+
             <Link
               href="/escolar"
               onClick={() => setMobileMenuOpen(false)}

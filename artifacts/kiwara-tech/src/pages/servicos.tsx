@@ -1,10 +1,29 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Code, Database, Server, Smartphone, Cloud, Shield, ArrowLeft } from "lucide-react";
+import { Code, Database, Server, Smartphone, Cloud, Shield, ArrowLeft, Bot, BarChart2 } from "lucide-react";
 import { PageLayout } from "@/components/layout";
 import { Card, Button } from "@/components/ui-elements";
 
 export default function Servicos() {
+  const featuredServices = [
+    {
+      id: "ia",
+      icon: <Bot className="w-10 h-10 text-primary" />,
+      badge: "Destaque",
+      title: "Agência de IA — Automação de Processos",
+      desc: "Transformamos fluxos de trabalho manuais e repetitivos em processos totalmente automatizados com Inteligência Artificial. Desde chatbots inteligentes a pipelines de decisão, ajudamos a sua empresa a fazer mais com menos.",
+      features: ["Chatbots & Assistentes Virtuais", "Automação de Documentos", "Integração com LLMs (GPT, Gemini)", "Workflows Inteligentes"]
+    },
+    {
+      id: "dados",
+      icon: <BarChart2 className="w-10 h-10 text-primary" />,
+      badge: "Destaque",
+      title: "Análise de Dados",
+      desc: "Transformamos os dados da sua empresa em vantagem competitiva. Criamos dashboards, relatórios e modelos preditivos que revelam oportunidades escondidas e suportam decisões estratégicas com evidências.",
+      features: ["Dashboards Interativos", "Relatórios Automatizados", "Modelos Preditivos", "Business Intelligence"]
+    },
+  ];
+
   const services = [
     {
       icon: <Code className="w-10 h-10 text-primary" />,
@@ -62,6 +81,51 @@ export default function Servicos() {
 
       <div className="py-20 bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {/* Featured services */}
+          <div className="mb-16">
+            <p className="text-sm font-semibold text-primary uppercase tracking-widest mb-3">Novos Serviços</p>
+            <h2 className="text-3xl font-display font-bold text-slate-900 mb-10">Tecnologia de ponta para o seu negócio</h2>
+            <div className="grid md:grid-cols-2 gap-8">
+              {featuredServices.map((service, index) => (
+                <motion.div
+                  id={service.id}
+                  key={service.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: index * 0.1 }}
+                >
+                  <Card className="h-full flex flex-col border-primary/20 bg-gradient-to-br from-primary/3 to-accent/3 hover:border-primary/40 transition-colors">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">{service.icon}</div>
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full uppercase tracking-wide">{service.badge}</span>
+                    </div>
+                    <h3 className="text-2xl font-bold mb-3">{service.title}</h3>
+                    <p className="text-slate-600 mb-6 flex-grow">{service.desc}</p>
+                    <div className="pt-6 border-t border-primary/10">
+                      <ul className="grid grid-cols-2 gap-2">
+                        {service.features.map((feature, i) => (
+                          <li key={i} className="flex items-center text-sm font-medium text-slate-700">
+                            <div className="w-1.5 h-1.5 rounded-full bg-primary mr-2 shrink-0" />
+                            {feature}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="flex items-center gap-4 mb-16">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span className="text-sm text-slate-400 font-medium">Outros Serviços</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+
+          {/* Other services */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {services.map((service, index) => (
               <motion.div
