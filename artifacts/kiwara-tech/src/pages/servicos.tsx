@@ -1,26 +1,46 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Code, Database, Server, Smartphone, Cloud, Shield, ArrowLeft, Bot, BarChart2 } from "lucide-react";
+import { Code, Database, Server, Smartphone, Cloud, Shield, ArrowLeft, Bot, BarChart2, GraduationCap, ArrowRight } from "lucide-react";
 import { PageLayout } from "@/components/layout";
 import { Card, Button } from "@/components/ui-elements";
 
 export default function Servicos() {
   const featuredServices = [
     {
+      id: "escolar",
+      icon: <GraduationCap className="w-10 h-10 text-white" />,
+      badge: "Lançamento",
+      badgeColor: "bg-emerald-400/20 text-emerald-300",
+      highlighted: true,
+      title: "Pagamentos e Reconciliação Escolar",
+      desc: "O primeiro produto da Kiwara Tech já disponível. Automatize a cobrança de propinas, gere referências Multicaixa e tenha controlo financeiro total do seu colégio numa plataforma simples e segura.",
+      features: ["Geração automática de propinas", "Referências Multicaixa / EMIS", "Confirmação automática de pagamentos", "Relatórios financeiros em tempo real"],
+      href: "/solucoes/escolar",
+      cta: "Ver o produto",
+    },
+    {
       id: "ia",
       icon: <Bot className="w-10 h-10 text-primary" />,
-      badge: "Destaque",
+      badge: "Em breve",
+      badgeColor: "bg-primary/10 text-primary",
+      highlighted: false,
       title: "Agência de IA — Automação de Processos",
-      desc: "Transformamos fluxos de trabalho manuais e repetitivos em processos totalmente automatizados com Inteligência Artificial. Desde chatbots inteligentes a pipelines de decisão, ajudamos a sua empresa a fazer mais com menos.",
-      features: ["Chatbots & Assistentes Virtuais", "Automação de Documentos", "Integração com LLMs (GPT, Gemini)", "Workflows Inteligentes"]
+      desc: "Transformamos fluxos de trabalho manuais em processos automatizados com Inteligência Artificial. Chatbots, pipelines de decisão e muito mais.",
+      features: ["Chatbots & Assistentes Virtuais", "Automação de Documentos", "Integração com LLMs (GPT, Gemini)", "Workflows Inteligentes"],
+      href: null,
+      cta: null,
     },
     {
       id: "dados",
       icon: <BarChart2 className="w-10 h-10 text-primary" />,
-      badge: "Destaque",
+      badge: "Em breve",
+      badgeColor: "bg-primary/10 text-primary",
+      highlighted: false,
       title: "Análise de Dados",
-      desc: "Transformamos os dados da sua empresa em vantagem competitiva. Criamos dashboards, relatórios e modelos preditivos que revelam oportunidades escondidas e suportam decisões estratégicas com evidências.",
-      features: ["Dashboards Interativos", "Relatórios Automatizados", "Modelos Preditivos", "Business Intelligence"]
+      desc: "Transformamos os dados da sua empresa em vantagem competitiva. Dashboards, relatórios e modelos preditivos para decisões estratégicas.",
+      features: ["Dashboards Interativos", "Relatórios Automatizados", "Modelos Preditivos", "Business Intelligence"],
+      href: null,
+      cta: null,
     },
   ];
 
@@ -84,9 +104,9 @@ export default function Servicos() {
 
           {/* Featured services */}
           <div className="mb-16">
-            <p className="text-sm font-semibold text-primary uppercase tracking-widest mb-3">Novos Serviços</p>
+            <p className="text-sm font-semibold text-primary uppercase tracking-widest mb-3">Soluções em Destaque</p>
             <h2 className="text-3xl font-display font-bold text-slate-900 mb-10">Tecnologia de ponta para o seu negócio</h2>
-            <div className="grid md:grid-cols-2 gap-8">
+            <div className="grid lg:grid-cols-3 gap-6 items-stretch">
               {featuredServices.map((service, index) => (
                 <motion.div
                   id={service.id}
@@ -94,25 +114,60 @@ export default function Servicos() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: index * 0.1 }}
+                  className="flex"
                 >
-                  <Card className="h-full flex flex-col border-primary/20 bg-gradient-to-br from-primary/3 to-accent/3 hover:border-primary/40 transition-colors">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">{service.icon}</div>
-                      <span className="text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full uppercase tracking-wide">{service.badge}</span>
+                  {service.highlighted ? (
+                    <div className="flex flex-col w-full rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-slate-700 p-8 shadow-2xl shadow-slate-900/20 ring-2 ring-primary/30">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
+                          {service.icon}
+                        </div>
+                        <span className={`text-xs font-bold px-3 py-1.5 rounded-full uppercase tracking-wide ${service.badgeColor}`}>
+                          {service.badge}
+                        </span>
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-3">{service.title}</h3>
+                      <p className="text-slate-400 text-sm mb-6 flex-grow leading-relaxed">{service.desc}</p>
+                      <div className="pt-6 border-t border-slate-700 mb-6">
+                        <ul className="space-y-2.5">
+                          {service.features.map((feature, i) => (
+                            <li key={i} className="flex items-center text-sm text-slate-300">
+                              <div className="w-1.5 h-1.5 rounded-full bg-primary mr-2.5 shrink-0" />
+                              {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      {service.href && (
+                        <Link href={service.href}>
+                          <button className="flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80 transition-colors group">
+                            {service.cta} <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                          </button>
+                        </Link>
+                      )}
                     </div>
-                    <h3 className="text-2xl font-bold mb-3">{service.title}</h3>
-                    <p className="text-slate-600 mb-6 flex-grow">{service.desc}</p>
-                    <div className="pt-6 border-t border-primary/10">
-                      <ul className="grid grid-cols-2 gap-2">
-                        {service.features.map((feature, i) => (
-                          <li key={i} className="flex items-center text-sm font-medium text-slate-700">
-                            <div className="w-1.5 h-1.5 rounded-full bg-primary mr-2 shrink-0" />
-                            {feature}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </Card>
+                  ) : (
+                    <Card className="h-full flex flex-col w-full border-slate-200 hover:border-primary/30 transition-colors opacity-80">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-12 h-12 rounded-xl bg-primary/8 flex items-center justify-center">{service.icon}</div>
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wide ${service.badgeColor}`}>
+                          {service.badge}
+                        </span>
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-900 mb-3">{service.title}</h3>
+                      <p className="text-slate-600 text-sm mb-6 flex-grow leading-relaxed">{service.desc}</p>
+                      <div className="pt-6 border-t border-slate-100">
+                        <ul className="space-y-2">
+                          {service.features.map((feature, i) => (
+                            <li key={i} className="flex items-center text-sm font-medium text-slate-600">
+                              <div className="w-1.5 h-1.5 rounded-full bg-slate-300 mr-2 shrink-0" />
+                              {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </Card>
+                  )}
                 </motion.div>
               ))}
             </div>
