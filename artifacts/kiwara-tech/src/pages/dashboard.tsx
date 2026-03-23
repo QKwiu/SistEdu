@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { 
   LayoutDashboard, Users, FileText, Settings, LogOut, 
-  Bell, Search, Plus, TrendingUp, AlertCircle, CheckCircle2 
+  Bell, Search, Plus, TrendingUp, AlertCircle, CheckCircle2, Clock
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 
