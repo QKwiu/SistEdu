@@ -1,0 +1,21 @@
+packages:
+  "framer-motion": "Smooth page transitions and scroll animations for a premium feel"
+  "lucide-react": "Beautiful, consistent iconography"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility function to efficiently merge Tailwind CSS classes"
+
+images:
+  - path: "artifacts/kiwara-tech/public/images/hero-main.png"
+    description: "Abstract 3D digital network glowing with deep blue and vibrant emerald green accents on a clean light background, professional tech corporate style, highly detailed"
+    aspect_ratio: "16:9"
+  - path: "artifacts/kiwara-tech/public/images/school-hero.png"
+    description: "Modern minimalist abstract illustration representing digital education, floating UI elements, charts, and a graduation cap motif in clean blue and green tones, bright lighting"
+    aspect_ratio: "16:9"
+  - path: "artifacts/kiwara-tech/public/images/logo.png"
+    description: "Minimalist geometric technology logo mark for 'Kiwara Tech' using sharp interlocking shapes in deep navy blue and bright emerald green, transparent background"
+    aspect_ratio: "1:1"
+
+notes:
+  - Mock frontend only, no real backend API calls.
+  - Form submissions use simulated delays (setTimeout) before redirecting.
+  - Dashboard shows static mock data.

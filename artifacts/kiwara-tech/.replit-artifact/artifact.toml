@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Kiwara Tech"
+version = "1.0.0"
+id = "artifacts/kiwara-tech"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25824
+
+[services.development]
+run = "pnpm --filter @workspace/kiwara-tech run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/kiwara-tech", "run", "build" ]
+publicDir = "artifacts/kiwara-tech/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25824"
+BASE_PATH = "/"

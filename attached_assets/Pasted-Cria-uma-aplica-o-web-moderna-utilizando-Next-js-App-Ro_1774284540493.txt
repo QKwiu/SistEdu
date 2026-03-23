@@ -1,0 +1,182 @@
+Cria uma aplicação web moderna utilizando Next.js (App Router) e TailwindCSS para uma empresa de tecnologia chamada "Kiwara Tech".
+
+O projeto deve ter duas camadas principais:
+1) Página institucional da empresa
+2) Landing page de um produto SaaS (Sistema de Gestão Escolar)
+
+O objetivo é permitir navegação clara entre a empresa e o produto, com foco em conversão.
+
+---
+
+# 🏗️ ESTRUTURA DE ROTAS
+
+Implementar as seguintes rotas:
+
+/                  → Página institucional (Kiwara Tech)
+/servicos          → Página de serviços
+/solucoes/escolar  → Página de transição (detalhe do produto)
+/escolar           → Landing page do sistema SaaS
+/signup            → Página de criação de conta
+
+---
+
+# 🎨 1. PÁGINA INICIAL ("/") — KIWARA TECH
+
+Criar uma homepage institucional com:
+
+## Hero Section:
+- Título: "Kiwara Tech"
+- Subtítulo: "Soluções tecnológicas que impulsionam negócios"
+- Botões:
+  - "Conhecer Serviços" → /servicos
+  - "Falar Connosco"
+
+## Sobre:
+Texto explicando:
+Empresa especializada em desenvolvimento de software, consultoria em IT e transformação digital.
+
+## Serviços:
+Lista com 4 cards:
+- Desenvolvimento de Software
+- Consultoria em IT
+- Integração de Sistemas
+- Sistema de Gestão Escolar (DESTAQUE)
+
+👉 O card "Sistema de Gestão Escolar" deve ter botão:
+"Ver Solução Escolar" → /solucoes/escolar
+
+---
+
+# 🔄 2. PÁGINA DE TRANSIÇÃO ("/solucoes/escolar")
+
+Esta página deve apresentar o produto antes da conversão.
+
+Conteúdo:
+
+## Título:
+"Sistema de Gestão Escolar"
+
+## Descrição:
+Plataforma para automatizar gestão de propinas e pagamentos em colégios.
+
+## Lista de funcionalidades:
+- Pagamentos e reconciliação automática
+- Portal do aluno/encarregado
+- Matrículas online
+- Gestão de propinas
+
+## CTA principal:
+Botão grande:
+"Aderir ao Sistema" → redireciona para /escolar
+
+---
+
+# 🎯 3. LANDING PAGE ("/escolar")
+
+Landing page focada em conversão com:
+
+## Hero:
+"Kiwara Tech apresenta"
+"Sistema de Gestão Escolar"
+
+Subtexto:
+"Automatize a cobrança de propinas no seu colégio"
+
+Botões:
+- "Criar Conta Grátis" → /signup
+- "Ver Demonstração"
+
+## Seções:
+- Problemas dos colégios
+- Solução (features)
+- Como funciona (4 passos)
+- Benefícios
+- CTA final
+
+---
+
+# 🧾 4. SIGNUP ("/signup")
+
+Criar formulário funcional com:
+
+Campos:
+- Nome da escola
+- NIF
+- Telefone
+- Email
+- Palavra-passe
+
+## Funcionalidade:
+- Simular criação de conta (mock)
+- Após submissão:
+  redirecionar para "/dashboard"
+
+---
+
+# 🖥️ 5. DASHBOARD ("/dashboard")
+
+Página simples com:
+
+- "Bem-vindo ao sistema"
+- Cards:
+  - Total de alunos
+  - Propinas pendentes
+  - Total recebido
+
+- Botões:
+  - "Adicionar aluno"
+  - "Gerar propina"
+
+---
+
+# 🧠 REQUISITOS TÉCNICOS
+
+- Framework: Next.js (App Router)
+- Estilização: TailwindCSS
+- Componentização reutilizável
+- Design responsivo (mobile-first)
+- Navegação com Link (Next.js)
+- Código limpo e organizado
+
+---
+
+# 🎨 UI/UX
+
+- Design moderno estilo SaaS
+- Cores:
+  - Azul (confiança)
+  - Verde (financeiro)
+- Layout limpo e profissional
+- Botões com destaque
+
+---
+
+# 🔁 FLUXO DE NAVEGAÇÃO
+
+Implementar corretamente:
+
+Home (/) 
+→ Serviços (/servicos)
+→ Solução Escolar (/solucoes/escolar)
+→ Landing SaaS (/escolar)
+→ Signup (/signup)
+→ Dashboard (/dashboard)
+
+---
+
+# 🚀 OBJETIVO FINAL
+
+Gerar um MVP funcional onde:
+- A empresa Kiwara Tech apresenta seus serviços
+- Destaca o sistema escolar como produto principal
+- Permite que colégios naveguem até a landing page
+- Permite criação de conta simulada
+- Redireciona para dashboard inicial
+
+---
+
+# ⚠️ IMPORTANTE
+
+- Não usar dados reais (mock data)
+- Focar em UI e fluxo funcional
+- Código pronto para evolução futura (backend real
