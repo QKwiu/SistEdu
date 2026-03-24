@@ -437,7 +437,7 @@ const DEFAULT_BRACKETS: Bracket[] = [
   { dia_inicio: 21, dia_fim: 30, percentagem: 20 },
 ];
 
-function MultaRegrasPanel({ schoolId, initial }: { schoolId: number; initial: MultaRegra | null }) {
+function MultaRegrasPanel({ schoolId, initial, onSaved }: { schoolId: number; initial: MultaRegra | null; onSaved?: (r: MultaRegra) => void }) {
   const [modelo, setModelo] = useState<1|2|3>(initial?.modelo ?? 1);
   const [diaLimite, setDiaLimite] = useState(String(initial?.dia_limite ?? 10));
   const [aplica, setAplica] = useState(initial?.aplica_automatico ?? true);
@@ -469,6 +469,7 @@ function MultaRegrasPanel({ schoolId, initial }: { schoolId: number; initial: Mu
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+      if (onSaved) onSaved(data);
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -903,9 +904,24 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
   const [form, setForm] = useState({ tipo: "propina", nome: "", montante: "", ano_lectivo: "2025/2026" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [currentMultaRegra, setCurrentMultaRegra] = useState<MultaRegra | null>(multaRegra);
+  const multaPanelRef = useRef<HTMLDivElement>(null);
+
+  const isPropina = form.tipo === "propina";
+  const needsMulta = isPropina && !currentMultaRegra;
+
+  const scrollToMulta = () => {
+    multaPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setSaving(true);
+    if (needsMulta) {
+      setError("É obrigatório configurar o modelo de cálculo de multa antes de registar uma propina.");
+      setSaving(false);
+      scrollToMulta();
+      return;
+    }
     try {
       const res = await api(`/admin/colegios/${schoolId}/emolumentos`, {
         method: "POST", body: JSON.stringify(form),
@@ -958,9 +974,30 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
                 onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} required />
             </Field>
           </div>
+          {/* Warning: propina requires multa rule */}
+          {needsMulta && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-900">Modelo de multa obrigatório</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Para registar uma propina, é necessário configurar primeiro o modelo de cálculo de multa.
+                  A multa é somada automaticamente ao total a pagar pelo encarregado.
+                </p>
+                <button type="button" onClick={scrollToMulta}
+                  className="mt-2 text-xs font-semibold text-amber-800 underline hover:text-amber-900">
+                  Configurar modelo de multa agora ↓
+                </button>
+              </div>
+            </div>
+          )}
           {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
-          <button type="submit" disabled={saving}
-            className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2">
+          <button type="submit" disabled={saving || needsMulta}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2 ${
+              needsMulta
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                : "bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
+            }`}>
             {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A guardar...</> : <><Plus className="w-4 h-4" />Adicionar</>}
           </button>
         </form>
@@ -1014,7 +1051,13 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
       )}
 
       {/* Regras de multa */}
-      <MultaRegrasPanel schoolId={schoolId} initial={multaRegra} />
+      <div ref={multaPanelRef}>
+        <MultaRegrasPanel
+          schoolId={schoolId}
+          initial={currentMultaRegra}
+          onSaved={regra => setCurrentMultaRegra(regra)}
+        />
+      </div>
     </div>
   );
 }
