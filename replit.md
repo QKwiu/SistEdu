@@ -94,3 +94,53 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 ### `scripts` (`@workspace/scripts`)
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+
+## Kiwara Escolar — Database Schema
+
+| Table | Key columns |
+|-------|-------------|
+| `schools` | id, school_id, name, nif, phone, email, password_hash |
+| `sessions` | school_id → schools, token, expires_at |
+| `encarregados` | nome, telefone, email, password (bcrypt), first_login |
+| `guardian_sessions` | encarregado_id → encarregados, token, expires_at |
+| `encarregado_aluno` | encarregado_id → encarregados, aluno_id → students |
+| `turmas` | school_id, nome, ano, turno |
+| `students` | school_id, turma_id, nome, bilhete, data_nascimento, sexo, numero_processo, estado |
+| `matriculas` | student_id, turma_id, ano_lectivo, data_matricula, estado |
+| `propinas` | school_id, student_id, mes, ano, montante, multa, status, data_vencimento |
+| `pagamentos` | propina_id (UNIQUE), entidade, referencia, valor, estado, validade |
+| `ocorrencias` | student_id, tipo, descricao, registado_por, data_ocorrencia |
+
+### students.estado values: activo | inactivo | transferido | concluido
+### students.sexo values: M | F | Outro
+### propinas.status values: pendente | pago | vencido
+### pagamentos.estado values: PENDENTE | PAGO
+
+## Seed Data (escola: Colégio Kiwara - Sede, id=1)
+
+| Guardian | Telefone | Password |
+|----------|----------|----------|
+| João Silva | 921000001 | 1234 |
+| Maria Fernandes | 922000002 | 1234 |
+| Encarregado1_HQ (original) | 943612744 | 1234 |
+
+| Aluno | Turma | Guardian |
+|-------|-------|----------|
+| Carlos Silva | 8ª Classe A (Manhã) | João Silva |
+| Ana Silva | 8ª Classe A (Manhã) | João Silva |
+| Mateus Gomes | 8ª Classe A (Manhã) | João Silva |
+| Pedro Fernandes | 10ª Classe B (Tarde) | Maria Fernandes |
+| Luana Fernandes | 10ª Classe B (Tarde) | Maria Fernandes |
+
+Propinas de Março 2026: Carlos Silva=PAGO, Mateus Gomes=PAGO, Ana Silva=PENDENTE, Pedro Fernandes=VENCIDO (multa 5000 AOA), Luana Fernandes=PENDENTE.
+
+## API Routes
+
+- `POST /api/auth/login` / `POST /api/auth/signup` — school auth
+- `GET/POST /api/school/turmas`, `DELETE /api/school/turmas/:id`
+- `GET/POST /api/school/alunos` (includes data_nascimento, sexo, numero_processo, estado, turno), `DELETE /api/school/alunos/:id`
+- `GET /api/school/propinas`, `POST /api/school/propinas/gerar`, `POST /api/school/propinas/referencia`
+- `POST /api/guardian/login`, `POST /api/guardian/change-password`, `GET /api/guardian/me`
+- `GET /api/guardian/alunos`, `GET /api/guardian/alunos/:id/propinas`, `GET /api/guardian/alunos/:id/ocorrencias`
+- `POST /api/guardian/pagamentos/gerar`
+- `GET/POST/DELETE /api/ocorrencias` (school backoffice)

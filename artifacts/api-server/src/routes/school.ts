@@ -76,14 +76,15 @@ router.get("/school/alunos", schoolAuth, async (req: any, res) => {
 
   const result = await pool.query(
     `SELECT s.id, s.nome, s.bilhete, s.telefone_encarregado, s.nome_encarregado,
-            s.turma_id, COALESCE(t.nome, 'Sem turma') AS turma, s.created_at,
-            COUNT(p.id) FILTER (WHERE p.status = 'pendente') AS propinas_pendentes,
-            COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status = 'pendente'), 0) AS divida
+            s.data_nascimento, s.sexo, s.numero_processo, s.estado,
+            s.turma_id, COALESCE(t.nome, 'Sem turma') AS turma, t.turno, s.created_at,
+            COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido')) AS propinas_pendentes,
+            COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS divida
      FROM students s
      LEFT JOIN turmas t ON t.id = s.turma_id
      LEFT JOIN propinas p ON p.student_id = s.id
      WHERE s.school_id = $1
-     GROUP BY s.id, t.nome
+     GROUP BY s.id, t.nome, t.turno
      ORDER BY s.nome`,
     [school.school_id]
   );
@@ -94,12 +95,17 @@ router.post("/school/alunos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { nome, bilhete, turma_id, nome_encarregado, telefone_encarregado } = req.body;
+  const {
+    nome, bilhete, turma_id, nome_encarregado, telefone_encarregado,
+    data_nascimento, sexo, numero_processo, estado, ano_lectivo,
+  } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "O nome do aluno é obrigatório." });
 
   const result = await pool.query(
-    `INSERT INTO students (school_id, turma_id, nome, bilhete, nome_encarregado, telefone_encarregado)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    `INSERT INTO students
+       (school_id, turma_id, nome, bilhete, nome_encarregado, telefone_encarregado,
+        data_nascimento, sexo, numero_processo, estado)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
     [
       school.school_id,
       turma_id || null,
@@ -107,9 +113,25 @@ router.post("/school/alunos", schoolAuth, async (req: any, res) => {
       bilhete?.trim() || null,
       nome_encarregado?.trim() || null,
       telefone_encarregado?.trim() || null,
+      data_nascimento || null,
+      sexo || null,
+      numero_processo?.trim() || null,
+      estado || "activo",
     ]
   );
-  res.status(201).json(result.rows[0]);
+
+  const student = result.rows[0];
+
+  // Auto-create matricula if turma and ano_lectivo provided
+  if (turma_id && ano_lectivo) {
+    await pool.query(
+      `INSERT INTO matriculas (student_id, turma_id, ano_lectivo)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [student.id, turma_id, ano_lectivo]
+    );
+  }
+
+  res.status(201).json(student);
 });
 
 router.delete("/school/alunos/:id", schoolAuth, async (req: any, res) => {

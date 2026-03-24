@@ -18,8 +18,9 @@ const TURNOS = ["Manhã","Tarde","Noite"];
 /* ─── Interfaces ─── */
 interface Turma { id: number; nome: string; ano: string; turno: string; total_alunos: number; }
 interface Aluno {
-  id: number; nome: string; bilhete?: string; turma_id?: number; turma: string;
+  id: number; nome: string; bilhete?: string; turma_id?: number; turma: string; turno?: string;
   nome_encarregado?: string; telefone_encarregado?: string;
+  data_nascimento?: string; sexo?: string; numero_processo?: string; estado?: string;
   propinas_pendentes: number; divida: number;
 }
 interface Propina {
@@ -167,9 +168,18 @@ function ModalCriarTurma({ token, onClose, onCreated }: { token: string; onClose
   );
 }
 
+const ANO_LECTIVO_ATUAL = (() => {
+  const now = new Date();
+  const y = now.getFullYear();
+  return now.getMonth() >= 8 ? `${y}/${y+1}` : `${y-1}/${y}`;
+})();
+
 /* ─── Modal: Adicionar Aluno ─── */
 function ModalAdicionarAluno({ token, turmas, onClose, onCreated }: { token: string; turmas: Turma[]; onClose: () => void; onCreated: (a: Aluno) => void }) {
-  const [form, setForm] = useState({ nome: "", bilhete: "", turma_id: "", nome_encarregado: "", telefone_encarregado: "" });
+  const [form, setForm] = useState({
+    nome: "", bilhete: "", turma_id: "", nome_encarregado: "", telefone_encarregado: "",
+    data_nascimento: "", sexo: "", numero_processo: "", estado: "activo", ano_lectivo: ANO_LECTIVO_ATUAL,
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -180,7 +190,12 @@ function ModalAdicionarAluno({ token, turmas, onClose, onCreated }: { token: str
       const res = await fetch(`${API}/school/alunos`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, turma_id: form.turma_id ? Number(form.turma_id) : null }),
+        body: JSON.stringify({
+          ...form,
+          turma_id: form.turma_id ? Number(form.turma_id) : null,
+          data_nascimento: form.data_nascimento || null,
+          sexo: form.sexo || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao adicionar aluno.");
@@ -190,34 +205,63 @@ function ModalAdicionarAluno({ token, turmas, onClose, onCreated }: { token: str
     finally { setSaving(false); }
   };
 
+  const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(p => ({ ...p, [k]: e.target.value }));
+
   return (
     <form onSubmit={submit} className="p-6 space-y-4">
+      {/* Dados do aluno */}
       <Field label="Nome completo" required>
-        <input className={inputCls} placeholder="Nome do aluno"
-          value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}/>
+        <input className={inputCls} placeholder="Nome do aluno" value={form.nome} onChange={f("nome")}/>
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Bilhete de identidade">
-          <input className={inputCls} placeholder="ex: 009874321LA041"
-            value={form.bilhete} onChange={e => setForm(f => ({ ...f, bilhete: e.target.value }))}/>
+          <input className={inputCls} placeholder="ex: 009874321LA041" value={form.bilhete} onChange={f("bilhete")}/>
         </Field>
-        <Field label="Turma">
-          <select className={selectCls} value={form.turma_id} onChange={e => setForm(f => ({ ...f, turma_id: e.target.value }))}>
-            <option value="">Sem turma</option>
-            {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+        <Field label="Número de processo">
+          <input className={inputCls} placeholder="ex: PROC-2025-001" value={form.numero_processo} onChange={f("numero_processo")}/>
+        </Field>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <Field label="Data de nascimento">
+          <input type="date" className={inputCls} value={form.data_nascimento} onChange={f("data_nascimento")}/>
+        </Field>
+        <Field label="Sexo">
+          <select className={selectCls} value={form.sexo} onChange={f("sexo")}>
+            <option value="">Não especificado</option>
+            <option value="M">Masculino</option>
+            <option value="F">Feminino</option>
+          </select>
+        </Field>
+        <Field label="Estado">
+          <select className={selectCls} value={form.estado} onChange={f("estado")}>
+            <option value="activo">Activo</option>
+            <option value="inactivo">Inactivo</option>
+            <option value="transferido">Transferido</option>
+            <option value="concluido">Concluído</option>
           </select>
         </Field>
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Turma">
+          <select className={selectCls} value={form.turma_id} onChange={f("turma_id")}>
+            <option value="">Sem turma</option>
+            {turmas.map(t => <option key={t.id} value={t.id}>{t.nome} ({t.turno})</option>)}
+          </select>
+        </Field>
+        <Field label="Ano lectivo">
+          <input className={inputCls} placeholder="ex: 2025/2026" value={form.ano_lectivo} onChange={f("ano_lectivo")}/>
+        </Field>
+      </div>
+      {/* Encarregado */}
       <div className="border-t border-slate-100 pt-4">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Encarregado de educação</p>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Nome">
-            <input className={inputCls} placeholder="Nome do encarregado"
-              value={form.nome_encarregado} onChange={e => setForm(f => ({ ...f, nome_encarregado: e.target.value }))}/>
+            <input className={inputCls} placeholder="Nome do encarregado" value={form.nome_encarregado} onChange={f("nome_encarregado")}/>
           </Field>
           <Field label="Telefone">
-            <input className={inputCls} placeholder="9xx xxx xxx"
-              value={form.telefone_encarregado} onChange={e => setForm(f => ({ ...f, telefone_encarregado: e.target.value }))}/>
+            <input className={inputCls} placeholder="9xx xxx xxx" value={form.telefone_encarregado} onChange={f("telefone_encarregado")}/>
           </Field>
         </div>
       </div>
@@ -806,28 +850,68 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
           <Card className="p-0 overflow-hidden">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
-                <tr><th className="px-5 py-3">Nome</th><th className="px-5 py-3">Bilhete</th><th className="px-5 py-3">Turma</th><th className="px-5 py-3">Encarregado</th><th className="px-5 py-3">Propinas</th><th className="px-5 py-3"></th></tr>
+                <tr>
+                  <th className="px-5 py-3">Nome</th>
+                  <th className="px-5 py-3">Processo / BI</th>
+                  <th className="px-5 py-3">Turma</th>
+                  <th className="px-5 py-3">Nascimento</th>
+                  <th className="px-5 py-3">Estado</th>
+                  <th className="px-5 py-3">Propinas</th>
+                  <th className="px-5 py-3"></th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {filteredAlunos.map(a => (
-                  <tr key={a.id} className="hover:bg-slate-50/50">
-                    <td className="px-5 py-3 font-medium text-slate-900">{a.nome}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-500">{a.bilhete ?? "—"}</td>
-                    <td className="px-5 py-3 text-slate-600">{a.turma}</td>
-                    <td className="px-5 py-3 text-slate-500 text-xs">{a.nome_encarregado ?? "—"}</td>
-                    <td className="px-5 py-3">
-                      {Number(a.propinas_pendentes) > 0
-                        ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.propinas_pendentes} pendente(s)</span>
-                        : <span className="text-xs text-emerald-600">Em dia</span>}
-                    </td>
-                    <td className="px-5 py-3">
-                      <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
-                        <Trash2 className="w-4 h-4"/>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredAlunos.map(a => {
+                  const estadoCls: Record<string,string> = {
+                    activo:"text-emerald-700 bg-emerald-50 border-emerald-200",
+                    inactivo:"text-slate-600 bg-slate-100 border-slate-200",
+                    transferido:"text-blue-700 bg-blue-50 border-blue-200",
+                    concluido:"text-violet-700 bg-violet-50 border-violet-200",
+                  };
+                  const estadoLabel: Record<string,string> = {
+                    activo:"Activo", inactivo:"Inactivo", transferido:"Transferido", concluido:"Concluído",
+                  };
+                  const sexoLabel: Record<string,string> = { M:"♂", F:"♀" };
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-50/50">
+                      <td className="px-5 py-3">
+                        <div className="font-medium text-slate-900">{a.nome}</div>
+                        <div className="text-xs text-slate-400">{a.nome_encarregado ? `Enc: ${a.nome_encarregado}` : ""}</div>
+                      </td>
+                      <td className="px-5 py-3">
+                        {a.numero_processo && <div className="font-mono text-xs text-slate-600">{a.numero_processo}</div>}
+                        {a.bilhete && <div className="font-mono text-xs text-slate-400">{a.bilhete}</div>}
+                        {!a.numero_processo && !a.bilhete && <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="text-slate-700">{a.turma}</div>
+                        {a.turno && <div className="text-xs text-slate-400">{a.turno}</div>}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-500">
+                        {a.data_nascimento
+                          ? new Date(a.data_nascimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"short", year:"numeric" })
+                          : "—"}
+                        {a.sexo && <span className="ml-1.5 text-slate-400">{sexoLabel[a.sexo] ?? ""}</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className={`text-xs font-semibold border px-2 py-0.5 rounded-full ${estadoCls[a.estado ?? "activo"] ?? estadoCls.activo}`}>
+                          {estadoLabel[a.estado ?? "activo"] ?? a.estado}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        {Number(a.propinas_pendentes) > 0
+                          ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.propinas_pendentes} pendente(s)</span>
+                          : <span className="text-xs text-emerald-600">Em dia</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
+                          <Trash2 className="w-4 h-4"/>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </Card>
