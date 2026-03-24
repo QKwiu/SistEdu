@@ -4,7 +4,8 @@ import { motion } from "framer-motion";
 import {
   LayoutDashboard, Users, FileText, Settings, LogOut,
   Bell, Search, Plus, TrendingUp, AlertCircle, CheckCircle2,
-  Clock, BarChart3, ArrowRight, GraduationCap, Banknote, PartyPopper
+  Clock, BarChart3, ArrowRight, GraduationCap, Banknote, PartyPopper,
+  Share2, Copy
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -116,11 +117,55 @@ function OnboardingDashboard({ schoolName, schoolId }: { schoolName: string; sch
           ))}
         </div>
       </motion.div>
+
+      {/* Guardian portal card */}
+      <GuardianPortalCard schoolId={schoolId} />
     </div>
   );
 }
 
-function PopulatedDashboard({ schoolName }: { schoolName: string }) {
+function GuardianPortalCard({ schoolId }: { schoolId: string }) {
+  const [copied, setCopied] = useState(false);
+  const link = `${window.location.origin}${import.meta.env.BASE_URL}encarregado?escola=${schoolId}`;
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="mt-8">
+      <Card className="p-6 border-primary/20 bg-gradient-to-r from-primary/3 to-accent/3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0 shadow-md shadow-primary/20">
+            <GraduationCap className="w-6 h-6 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="font-bold text-slate-900 mb-1">Portal do Encarregado</h4>
+            <p className="text-sm text-slate-500 mb-3">
+              Partilhe este link com os encarregados para que possam consultar propinas e referências de pagamento.
+            </p>
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 max-w-sm">
+              <span className="text-xs text-slate-500 font-mono truncate flex-1">{link}</span>
+              <button onClick={copyLink} className="shrink-0 text-primary hover:text-primary/70 transition-colors">
+                {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <Link href="/encarregado">
+            <Button variant="outline" size="sm" className="shrink-0 bg-white gap-2">
+              <Share2 className="w-4 h-4" /> Ver Portal
+            </Button>
+          </Link>
+        </div>
+      </Card>
+    </motion.div>
+  );
+}
+
+function PopulatedDashboard({ schoolName, schoolId }: { schoolName: string; schoolId: string }) {
   const stats = [
     { label: "Total de Alunos", value: "247", trend: "+12% este mês", icon: <Users className="text-blue-500" />, bg: "bg-blue-50" },
     { label: "Propinas Pendentes", value: "18", trend: "Referente a Maio", icon: <AlertCircle className="text-amber-500" />, bg: "bg-amber-50" },
@@ -208,6 +253,8 @@ function PopulatedDashboard({ schoolName }: { schoolName: string }) {
           </table>
         </div>
       </Card>
+
+      <GuardianPortalCard schoolId={schoolId} />
     </div>
   );
 }
@@ -257,6 +304,9 @@ export default function Dashboard() {
           <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm">
             <Settings className="w-5 h-5" /> Configurações
           </a>
+          <Link href="/encarregado" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-emerald-400 hover:text-emerald-300 mt-2 border-t border-slate-800 pt-4">
+            <GraduationCap className="w-5 h-5" /> Portal Encarregado
+          </Link>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -303,7 +353,7 @@ export default function Dashboard() {
         {isNew ? (
           <OnboardingDashboard schoolName={schoolName} schoolId={schoolId} />
         ) : (
-          <PopulatedDashboard schoolName={schoolName} />
+          <PopulatedDashboard schoolName={schoolName} schoolId={schoolId} />
         )}
       </main>
     </div>

@@ -11,6 +11,7 @@ import SolucaoEscolar from "./pages/solucao-escolar";
 import EscolarLanding from "./pages/escolar-landing";
 import Signup from "./pages/signup";
 import Dashboard from "./pages/dashboard";
+import Encarregado from "./pages/encarregado";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/escolar" component={EscolarLanding} />
       <Route path="/signup" component={Signup} />
       <Route path="/dashboard" component={ProtectedDashboard} />
+      <Route path="/encarregado" component={Encarregado} />
       <Route component={NotFound} />
     </Switch>
   );
