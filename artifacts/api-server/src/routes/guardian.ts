@@ -169,4 +169,92 @@ router.get("/guardian/propinas/:id/pagamento", authMiddleware, async (req: any, 
   return res.json(result.rows[0]);
 });
 
+// POST /guardian/pagamentos/gerar — gera referência para 1 ou mais propinas
+router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { propina_ids } = req.body;
+  if (!Array.isArray(propina_ids) || propina_ids.length === 0) {
+    return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+  }
+
+  // Validate propinas belong to guardian and are unpaid
+  const result = await pool.query(`
+    SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.status, s.nome AS aluno
+    FROM propinas p
+    JOIN students s ON s.id = p.student_id
+    JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+    WHERE p.id = ANY($1::int[]) AND ea.encarregado_id = $2 AND p.status != 'pago'
+    ORDER BY p.ano, 
+      CASE p.mes
+        WHEN 'Janeiro' THEN 1 WHEN 'Fevereiro' THEN 2 WHEN 'Março' THEN 3
+        WHEN 'Abril' THEN 4 WHEN 'Maio' THEN 5 WHEN 'Junho' THEN 6
+        WHEN 'Julho' THEN 7 WHEN 'Agosto' THEN 8 WHEN 'Setembro' THEN 9
+        WHEN 'Outubro' THEN 10 WHEN 'Novembro' THEN 11 WHEN 'Dezembro' THEN 12
+      END
+  `, [propina_ids, guardian.id]);
+
+  if (result.rows.length === 0) {
+    return res.status(400).json({ error: "Nenhuma propina válida selecionada." });
+  }
+
+  const propinas = result.rows;
+  const totalValor = propinas.reduce((sum: number, p: any) => sum + Number(p.montante) + Number(p.multa), 0);
+
+  // Generate or retrieve combined reference
+  // For MVP: check if a combined pagamento already exists for this exact set
+  const sortedIds = [...propina_ids].sort((a, b) => a - b);
+  
+  // Look up existing pagamento for single propina case
+  if (sortedIds.length === 1) {
+    const existing = await pool.query(
+      "SELECT * FROM pagamentos WHERE propina_id = $1 AND estado = 'PENDENTE' AND validade > NOW()",
+      [sortedIds[0]]
+    );
+    if (existing.rows.length > 0) {
+      const pg = existing.rows[0];
+      return res.json({
+        entidade: pg.entidade,
+        referencia: pg.referencia,
+        valor: Number(pg.valor),
+        validade: pg.validade,
+        propinas: propinas.map((p: any) => ({
+          id: p.id, mes: p.mes, ano: p.ano,
+          valor: Number(p.montante) + Number(p.multa),
+          multa: Number(p.multa), aluno: p.aluno,
+        })),
+      });
+    }
+  }
+
+  // Generate new combined reference
+  const seed = sortedIds.join("") + guardian.id;
+  const hash = Buffer.from(seed).reduce((h, b) => ((h << 5) - h + b) | 0, 0);
+  const refNum = Math.abs(hash % 900000000) + 100000000;
+  const referencia = refNum.toString();
+  const validade = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+
+  // Upsert pagamento for single propina
+  if (sortedIds.length === 1) {
+    await pool.query(`
+      INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+      VALUES ($1, '00112', $2, $3, 'PENDENTE', $4)
+      ON CONFLICT (referencia) DO NOTHING
+    `, [sortedIds[0], referencia, totalValor, validade]);
+  }
+
+  return res.json({
+    entidade: "00112",
+    referencia,
+    valor: totalValor,
+    validade: validade.toISOString(),
+    propinas: propinas.map((p: any) => ({
+      id: p.id, mes: p.mes, ano: p.ano,
+      valor: Number(p.montante) + Number(p.multa),
+      multa: Number(p.multa), aluno: p.aluno,
+    })),
+  });
+});
+
 export default router;
