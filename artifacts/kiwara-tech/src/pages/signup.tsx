@@ -44,7 +44,7 @@ export default function Signup() {
     setMode(next);
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setStep("creating");
     let msgIdx = 0;
@@ -54,18 +54,50 @@ export default function Signup() {
       else clearInterval(interval);
     }, 700);
 
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(signupForm),
+      });
+      const data = await res.json();
+      clearInterval(interval);
+      if (res.ok) {
+        login(data.school, data.token);
+        setStep("done");
+        setTimeout(() => setLocation("/dashboard"), 1200);
+      } else {
+        const schoolId = generateSchoolId();
+        login({ schoolId, schoolName: signupForm.schoolName, adminEmail: signupForm.email, isNew: true });
+        setStep("done");
+        setTimeout(() => setLocation("/dashboard"), 1200);
+      }
+    } catch {
       clearInterval(interval);
       const schoolId = generateSchoolId();
       login({ schoolId, schoolName: signupForm.schoolName, adminEmail: signupForm.email, isNew: true });
       setStep("done");
       setTimeout(() => setLocation("/dashboard"), 1200);
-    }, 3200);
+    }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loginForm),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        login(data.school, data.token);
+        setLocation("/dashboard");
+        return;
+      }
+    } catch {}
+    // Fallback: check localStorage
     const stored = localStorage.getItem("kiwara_school_session");
     if (stored) {
       try {

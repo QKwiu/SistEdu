@@ -5,7 +5,7 @@ import {
   Lock, Eye, EyeOff, LogOut, Copy, Check,
   AlertTriangle, Clock, CheckCircle, Wallet, Users,
   RefreshCw, X, CreditCard, Calendar, Info,
-  ShieldCheck, KeyRound, Zap, ListFilter,
+  ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
 } from "lucide-react";
 
 const API = "/api";
@@ -31,8 +31,32 @@ interface GeneratedRef {
   entidade: string; referencia: string; valor: number; validade: string;
   propinas: { id: number; mes: string; ano: string; valor_base: number; multa: number; total: number; }[];
 }
+interface Ocorrencia {
+  id: number; tipo: string; descricao: string; registado_por: string;
+  data_ocorrencia: string; created_at: string;
+}
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
+type StudentTab = "propinas" | "ocorrencias";
+
+const TIPO_COLORS_ENC: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  "Comportamento Inadequado": { bg:"bg-red-50", text:"text-red-700", border:"border-red-200", dot:"bg-red-500" },
+  "Medida Disciplinar":       { bg:"bg-orange-50", text:"text-orange-700", border:"border-orange-200", dot:"bg-orange-500" },
+  "Ausência Injustificada":   { bg:"bg-amber-50", text:"text-amber-700", border:"border-amber-200", dot:"bg-amber-500" },
+  "Atraso Repetido":          { bg:"bg-yellow-50", text:"text-yellow-700", border:"border-yellow-200", dot:"bg-yellow-500" },
+  "Incidente Académico":      { bg:"bg-purple-50", text:"text-purple-700", border:"border-purple-200", dot:"bg-purple-500" },
+  "Elogio / Mérito":          { bg:"bg-emerald-50", text:"text-emerald-700", border:"border-emerald-200", dot:"bg-emerald-500" },
+  "Comunicação aos Pais":     { bg:"bg-blue-50", text:"text-blue-700", border:"border-blue-200", dot:"bg-blue-500" },
+  "Outro":                    { bg:"bg-gray-50", text:"text-gray-600", border:"border-gray-200", dot:"bg-gray-400" },
+};
+function tipoBadgeEnc(tipo: string) {
+  const c = TIPO_COLORS_ENC[tipo] ?? TIPO_COLORS_ENC["Outro"];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${c.bg} ${c.text} ${c.border}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}/>{tipo}
+    </span>
+  );
+}
 
 function fmt(val: number | string) {
   const n = typeof val === "string" ? parseFloat(val) : val;
@@ -434,6 +458,11 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
 
+  // Occurrences
+  const [studentTab, setStudentTab] = useState<StudentTab>("propinas");
+  const [ocorrencias, setOcorrencias] = useState<Ocorrencia[]>([]);
+  const [loadingOcorrencias, setLoadingOcorrencias] = useState(false);
+
   const headers = { Authorization:`Bearer ${token}`, "Content-Type":"application/json" };
 
   const loadStudents = useCallback(async () => {
@@ -458,8 +487,29 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     finally { setLoadingPropinas(false); }
   }, [token]);
 
+  const loadOcorrencias = useCallback(async (id: number) => {
+    setLoadingOcorrencias(true);
+    try {
+      const res = await fetch(`${API}/guardian/alunos/${id}/ocorrencias`, {headers});
+      if (!res.ok) return;
+      setOcorrencias(await res.json());
+    } catch {}
+    finally { setLoadingOcorrencias(false); }
+  }, [token]);
+
   useEffect(() => { loadStudents(); }, [loadStudents]);
-  useEffect(() => { if (selectedStudent) loadPropinas(selectedStudent.id); }, [selectedStudent, loadPropinas]);
+  useEffect(() => {
+    if (!selectedStudent) return;
+    setStudentTab("propinas");
+    setOcorrencias([]);
+    loadPropinas(selectedStudent.id);
+  }, [selectedStudent?.id]);
+
+  useEffect(() => {
+    if (selectedStudent && studentTab === "ocorrencias") {
+      loadOcorrencias(selectedStudent.id);
+    }
+  }, [studentTab, selectedStudent?.id]);
 
   const totalDivida = students.reduce((s,st)=>s+Number(st.divida_total),0);
   const totalMultas = students.reduce((s,st)=>s+Number(st.total_multas),0);
@@ -604,20 +654,73 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           </div>
         </div>
 
-        {/* Propinas */}
+        {/* Propinas / Ocorrências */}
         {selectedStudent && (
           <div>
             {/* Header row */}
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Propinas</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  {studentTab === "propinas" ? "Propinas" : "Ocorrências"}
+                </p>
                 <p className="text-sm font-semibold text-gray-800 mt-0.5">{selectedStudent.nome}</p>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-gray-400">Total em dívida</p>
-                <p className="font-bold text-red-600">{fmt(selectedStudent.divida_total)}</p>
-              </div>
+              {studentTab === "propinas" && (
+                <div className="text-right">
+                  <p className="text-xs text-gray-400">Total em dívida</p>
+                  <p className="font-bold text-red-600">{fmt(selectedStudent.divida_total)}</p>
+                </div>
+              )}
             </div>
+
+            {/* Section tabs: Propinas | Ocorrências */}
+            <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-xl">
+              <button onClick={() => setStudentTab("propinas")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${studentTab === "propinas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                <Wallet size={12}/> Propinas
+              </button>
+              <button onClick={() => setStudentTab("ocorrencias")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${studentTab === "ocorrencias" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                <BookOpen size={12}/> Ocorrências
+                {ocorrencias.length > 0 && studentTab !== "ocorrencias" && (
+                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{ocorrencias.length}</span>
+                )}
+              </button>
+            </div>
+
+            {/* Occurrences tab content */}
+            {studentTab === "ocorrencias" && (
+              <div className="space-y-3 pb-6">
+                {loadingOcorrencias ? (
+                  <div className="flex items-center justify-center py-10">
+                    <RefreshCw size={20} className="animate-spin text-blue-500"/>
+                  </div>
+                ) : ocorrencias.length === 0 ? (
+                  <div className="bg-white rounded-2xl p-8 border border-gray-100 text-center">
+                    <BookOpen size={32} className="text-gray-200 mx-auto mb-3"/>
+                    <p className="font-semibold text-gray-400 text-sm">Sem ocorrências registadas</p>
+                    <p className="text-gray-300 text-xs mt-1">Não existem ocorrências para este educando.</p>
+                  </div>
+                ) : (
+                  ocorrencias.map((o, i) => (
+                    <motion.div key={o.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                      className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        {tipoBadgeEnc(o.tipo)}
+                        <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+                          <Calendar size={11}/> {fmtShort(o.data_ocorrencia)}
+                        </span>
+                      </div>
+                      <p className="text-gray-800 text-sm leading-relaxed">{o.descricao}</p>
+                      <p className="text-gray-400 text-xs mt-2">Registado por: {o.registado_por}</p>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Propinas tab content — only shown when tab = propinas */}
+            {studentTab === "propinas" && <>
 
             {/* Filter tabs */}
             <div className="flex gap-1.5 mb-4 bg-gray-100 p-1 rounded-xl overflow-x-auto">
@@ -762,6 +865,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                 })}
               </div>
             )}
+            </>}
           </div>
         )}
 

@@ -9,13 +9,15 @@ export interface SchoolSession {
 
 interface AuthContextType {
   session: SchoolSession | null;
-  login: (data: SchoolSession) => void;
+  token: string | null;
+  login: (data: SchoolSession, token?: string) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const SESSION_KEY = "kiwara_school_session";
+const TOKEN_KEY = "kiwara_school_token";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SchoolSession | null>(() => {
@@ -27,18 +29,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const login = (data: SchoolSession) => {
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem(TOKEN_KEY)
+  );
+
+  const login = (data: SchoolSession, tok?: string) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(data));
     setSession(data);
+    if (tok) {
+      localStorage.setItem(TOKEN_KEY, tok);
+      setToken(tok);
+    }
   };
 
   const logout = () => {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(TOKEN_KEY);
     setSession(null);
+    setToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ session, login, logout }}>
+    <AuthContext.Provider value={{ session, token, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

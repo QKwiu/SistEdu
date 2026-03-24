@@ -250,4 +250,26 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
   });
 });
 
+// GET /guardian/alunos/:id/ocorrencias
+router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { id } = req.params;
+  const check = await pool.query(
+    "SELECT 1 FROM encarregado_aluno WHERE encarregado_id=$1 AND aluno_id=$2",
+    [guardian.id, id]
+  );
+  if (check.rows.length === 0) return res.status(403).json({ error: "Acesso negado." });
+
+  const result = await pool.query(
+    `SELECT o.id, o.tipo, o.descricao, o.registado_por, o.data_ocorrencia, o.created_at
+     FROM ocorrencias o
+     WHERE o.student_id = $1
+     ORDER BY o.data_ocorrencia DESC, o.created_at DESC`,
+    [id]
+  );
+  res.json(result.rows);
+});
+
 export default router;
