@@ -95,6 +95,114 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
 
+---
+
+## Kiwara Tech — Ecossistema Completo
+
+### Visão Geral
+Plataforma angolana de gestão escolar com 3 perfis de utilizador independentes, 9 rotas e arquitectura monorepo (React + Vite + Express + PostgreSQL). Todo o conteúdo em Português (Angola).
+
+---
+
+### Credenciais de Acesso (Desenvolvimento)
+
+| Perfil | Credenciais |
+|--------|-------------|
+| Superadmin | `Superaadmin` / `Superaadmin` → `/admin` |
+| Colégio (E2E) | `e2e@kiwara.test` / `TestPass123` → `/escolar` |
+| Encarregado | Telefone `943612744` / PIN `1234` → `/encarregado` |
+
+**Tokens em localStorage:**
+- Superadmin: `kiwara_admin_token`
+- Colégio: `kiwara_school_token`
+- Encarregado: `kiwara_guardian_token`
+
+---
+
+### Mapa de Rotas e Funcionalidades
+
+#### SITE PÚBLICO (Marketing)
+
+| Rota | Página | Funcionalidades |
+|------|--------|-----------------|
+| `/` | Página Inicial | Hero animado, proposta de valor da Kiwara Tech, destaque de produtos, depoimentos, CTA para Kiwara Escolar |
+| `/servicos` | Serviços | Catálogo completo de serviços: dev. software, consultoria, formação, produtos SaaS. Cada serviço com descrição e ícone |
+| `/solucoes/escolar` | Solução Escolar (detalhe) | Página de produto aprofundada: arquitectura, funcionalidades módulo a módulo, casos de uso, comparação de planos |
+| `/escolar` | Kiwara Escolar (landing SaaS) | Landing comercial: proposta de valor, preços por plano, lista de funcionalidades, FAQ, botão de registo |
+| `/signup` | Registo do Colégio | Formulário de candidatura: nome do colégio, responsável, contacto, e-mail, password. Colégio fica pendente de aprovação |
+
+---
+
+#### PAINEL DO COLÉGIO — `/dashboard` *(protegido por login escolar)*
+
+Destinado à secretaria/direcção do colégio.
+
+| Separador | Funcionalidades |
+|-----------|-----------------|
+| **Alunos** | Listar, pesquisar, adicionar, editar e desactivar alunos (nome, BI, turma, data nasc., sexo, número de processo, estado). Ficha individual por aluno. |
+| **Turmas** | Criar e gerir turmas por classe e turno (manhã/tarde). Associar alunos a turmas. |
+| **Propinas** | Ver todas as propinas. Filtros: Todas / Pendentes / Vencidas / Pagas. Colunas: Propina + Multa + Total. Botão ⋯ por linha para ajustes. |
+| **Ajustes de Propinas** | Modal de ajuste por propina: perdão de multa, ajuste de valor, reagendamento de data de vencimento, justificação (registo sem alteração). Histórico de ajustes. |
+| **Ocorrências** | Registar incidentes disciplinares ou académicos por aluno (tipo, descrição, data). |
+| **Comunicados** | Criar e publicar comunicados visíveis no portal do encarregado. |
+| **Emolumentos** | Ver emolumentos gerados para os alunos. |
+| **Perfil** | Dados do colégio, IBAN bancário para pagamentos, credenciais de acesso. |
+
+---
+
+#### PORTAL DO ENCARREGADO — `/encarregado`
+
+Acesso por número de telemóvel + PIN. Primeiro login obriga a alterar o PIN.
+
+| Secção | Funcionalidades |
+|--------|-----------------|
+| **Filhos** | Ver todos os educandos associados e respectivos colégios |
+| **Propinas** | Consultar propinas por filho: estado (pendente/vencido/pago), montante base, multa aplicada, total a pagar |
+| **Pagamentos** | IBAN do colégio e referência para transferência bancária |
+| **Comunicados** | Ler comunicados publicados pelo colégio |
+| **Ocorrências** | Consultar ocorrências disciplinares/académicas registadas pelo colégio |
+| **Ajustes** | Ver histórico de ajustes feitos pela secretaria (perdões, reagendamentos, etc.) |
+
+---
+
+#### PAINEL ADMIN CENTRAL — `/admin/dashboard` *(superadmin Kiwara Tech)*
+
+Controlo total sobre toda a plataforma.
+
+| Secção | Funcionalidades |
+|--------|-----------------|
+| **Colégios** | Listar todos os colégios, aprovar/rejeitar candidaturas, aceder à ficha de cada colégio |
+| **Ficha do Colégio** | Vista detalhada com sub-separadores: Emolumentos, Propinas, Alunos, Turmas, Ocorrências, Comunicados |
+| **Emolumentos** | Criar emolumentos por tipo (propina, matrícula, seguro, transporte, uniforme, multas, etc.). Ao adicionar propina, obriga configurar o modelo de multa inline no mesmo formulário. Eliminar emolumentos. |
+| **Modelo de Multa (inline)** | Aparece automaticamente ao escolher tipo "Propina" no formulário. 3 modelos seleccionáveis: Modelo 1 (% única), Modelo 2 (escalões progressivos por intervalos de dias), Modelo 3 (taxa fixa AOA). Preview em tempo real. Guardado em simultâneo com o emolumento. |
+| **Painel de Multas** | Painel separado para editar o modelo de multa já configurado do colégio (independente do formulário de emolumentos). |
+| **Propinas** | Ver todas as propinas do colégio. Filtros por estado. Colunas Propina / Multa / Total. Botões de ajuste: perdão, ajuste de valor, reagendamento, justificação. Histórico de ajustes. |
+| **Alunos / Turmas** | CRUD completo de alunos e turmas do colégio seleccionado. |
+| **Ocorrências** | Registar e gerir ocorrências por aluno. |
+| **Comunicados** | Criar e gerir comunicados do colégio. |
+| **Encarregados** | Ver todos os encarregados registados na plataforma. |
+
+---
+
+### Lógica de Negócio Central
+
+**Sistema de Multas (3 modelos por colégio):**
+- **Modelo 1** — Percentagem única: `multa = montante × percentagem / 100`
+- **Modelo 2** — Escalões progressivos: % diferente por intervalo de dias de atraso (brackets em JSONB)
+- **Modelo 3** — Taxa fixa: `multa = valor_fixo` (AOA)
+- A multa é aplicada automaticamente na consulta das propinas com base nos dias de atraso e no modelo configurado
+- Obrigatório configurar o modelo antes de registar o primeiro emolumento de tipo "propina"
+
+**Fluxo de propinas:**
+1. Admin configura emolumento (tipo + montante + modelo de multa) → `emolumentos` + `multa_regras`
+2. Secretaria gera propinas mensais por turma → `propinas` (status: pendente)
+3. Sistema calcula multa automaticamente ao carregar (compara data actual com data_vencimento + dia_limite)
+4. Encarregado consulta total = propina + multa, efectua transferência bancária
+5. Secretaria confirma pagamento → status: pago
+6. Qualquer ajuste (perdão, reagendamento, etc.) fica registado em `propina_ajustes`
+
+---
+
 ## Kiwara Escolar — Database Schema
 
 | Table | Key columns |
