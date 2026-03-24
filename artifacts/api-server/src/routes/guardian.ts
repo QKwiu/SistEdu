@@ -1,11 +1,9 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { pool } from "@workspace/db";
 
 const router = Router();
-
-const HARDCODED_OTP = "1234";
-const otpStore = new Map<string, string>();
 
 async function getGuardianFromToken(token: string) {
   const res = await pool.query(
@@ -24,55 +22,80 @@ function authMiddleware(req: any, res: any, next: any) {
   next();
 }
 
-// POST /guardian/login — envia OTP simulado
+// POST /guardian/login — phone + password
 router.post("/guardian/login", async (req, res) => {
-  const { telefone } = req.body;
-  if (!telefone) return res.status(400).json({ error: "Número de telefone obrigatório." });
+  const { telefone, password } = req.body;
+  if (!telefone || !password) {
+    return res.status(400).json({ error: "Telemóvel e palavra-passe obrigatórios." });
+  }
 
-  const clean = telefone.replace(/\s/g, "");
-  const result = await pool.query("SELECT id, nome FROM encarregados WHERE telefone = $1", [clean]);
+  const clean = telefone.replace(/\D/g, "");
+  const result = await pool.query(
+    "SELECT id, nome, telefone, password, first_login FROM encarregados WHERE telefone = $1",
+    [clean]
+  );
+
   if (result.rows.length === 0) {
-    return res.status(404).json({ error: "Número não encontrado. Contacte o secretariado do colégio." });
+    return res.status(404).json({ error: "Número não encontrado. Contacte o secretariado." });
   }
 
-  otpStore.set(clean, HARDCODED_OTP);
-  return res.json({ success: true, message: "Código OTP enviado por SMS.", debug_otp: HARDCODED_OTP });
-});
+  const guardian = result.rows[0];
 
-// POST /guardian/verify-otp — valida OTP e gera token
-router.post("/guardian/verify-otp", async (req, res) => {
-  const { telefone, otp } = req.body;
-  if (!telefone || !otp) return res.status(400).json({ error: "Telefone e OTP obrigatórios." });
-
-  const clean = telefone.replace(/\s/g, "");
-  const stored = otpStore.get(clean);
-
-  if (!stored || stored !== otp) {
-    return res.status(401).json({ error: "Código inválido. Tente novamente." });
+  if (!guardian.password) {
+    return res.status(403).json({ error: "Conta não configurada. Contacte o secretariado." });
   }
 
-  otpStore.delete(clean);
+  const valid = await bcrypt.compare(password, guardian.password);
+  if (!valid) {
+    return res.status(401).json({ error: "Palavra-passe incorreta." });
+  }
 
-  const enc = await pool.query("SELECT id, nome, telefone FROM encarregados WHERE telefone = $1", [clean]);
-  if (enc.rows.length === 0) return res.status(404).json({ error: "Encarregado não encontrado." });
-
-  const guardian = enc.rows[0];
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
   await pool.query(
     "INSERT INTO guardian_sessions (encarregado_id, token, expires_at) VALUES ($1,$2,$3)",
     [guardian.id, token, expiresAt]
   );
 
-  return res.json({ token, guardian: { id: guardian.id, nome: guardian.nome, telefone: guardian.telefone } });
+  return res.json({
+    token,
+    first_login: guardian.first_login,
+    guardian: { id: guardian.id, nome: guardian.nome, telefone: guardian.telefone },
+  });
+});
+
+// POST /guardian/change-password — obrigatório no primeiro login
+router.post("/guardian/change-password", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { nova_senha, confirmar_senha } = req.body;
+  if (!nova_senha || nova_senha.length < 6) {
+    return res.status(400).json({ error: "A nova palavra-passe deve ter pelo menos 6 caracteres." });
+  }
+  if (nova_senha !== confirmar_senha) {
+    return res.status(400).json({ error: "As palavras-passe não coincidem." });
+  }
+
+  const hash = await bcrypt.hash(nova_senha, 10);
+  await pool.query(
+    "UPDATE encarregados SET password = $1, first_login = FALSE WHERE id = $2",
+    [hash, guardian.id]
+  );
+
+  return res.json({ success: true, message: "Palavra-passe atualizada com sucesso." });
 });
 
 // GET /guardian/me
 router.get("/guardian/me", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
-  return res.json({ id: guardian.id, nome: guardian.nome, telefone: guardian.telefone });
+  return res.json({
+    id: guardian.id,
+    nome: guardian.nome,
+    telefone: guardian.telefone,
+    first_login: guardian.first_login,
+  });
 });
 
 // GET /guardian/alunos — lista alunos com resumo financeiro
@@ -81,7 +104,7 @@ router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const result = await pool.query(`
-    SELECT 
+    SELECT
       s.id,
       s.nome,
       s.bilhete,
@@ -109,8 +132,6 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { id } = req.params;
-
-  // Verify this student belongs to guardian
   const check = await pool.query(
     "SELECT 1 FROM encarregado_aluno WHERE encarregado_id=$1 AND aluno_id=$2",
     [guardian.id, id]
@@ -119,26 +140,30 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
 
   // Auto-update vencido status for past-due propinas
   await pool.query(`
-    UPDATE propinas 
+    UPDATE propinas
     SET status = 'vencido', multa = CASE WHEN multa = 0 THEN 5000 ELSE multa END
     WHERE student_id = $1 AND status = 'pendente' AND data_vencimento < NOW()
   `, [id]);
 
   const result = await pool.query(`
-    SELECT 
-      p.id, p.mes, p.ano, p.montante AS valor_base, p.multa,
+    SELECT
+      p.id, p.mes, p.ano,
+      p.montante AS valor_base,
+      p.multa,
       (p.montante + p.multa) AS total,
       UPPER(p.status) AS estado,
       p.data_vencimento,
       pg.id AS pagamento_id,
-      pg.entidade, pg.referencia, pg.valor AS ref_valor,
+      pg.entidade,
+      pg.referencia,
+      pg.valor AS ref_valor,
       UPPER(pg.estado) AS ref_estado,
       pg.validade
     FROM propinas p
     LEFT JOIN pagamentos pg ON pg.propina_id = p.id
     WHERE p.student_id = $1
-    ORDER BY p.ano DESC, 
-      CASE p.mes 
+    ORDER BY p.ano DESC,
+      CASE p.mes
         WHEN 'Janeiro' THEN 1 WHEN 'Fevereiro' THEN 2 WHEN 'Março' THEN 3
         WHEN 'Abril' THEN 4 WHEN 'Maio' THEN 5 WHEN 'Junho' THEN 6
         WHEN 'Julho' THEN 7 WHEN 'Agosto' THEN 8 WHEN 'Setembro' THEN 9
@@ -147,114 +172,6 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
   `, [id]);
 
   return res.json(result.rows);
-});
-
-// GET /guardian/propinas/:id/pagamento
-router.get("/guardian/propinas/:id/pagamento", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
-  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
-
-  const { id } = req.params;
-
-  const result = await pool.query(`
-    SELECT pg.*, p.mes, p.ano, p.montante AS valor_base, p.multa, s.nome AS aluno
-    FROM pagamentos pg
-    JOIN propinas p ON p.id = pg.propina_id
-    JOIN students s ON s.id = p.student_id
-    JOIN encarregado_aluno ea ON ea.aluno_id = s.id
-    WHERE pg.propina_id = $1 AND ea.encarregado_id = $2
-  `, [id, guardian.id]);
-
-  if (result.rows.length === 0) return res.status(404).json({ error: "Referência não encontrada." });
-  return res.json(result.rows[0]);
-});
-
-// POST /guardian/pagamentos/gerar — gera referência para 1 ou mais propinas
-router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
-  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
-
-  const { propina_ids } = req.body;
-  if (!Array.isArray(propina_ids) || propina_ids.length === 0) {
-    return res.status(400).json({ error: "Selecione pelo menos uma propina." });
-  }
-
-  // Validate propinas belong to guardian and are unpaid
-  const result = await pool.query(`
-    SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.status, s.nome AS aluno
-    FROM propinas p
-    JOIN students s ON s.id = p.student_id
-    JOIN encarregado_aluno ea ON ea.aluno_id = s.id
-    WHERE p.id = ANY($1::int[]) AND ea.encarregado_id = $2 AND p.status != 'pago'
-    ORDER BY p.ano, 
-      CASE p.mes
-        WHEN 'Janeiro' THEN 1 WHEN 'Fevereiro' THEN 2 WHEN 'Março' THEN 3
-        WHEN 'Abril' THEN 4 WHEN 'Maio' THEN 5 WHEN 'Junho' THEN 6
-        WHEN 'Julho' THEN 7 WHEN 'Agosto' THEN 8 WHEN 'Setembro' THEN 9
-        WHEN 'Outubro' THEN 10 WHEN 'Novembro' THEN 11 WHEN 'Dezembro' THEN 12
-      END
-  `, [propina_ids, guardian.id]);
-
-  if (result.rows.length === 0) {
-    return res.status(400).json({ error: "Nenhuma propina válida selecionada." });
-  }
-
-  const propinas = result.rows;
-  const totalValor = propinas.reduce((sum: number, p: any) => sum + Number(p.montante) + Number(p.multa), 0);
-
-  // Generate or retrieve combined reference
-  // For MVP: check if a combined pagamento already exists for this exact set
-  const sortedIds = [...propina_ids].sort((a, b) => a - b);
-  
-  // Look up existing pagamento for single propina case
-  if (sortedIds.length === 1) {
-    const existing = await pool.query(
-      "SELECT * FROM pagamentos WHERE propina_id = $1 AND estado = 'PENDENTE' AND validade > NOW()",
-      [sortedIds[0]]
-    );
-    if (existing.rows.length > 0) {
-      const pg = existing.rows[0];
-      return res.json({
-        entidade: pg.entidade,
-        referencia: pg.referencia,
-        valor: Number(pg.valor),
-        validade: pg.validade,
-        propinas: propinas.map((p: any) => ({
-          id: p.id, mes: p.mes, ano: p.ano,
-          valor: Number(p.montante) + Number(p.multa),
-          multa: Number(p.multa), aluno: p.aluno,
-        })),
-      });
-    }
-  }
-
-  // Generate new combined reference
-  const seed = sortedIds.join("") + guardian.id;
-  const hash = Buffer.from(seed).reduce((h, b) => ((h << 5) - h + b) | 0, 0);
-  const refNum = Math.abs(hash % 900000000) + 100000000;
-  const referencia = refNum.toString();
-  const validade = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
-
-  // Upsert pagamento for single propina
-  if (sortedIds.length === 1) {
-    await pool.query(`
-      INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
-      VALUES ($1, '00112', $2, $3, 'PENDENTE', $4)
-      ON CONFLICT (referencia) DO NOTHING
-    `, [sortedIds[0], referencia, totalValor, validade]);
-  }
-
-  return res.json({
-    entidade: "00112",
-    referencia,
-    valor: totalValor,
-    validade: validade.toISOString(),
-    propinas: propinas.map((p: any) => ({
-      id: p.id, mes: p.mes, ano: p.ano,
-      valor: Number(p.montante) + Number(p.multa),
-      multa: Number(p.multa), aluno: p.aluno,
-    })),
-  });
 });
 
 export default router;

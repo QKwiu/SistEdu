@@ -2,16 +2,16 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Phone, Shield, ArrowLeft, Copy, Check, LogOut,
+  Phone, Lock, Eye, EyeOff, LogOut, Copy, Check,
   AlertTriangle, Clock, CheckCircle, Wallet, Users,
-  RefreshCw, X, CreditCard, Calendar, Info, Square, CheckSquare,
-  Zap, ChevronDown, ChevronUp,
+  RefreshCw, X, CreditCard, Calendar, Info,
+  ChevronDown, ChevronUp, ShieldCheck, KeyRound,
 } from "lucide-react";
 
 const API = "/api";
 const SESSION_KEY = "kiwara_guardian_token";
 
-interface Guardian { id: number; nome: string; telefone: string; }
+interface Guardian { id: number; nome: string; telefone: string; first_login: boolean; }
 interface Student {
   id: number; nome: string; bilhete: string;
   turma: string | null; turno: string | null;
@@ -27,17 +27,7 @@ interface Propina {
   referencia: string | null; ref_valor: number | null;
   ref_estado: string | null; validade: string | null;
 }
-interface ReferenciaCombinada {
-  entidade: string; referencia: string; valor: number; validade: string;
-  propinas: { id: number; mes: string; ano: string; valor: number; multa: number; aluno: string }[];
-}
-type Screen = "login" | "otp" | "dashboard";
-type FilterType = "all" | "pendente" | "vencido" | "pago";
-
-const MONTHS_ORDER: Record<string, number> = {
-  Janeiro:1, Fevereiro:2, Março:3, Abril:4, Maio:5, Junho:6,
-  Julho:7, Agosto:8, Setembro:9, Outubro:10, Novembro:11, Dezembro:12,
-};
+type Screen = "login" | "change-password" | "dashboard";
 
 function fmt(val: number | string) {
   const n = typeof val === "string" ? parseFloat(val) : val;
@@ -64,138 +54,135 @@ function StatusBadge({ estado }: { estado: string }) {
   );
 }
 
-function CopyBtn({ text }: { text: string }) {
+function CopyBtn({ text, label = "" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button onClick={() => { navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(()=>setCopied(false),2000); }); }}
-      className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Copiar">
-      {copied ? <Check size={14} className="text-emerald-600"/> : <Copy size={14} className="text-gray-500"/>}
+    <button onClick={() => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(()=>setCopied(false),2000); })}
+      className="flex items-center gap-1 p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Copiar">
+      {copied ? <Check size={14} className="text-emerald-600"/> : <Copy size={14} className="text-gray-400"/>}
+      {label && <span className="text-xs text-gray-400">{copied ? "Copiado!" : label}</span>}
     </button>
   );
 }
 
-/* ─── Combined Payment Modal ─── */
-function CombinedRefModal({ ref: refData, onClose }: { ref: ReferenciaCombinada; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const refFmt = refData.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3");
-  const hasMulhas = refData.propinas.some(p => p.multa > 0);
+function PasswordInput({ value, onChange, placeholder, label }: {
+  value: string; onChange: (v: string)=>void; placeholder?: string; label: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div>
+      <label className="block text-blue-200 text-sm font-medium mb-2">{label}</label>
+      <div className="relative">
+        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40"/>
+        <input
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder ?? "••••••"}
+          autoComplete="current-password"
+          className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl pl-10 pr-11 py-3.5 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all"
+        />
+        <button type="button" onClick={()=>setShow(!show)}
+          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors">
+          {show ? <EyeOff size={16}/> : <Eye size={16}/>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Payment Reference Modal ─── */
+function RefModal({ propina, onClose }: { propina: Propina; onClose: ()=>void }) {
+  const [copiedAll, setCopiedAll] = useState(false);
+  const refFmt = propina.referencia?.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3") ?? "";
 
   const copyAll = () => {
-    const txt = `Entidade: ${refData.entidade}\nReferência: ${refData.referencia}\nValor: ${fmt(refData.valor)}\nValidade: ${fmtDate(refData.validade)}`;
-    navigator.clipboard.writeText(txt).then(() => { setCopied(true); setTimeout(()=>setCopied(false),2500); });
+    const txt = `Entidade: ${propina.entidade}\nReferência: ${propina.referencia}\nValor: ${fmt(propina.ref_valor ?? propina.total)}\nValidade: ${fmtDate(propina.validade ?? "")}`;
+    navigator.clipboard.writeText(txt).then(()=>{ setCopiedAll(true); setTimeout(()=>setCopiedAll(false),2500); });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"/>
-      <motion.div initial={{ y:80, opacity:0 }} animate={{ y:0, opacity:1 }} exit={{ y:80, opacity:0 }}
-        transition={{ type:"spring", stiffness:300, damping:30 }}
-        className="relative w-full max-w-md bg-white rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+      <motion.div initial={{y:80,opacity:0}} animate={{y:0,opacity:1}} exit={{y:80,opacity:0}}
+        transition={{type:"spring",stiffness:300,damping:30}}
+        className="relative w-full max-w-md bg-white rounded-2xl overflow-hidden shadow-2xl"
         onClick={e=>e.stopPropagation()}>
 
-        {/* Header */}
-        <div className="bg-gradient-to-r from-blue-700 to-blue-600 p-5 text-white shrink-0">
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 p-5 text-white">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CreditCard size={18}/><span className="font-semibold">Referência de Pagamento</span>
-            </div>
+            <div className="flex items-center gap-2"><CreditCard size={18}/><span className="font-semibold">Referência de Pagamento</span></div>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"><X size={16}/></button>
           </div>
-          <p className="text-blue-100 text-sm mt-1">
-            {refData.propinas.length === 1
-              ? `${refData.propinas[0].mes} ${refData.propinas[0].ano}`
-              : `${refData.propinas.length} meses selecionados`}
-          </p>
+          <p className="text-blue-100 text-sm mt-1">{propina.mes} {propina.ano}</p>
         </div>
 
-        <div className="overflow-y-auto">
-          <div className="p-5 space-y-4">
-            {/* Reference card */}
-            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
+        <div className="p-5 space-y-4">
+          {propina.referencia ? (
+            <>
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
                 <div>
                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Entidade</p>
-                  <p className="text-3xl font-bold text-gray-900 font-mono">{refData.entidade}</p>
+                  <p className="text-3xl font-bold text-gray-900 font-mono">{propina.entidade}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-400">Multicaixa Express</p>
-                  <p className="text-xs text-gray-400">ATM · Internet Banking</p>
+                <div className="border-t pt-3">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Referência</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-2xl font-bold text-blue-700 font-mono tracking-widest">{refFmt}</p>
+                    <CopyBtn text={propina.referencia ?? ""}/>
+                  </div>
                 </div>
-              </div>
-              <div className="border-t pt-3">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Referência</p>
-                <div className="flex items-center gap-2">
-                  <p className="text-2xl font-bold text-blue-700 font-mono tracking-widest">{refFmt}</p>
-                  <CopyBtn text={refData.referencia}/>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 border-t pt-3">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Total a pagar</p>
-                  <p className="font-bold text-gray-900 text-lg">{fmt(refData.valor)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Validade</p>
-                  <p className="font-semibold text-gray-900 text-sm">{fmtShort(refData.validade)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Breakdown */}
-            {refData.propinas.length > 1 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Detalhe dos meses incluídos</p>
-                <div className="bg-gray-50 rounded-xl divide-y divide-gray-200">
-                  {refData.propinas.map((p, i) => (
-                    <div key={i} className="flex items-center justify-between px-3 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500"/>
-                        <span className="text-sm text-gray-700">{p.mes} {p.ano}</span>
-                        {p.multa > 0 && (
-                          <span className="text-xs text-red-500 flex items-center gap-0.5">
-                            <AlertTriangle size={10}/> multa
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-sm font-semibold text-gray-900">{fmt(p.valor)}</span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between px-3 py-2.5 bg-blue-50 rounded-b-xl">
-                    <span className="text-sm font-bold text-gray-900">Total</span>
-                    <span className="text-sm font-bold text-blue-700">{fmt(refData.valor)}</span>
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Valor a pagar</p>
+                    <p className="font-bold text-gray-900 text-lg">{fmt(propina.ref_valor ?? propina.total)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Válida até</p>
+                    <p className="font-semibold text-gray-900 text-sm">{fmtShort(propina.validade ?? "")}</p>
                   </div>
                 </div>
               </div>
-            )}
 
-            {hasMulhas && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
-                <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5"/>
-                <p className="text-red-800 text-xs">O valor inclui multas por atraso no pagamento.</p>
+              {Number(propina.multa) > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                  <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5"/>
+                  <div>
+                    <p className="text-red-800 text-sm font-semibold">Inclui multa por atraso</p>
+                    <p className="text-red-600 text-xs mt-0.5">Base: {fmt(propina.valor_base)} + Multa: {fmt(propina.multa)}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex gap-2">
+                <Info size={15} className="text-blue-500 shrink-0 mt-0.5"/>
+                <p className="text-blue-800 text-xs">
+                  Pague via Multicaixa Express, ATM ou internet banking com a entidade, referência e valor exatos.
+                </p>
               </div>
-            )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex gap-2">
-              <Info size={15} className="text-blue-500 shrink-0 mt-0.5"/>
-              <p className="text-blue-800 text-xs">
-                Utilize exatamente esta entidade, referência e valor. O pagamento será confirmado automaticamente.
-              </p>
+              <button onClick={copyAll}
+                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                {copiedAll ? <><Check size={16}/>Copiado!</> : <><Copy size={16}/>Copiar Dados de Pagamento</>}
+              </button>
+            </>
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              <CreditCard size={32} className="mx-auto mb-2 opacity-30"/>
+              <p className="text-sm">Referência ainda não disponível.</p>
+              <p className="text-xs mt-1">Contacte o secretariado da escola.</p>
             </div>
-
-            <button onClick={copyAll}
-              className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
-              {copied ? <><Check size={16}/>Copiado!</> : <><Copy size={16}/>Copiar Dados de Pagamento</>}
-            </button>
-          </div>
+          )}
         </div>
       </motion.div>
     </div>
   );
 }
 
-/* ─── Login ─── */
-function LoginScreen({ onSuccess }: { onSuccess: (phone: string) => void }) {
+/* ─── Login Screen ─── */
+function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) => void }) {
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -203,13 +190,18 @@ function LoginScreen({ onSuccess }: { onSuccess: (phone: string) => void }) {
     e.preventDefault(); setError("");
     const clean = phone.replace(/\D/g, "");
     if (clean.length < 9) return setError("Introduza um número de telemóvel válido.");
+    if (!password) return setError("Introduza a sua palavra-passe.");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/guardian/login`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({telefone:clean}) });
+      const res = await fetch(`${API}/guardian/login`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ telefone: clean, password }),
+      });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao enviar código.");
-      onSuccess(clean);
-    } catch(err:any) { setError(err.message); }
+      if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar sessão.");
+      localStorage.setItem(SESSION_KEY, data.token);
+      onSuccess(data.token, { ...data.guardian, first_login: data.first_login });
+    } catch(err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
 
@@ -221,15 +213,17 @@ function LoginScreen({ onSuccess }: { onSuccess: (phone: string) => void }) {
           <span className="font-medium text-sm">Kiwara Tech</span>
         </Link>
       </div>
+
       <div className="flex-1 flex items-center justify-center px-6">
         <motion.div initial={{opacity:0,y:28}} animate={{opacity:1,y:0}} className="w-full max-w-sm">
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Phone size={28} className="text-white"/>
+              <KeyRound size={28} className="text-white"/>
             </div>
             <h1 className="text-2xl font-bold text-white">Portal do Encarregado</h1>
             <p className="text-blue-300 text-sm mt-1">Consulte propinas e referências de pagamento</p>
           </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-blue-200 text-sm font-medium mb-2">Número de Telemóvel</label>
@@ -242,102 +236,125 @@ function LoginScreen({ onSuccess }: { onSuccess: (phone: string) => void }) {
                   className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl pl-[72px] pr-4 py-3.5 text-lg font-mono tracking-wide focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all"
                   autoComplete="tel"/>
               </div>
-              <AnimatePresence>
-                {error && (
-                  <motion.p initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
-                    className="text-red-300 text-sm mt-2 flex items-center gap-1.5">
-                    <AlertTriangle size={13}/>{error}
-                  </motion.p>
-                )}
-              </AnimatePresence>
             </div>
+
+            <PasswordInput value={password} onChange={setPassword} placeholder="Palavra-passe" label="Palavra-passe"/>
+
+            <AnimatePresence>
+              {error && (
+                <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
+                  className="bg-red-500/20 border border-red-400/30 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                  <AlertTriangle size={14} className="text-red-300 shrink-0"/>
+                  <p className="text-red-200 text-sm">{error}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <button type="submit" disabled={loading}
               className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/20 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
-              {loading ? <RefreshCw size={18} className="animate-spin"/> : <Phone size={18}/>}
-              {loading ? "A enviar..." : "Receber Código OTP"}
+              {loading ? <RefreshCw size={18} className="animate-spin"/> : <Lock size={18}/>}
+              {loading ? "A verificar..." : "Entrar"}
             </button>
           </form>
-          <p className="text-blue-400/60 text-xs text-center mt-6">Receberá um código de 4 dígitos para confirmar o seu acesso.</p>
+
+          <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-3">
+            <p className="text-blue-300/80 text-xs text-center">
+              <span className="font-semibold text-blue-200">Primeiro acesso?</span> Use a palavra-passe temporária <span className="font-mono font-bold text-amber-200">1234</span> — será pedida uma nova após o login.
+            </p>
+          </div>
         </motion.div>
       </div>
     </div>
   );
 }
 
-/* ─── OTP ─── */
-function OtpScreen({ phone, onSuccess, onBack }: { phone:string; onSuccess:(t:string,g:Guardian)=>void; onBack:()=>void }) {
-  const [otp, setOtp] = useState("");
+/* ─── Change Password Screen ─── */
+function ChangePasswordScreen({ token, guardian, onSuccess }: {
+  token: string; guardian: Guardian; onSuccess: ()=>void;
+}) {
+  const [nova, setNova] = useState("");
+  const [confirmar, setConfirmar] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [resent, setResent] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError("");
-    if (otp.length !== 4) return setError("O código OTP tem 4 dígitos.");
+    if (nova.length < 6) return setError("A palavra-passe deve ter pelo menos 6 caracteres.");
+    if (nova !== confirmar) return setError("As palavras-passe não coincidem.");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/guardian/verify-otp`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({telefone:phone,otp}) });
+      const res = await fetch(`${API}/guardian/change-password`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}` },
+        body: JSON.stringify({ nova_senha: nova, confirmar_senha: confirmar }),
+      });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Código inválido.");
-      localStorage.setItem(SESSION_KEY, data.token);
-      onSuccess(data.token, data.guardian);
-    } catch(err:any) { setError(err.message); }
+      if (!res.ok) throw new Error(data.error ?? "Erro ao actualizar palavra-passe.");
+      onSuccess();
+    } catch(err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
 
+  const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
-      <div className="p-6">
-        <button onClick={onBack} className="flex items-center gap-2 text-white/70 hover:text-white transition-colors">
-          <ArrowLeft size={18}/><span className="text-sm">Voltar</span>
-        </button>
+      <div className="flex items-center p-6">
+        <Link href="/" className="flex items-center gap-2.5 text-white/70 hover:text-white transition-colors">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">K</div>
+          <span className="font-medium text-sm">Kiwara Tech</span>
+        </Link>
       </div>
+
       <div className="flex-1 flex items-center justify-center px-6">
         <motion.div initial={{opacity:0,y:28}} animate={{opacity:1,y:0}} className="w-full max-w-sm">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Shield size={28} className="text-white"/>
+            <div className="w-16 h-16 bg-emerald-500/20 border border-emerald-400/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <ShieldCheck size={28} className="text-emerald-300"/>
             </div>
-            <h1 className="text-2xl font-bold text-white">Verificação</h1>
-            <p className="text-blue-300 text-sm mt-1">
-              Código enviado para <span className="font-mono font-semibold text-white">+244 {phone.slice(0,3)}***{phone.slice(-2)}</span>
-            </p>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-emerald-400 flex items-center justify-center text-white font-bold mx-auto mb-3">
+              {initials}
+            </div>
+            <h1 className="text-xl font-bold text-white">Bem-vindo, {guardian.nome.split(" ")[0]}!</h1>
+            <p className="text-blue-300 text-sm mt-1">Por segurança, defina uma palavra-passe pessoal para continuar.</p>
           </div>
-          <div className="bg-amber-500/15 border border-amber-400/30 rounded-xl p-3 mb-5 text-center">
-            <p className="text-amber-200 text-xs">
-              <span className="font-semibold">Demo:</span> utilize o código{" "}
-              <span className="font-mono font-bold text-amber-100 text-base">1234</span>
-            </p>
-          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-blue-200 text-sm font-medium mb-2">Código OTP</label>
-              <input type="tel" value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="0000"
-                className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-4 text-4xl font-mono text-center tracking-[0.6em] focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all"
-                autoComplete="one-time-code" maxLength={4}/>
-              <AnimatePresence>
-                {error && (
-                  <motion.p initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
-                    className="text-red-300 text-sm mt-2 flex items-center gap-1.5">
-                    <AlertTriangle size={13}/>{error}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </div>
-            <button type="submit" disabled={loading||otp.length!==4}
+            <PasswordInput value={nova} onChange={setNova} placeholder="Mínimo 6 caracteres" label="Nova palavra-passe"/>
+            <PasswordInput value={confirmar} onChange={setConfirmar} placeholder="Repetir palavra-passe" label="Confirmar palavra-passe"/>
+
+            {/* Strength hints */}
+            {nova.length > 0 && (
+              <div className="flex gap-1.5">
+                {[6,8,12].map((len,i) => (
+                  <div key={i} className={`flex-1 h-1 rounded-full transition-all ${
+                    nova.length >= len
+                      ? i===0?"bg-amber-400":i===1?"bg-blue-400":"bg-emerald-400"
+                      : "bg-white/15"
+                  }`}/>
+                ))}
+                <span className="text-xs text-white/40 ml-1">
+                  {nova.length < 6?"Fraca":nova.length < 8?"Razoável":nova.length < 12?"Boa":"Forte"}
+                </span>
+              </div>
+            )}
+
+            <AnimatePresence>
+              {error && (
+                <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
+                  className="bg-red-500/20 border border-red-400/30 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                  <AlertTriangle size={14} className="text-red-300 shrink-0"/>
+                  <p className="text-red-200 text-sm">{error}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button type="submit" disabled={loading}
               className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/20 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
-              {loading ? <RefreshCw size={18} className="animate-spin"/> : <Shield size={18}/>}
-              {loading ? "A verificar..." : "Confirmar e Entrar"}
+              {loading ? <RefreshCw size={18} className="animate-spin"/> : <ShieldCheck size={18}/>}
+              {loading ? "A guardar..." : "Definir Palavra-passe e Entrar"}
             </button>
           </form>
-          <div className="text-center mt-4">
-            <button onClick={async()=>{
-              await fetch(`${API}/guardian/login`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({telefone:phone})});
-              setResent(true); setTimeout(()=>setResent(false),5000);
-            }} className="text-blue-300 hover:text-white text-sm transition-colors">
-              {resent ? <span className="text-emerald-400">✓ Código reenviado!</span> : "Reenviar código"}
-            </button>
-          </div>
         </motion.div>
       </div>
     </div>
@@ -345,17 +362,13 @@ function OtpScreen({ phone, onSuccess, onBack }: { phone:string; onSuccess:(t:st
 }
 
 /* ─── Dashboard ─── */
-function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guardian; onLogout:()=>void }) {
+function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Guardian; onLogout: ()=>void }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<Student|null>(null);
   const [propinas, setPropinas] = useState<Propina[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingPropinas, setLoadingPropinas] = useState(false);
-  const [refModal, setRefModal] = useState<ReferenciaCombinada|null>(null);
-  const [filter, setFilter] = useState<FilterType>("all");
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [generating, setGenerating] = useState(false);
-  const [genError, setGenError] = useState("");
+  const [selectedPropina, setSelectedPropina] = useState<Propina|null>(null);
   const [showPaid, setShowPaid] = useState(false);
 
   const headers = { Authorization:`Bearer ${token}`, "Content-Type":"application/json" };
@@ -373,7 +386,6 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
 
   const loadPropinas = useCallback(async (id: number) => {
     setLoadingPropinas(true);
-    setSelectedIds(new Set());
     try {
       const res = await fetch(`${API}/guardian/alunos/${id}/propinas`, {headers});
       if (!res.ok) return;
@@ -385,52 +397,12 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { if (selectedStudent) loadPropinas(selectedStudent.id); }, [selectedStudent, loadPropinas]);
 
-  const toggleSelect = (id: number) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-    setGenError("");
-  };
+  const totalDivida = students.reduce((s,st)=>s+Number(st.divida_total),0);
+  const totalMultas = students.reduce((s,st)=>s+Number(st.total_multas),0);
+  const totalVencidas = students.reduce((s,st)=>s+Number(st.propinas_vencidas),0);
 
-  const selectAll = () => {
-    const unpaid = propinas.filter(p => p.estado !== "PAGO").map(p => p.id);
-    setSelectedIds(new Set(unpaid));
-  };
-
-  const clearSelection = () => { setSelectedIds(new Set()); setGenError(""); };
-
-  const generateRef = async () => {
-    if (selectedIds.size === 0) return;
-    setGenerating(true); setGenError("");
-    try {
-      const res = await fetch(`${API}/guardian/pagamentos/gerar`, {
-        method:"POST", headers,
-        body: JSON.stringify({ propina_ids: Array.from(selectedIds) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao gerar referência.");
-      setRefModal(data);
-    } catch(err:any) { setGenError(err.message); }
-    finally { setGenerating(false); }
-  };
-
-  const totalDivida = students.reduce((s,st) => s + Number(st.divida_total), 0);
-  const totalMultas = students.reduce((s,st) => s + Number(st.total_multas), 0);
-  const totalVencidas = students.reduce((s,st) => s + Number(st.propinas_vencidas), 0);
-
-  const unpaidPropinas = propinas.filter(p => p.estado !== "PAGO");
-  const paidPropinas = propinas.filter(p => p.estado === "PAGO");
-  const filtered = filter === "all"
-    ? unpaidPropinas
-    : filter === "pago"
-      ? paidPropinas
-      : propinas.filter(p => p.estado.toLowerCase() === filter);
-
-  const selectedTotal = propinas
-    .filter(p => selectedIds.has(p.id))
-    .reduce((s, p) => s + Number(p.total), 0);
+  const unpaid = propinas.filter(p => p.estado !== "PAGO");
+  const paid   = propinas.filter(p => p.estado === "PAGO");
 
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
@@ -441,7 +413,7 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-36">
+    <div className="min-h-screen bg-gray-50 pb-8">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -475,7 +447,7 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
               { icon:<Wallet size={15} className="text-red-600"/>, bg:"bg-red-50", label:"Em dívida", value:`${(totalDivida/1000).toFixed(0)}K Kz` },
               { icon:<AlertTriangle size={15} className="text-amber-600"/>, bg:"bg-amber-50", label:"Multas", value:`${(totalMultas/1000).toFixed(0)}K Kz` },
               { icon:<Clock size={15} className="text-orange-600"/>, bg:"bg-orange-50", label:"Em atraso", value:`${totalVencidas} ${totalVencidas===1?"mês":"meses"}` },
-            ].map((c,i) => (
+            ].map((c,i)=>(
               <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
                 <div className={`w-7 h-7 ${c.bg} rounded-lg flex items-center justify-center mb-2`}>{c.icon}</div>
                 <p className="text-xs text-gray-400 mb-0.5">{c.label}</p>
@@ -496,7 +468,7 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
               const hasVenc = Number(st.propinas_vencidas) > 0;
               const hasDebt = Number(st.divida_total) > 0;
               return (
-                <button key={st.id} onClick={()=>{ setSelectedStudent(st); setFilter("all"); setSelectedIds(new Set()); }}
+                <button key={st.id} onClick={()=>setSelectedStudent(st)}
                   className={`flex-shrink-0 w-52 text-left rounded-2xl p-4 border-2 transition-all ${sel?"border-blue-600 bg-blue-50 shadow-md":"border-gray-200 bg-white hover:border-gray-300"}`}>
                   <div className="flex items-start justify-between mb-2.5">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white font-bold text-sm">
@@ -518,103 +490,53 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
         {/* Propinas */}
         {selectedStudent && (
           <div>
-            {/* Section header */}
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex items-start justify-between mb-4">
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Propinas em aberto</p>
                 <p className="text-sm font-semibold text-gray-800 mt-0.5">{selectedStudent.nome}</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-gray-400">Dívida total</p>
-                <p className="font-bold text-red-600 text-sm">{fmt(selectedStudent.divida_total)}</p>
+                <p className="text-xs text-gray-400">Total em dívida</p>
+                <p className="font-bold text-red-600">{fmt(selectedStudent.divida_total)}</p>
               </div>
-            </div>
-
-            {/* Selection controls */}
-            {unpaidPropinas.length > 0 && (
-              <div className="flex items-center justify-between mb-3 bg-blue-50 rounded-xl px-3 py-2.5 border border-blue-100">
-                <p className="text-xs text-blue-700 font-medium">
-                  {selectedIds.size === 0
-                    ? "Selecione os meses para gerar referência"
-                    : `${selectedIds.size} ${selectedIds.size===1?"mês":"meses"} selecionado${selectedIds.size===1?"":"s"}`}
-                </p>
-                <div className="flex gap-2">
-                  {selectedIds.size > 0 && (
-                    <button onClick={clearSelection} className="text-xs text-gray-500 hover:text-gray-700 transition-colors px-2 py-1 rounded-lg hover:bg-white">
-                      Limpar
-                    </button>
-                  )}
-                  <button onClick={selectedIds.size === unpaidPropinas.length ? clearSelection : selectAll}
-                    className="text-xs text-blue-700 font-semibold hover:text-blue-900 transition-colors px-2 py-1 rounded-lg hover:bg-white">
-                    {selectedIds.size === unpaidPropinas.length ? "Desselecionar" : "Selecionar tudo"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Filters */}
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-0.5">
-              {(["all","vencido","pendente"] as FilterType[]).map(f => {
-                const labels = { all:`Todas (${unpaidPropinas.length})`, vencido:"Vencidas", pendente:"Pendentes" };
-                return (
-                  <button key={f} onClick={()=>setFilter(f)}
-                    className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${filter===f?"bg-blue-600 text-white shadow-sm":"bg-white text-gray-600 border border-gray-200 hover:border-gray-300"}`}>
-                    {labels[f]}
-                  </button>
-                );
-              })}
             </div>
 
             {loadingPropinas ? (
-              <div className="flex items-center justify-center py-10">
-                <RefreshCw size={20} className="animate-spin text-blue-600"/>
-              </div>
+              <div className="flex items-center justify-center py-10"><RefreshCw size={20} className="animate-spin text-blue-600"/></div>
             ) : (
               <div className="space-y-3">
-                {filtered.map(p => {
-                  const isSelected = selectedIds.has(p.id);
-                  const isVencido = p.estado === "VENCIDO";
-                  return (
+                {/* Unpaid propinas */}
+                {unpaid.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+                    <CheckCircle size={28} className="mx-auto mb-2 text-emerald-400 opacity-70"/>
+                    <p className="text-gray-500 font-medium">Sem propinas em aberto</p>
+                    <p className="text-gray-400 text-sm mt-1">Todas as propinas estão liquidadas.</p>
+                  </div>
+                ) : (
+                  unpaid.map(p => (
                     <motion.div key={p.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}}
-                      onClick={()=>toggleSelect(p.id)}
-                      className={`bg-white rounded-2xl border shadow-sm overflow-hidden cursor-pointer transition-all select-none ${
-                        isSelected
-                          ? "border-blue-500 ring-2 ring-blue-200 shadow-md"
-                          : isVencido ? "border-red-200 hover:border-red-300" : "border-gray-100 hover:border-gray-300"
-                      }`}>
-                      {isVencido && !isSelected && (
+                      className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${p.estado==="VENCIDO"?"border-red-200":"border-gray-100"}`}>
+
+                      {p.estado === "VENCIDO" && (
                         <div className="bg-red-50 border-b border-red-100 px-4 py-1.5 flex items-center gap-1.5">
                           <AlertTriangle size={12} className="text-red-500"/>
-                          <span className="text-red-700 text-xs font-semibold">Propina vencida — multa por atraso</span>
+                          <span className="text-red-700 text-xs font-semibold">Propina vencida — multa por atraso aplicada</span>
                         </div>
                       )}
-                      {isSelected && (
-                        <div className="bg-blue-600 px-4 py-1.5 flex items-center gap-1.5">
-                          <CheckSquare size={12} className="text-white"/>
-                          <span className="text-white text-xs font-semibold">Selecionado para pagamento</span>
-                        </div>
-                      )}
+
                       <div className="p-4">
                         <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            {/* Checkbox */}
-                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                              isSelected ? "bg-blue-600 border-blue-600" : "border-gray-300"
-                            }`}>
-                              {isSelected && <Check size={12} className="text-white"/>}
-                            </div>
-                            <div>
-                              <p className="font-semibold text-gray-900">{p.mes} {p.ano}</p>
-                              <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                                <Calendar size={10}/>
-                                Vencimento: {fmtDate(p.data_vencimento)}
-                              </p>
-                            </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{p.mes} {p.ano}</p>
+                            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                              <Calendar size={10}/>Vencimento: {fmtDate(p.data_vencimento)}
+                            </p>
                           </div>
                           <StatusBadge estado={p.estado}/>
                         </div>
 
-                        <div className="space-y-1.5 text-sm">
+                        {/* Values */}
+                        <div className="space-y-1.5 text-sm mb-4">
                           <div className="flex justify-between">
                             <span className="text-gray-500">Valor base</span>
                             <span className="font-medium text-gray-800">{fmt(p.valor_base)}</span>
@@ -625,24 +547,50 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
                               <span className="font-semibold text-red-600">+ {fmt(p.multa)}</span>
                             </div>
                           )}
-                          <div className="flex justify-between border-t pt-1.5 mt-0.5">
-                            <span className="font-semibold text-gray-900">Total</span>
+                          <div className="flex justify-between border-t pt-1.5">
+                            <span className="font-semibold text-gray-900">Total a pagar</span>
                             <span className="font-bold text-gray-900">{fmt(p.total)}</span>
                           </div>
                         </div>
+
+                        {/* Reference preview + button */}
+                        {p.referencia ? (
+                          <div className="space-y-2">
+                            <div className="bg-blue-50 rounded-xl px-3 py-2 flex items-center justify-between">
+                              <div>
+                                <p className="text-xs text-blue-500 font-medium">Entidade {p.entidade} · Ref.</p>
+                                <p className="font-mono font-bold text-blue-800 text-sm tracking-widest">
+                                  {p.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
+                                </p>
+                              </div>
+                              <CopyBtn text={p.referencia}/>
+                            </div>
+                            <button onClick={()=>setSelectedPropina(p)}
+                              className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
+                                p.estado==="VENCIDO"?"bg-red-600 hover:bg-red-700 text-white":"bg-blue-600 hover:bg-blue-700 text-white"
+                              }`}>
+                              <CreditCard size={14}/>Ver Referência Completa
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="bg-gray-50 rounded-xl px-3 py-2.5 flex items-center gap-2 text-gray-400">
+                            <Clock size={14}/>
+                            <p className="text-sm">Referência a ser gerada pelo secretariado</p>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
-                  );
-                })}
+                  ))
+                )}
 
-                {/* Paid section toggle */}
-                {paidPropinas.length > 0 && filter !== "vencido" && filter !== "pendente" && (
+                {/* Paid propinas (collapsible) */}
+                {paid.length > 0 && (
                   <div>
                     <button onClick={()=>setShowPaid(!showPaid)}
-                      className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-2xl border border-gray-100 text-sm text-gray-500 hover:bg-gray-50 transition-colors">
+                      className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-2xl border border-gray-100 text-sm text-gray-500 hover:bg-gray-50 transition-colors mt-1">
                       <span className="flex items-center gap-2">
                         <CheckCircle size={14} className="text-emerald-500"/>
-                        {paidPropinas.length} {paidPropinas.length===1?"propina paga":"propinas pagas"}
+                        {paid.length} {paid.length===1?"propina liquidada":"propinas liquidadas"}
                       </span>
                       {showPaid ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                     </button>
@@ -650,7 +598,7 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
                       {showPaid && (
                         <motion.div initial={{opacity:0,height:0}} animate={{opacity:1,height:"auto"}} exit={{opacity:0,height:0}}
                           className="overflow-hidden space-y-2 mt-2">
-                          {paidPropinas.map(p => (
+                          {paid.map(p=>(
                             <div key={p.id} className="bg-white rounded-2xl border border-gray-100 p-4 opacity-60">
                               <div className="flex items-center justify-between">
                                 <div>
@@ -669,61 +617,18 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
                     </AnimatePresence>
                   </div>
                 )}
-
-                {filtered.length === 0 && (
-                  <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
-                    <CheckCircle size={28} className="mx-auto mb-2 text-emerald-400 opacity-60"/>
-                    <p className="text-gray-400 text-sm">Nenhuma propina nesta categoria.</p>
-                  </div>
-                )}
               </div>
             )}
           </div>
         )}
 
-        <div className="text-center pb-4 pt-2">
+        <div className="text-center pt-2">
           <p className="text-xs text-gray-300">Kiwara Escolar — Portal do Encarregado</p>
         </div>
       </div>
 
-      {/* Floating action bar */}
       <AnimatePresence>
-        {selectedIds.size > 0 && (
-          <motion.div
-            initial={{ y:100, opacity:0 }}
-            animate={{ y:0, opacity:1 }}
-            exit={{ y:100, opacity:0 }}
-            transition={{ type:"spring", stiffness:350, damping:30 }}
-            className="fixed bottom-0 left-0 right-0 z-40 p-4"
-          >
-            <div className="max-w-2xl mx-auto">
-              <div className="bg-blue-700 rounded-2xl shadow-2xl p-4 flex items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-semibold text-sm">
-                    {selectedIds.size} {selectedIds.size===1?"mês selecionado":"meses selecionados"}
-                  </p>
-                  <p className="text-blue-200 text-xs font-mono">{fmt(selectedTotal)}</p>
-                </div>
-                {genError && (
-                  <p className="text-red-300 text-xs shrink-0 max-w-[120px] text-right">{genError}</p>
-                )}
-                <button
-                  onClick={generateRef}
-                  disabled={generating}
-                  className="flex-shrink-0 bg-white text-blue-700 font-bold px-5 py-3 rounded-xl hover:bg-blue-50 transition-all flex items-center gap-2 disabled:opacity-70"
-                >
-                  {generating ? <RefreshCw size={16} className="animate-spin"/> : <Zap size={16}/>}
-                  {generating ? "A gerar..." : "Gerar Referência"}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Reference modal */}
-      <AnimatePresence>
-        {refModal && <CombinedRefModal ref={refModal} onClose={()=>setRefModal(null)}/>}
+        {selectedPropina && <RefModal propina={selectedPropina} onClose={()=>setSelectedPropina(null)}/>}
       </AnimatePresence>
     </div>
   );
@@ -732,7 +637,6 @@ function Dashboard({ token, guardian, onLogout }: { token:string; guardian:Guard
 /* ─── Root ─── */
 export default function EncarregadoPortal() {
   const [screen, setScreen] = useState<Screen>("login");
-  const [phone, setPhone] = useState("");
   const [token, setToken] = useState<string|null>(null);
   const [guardian, setGuardian] = useState<Guardian|null>(null);
 
@@ -741,7 +645,11 @@ export default function EncarregadoPortal() {
     if (!saved) return;
     fetch(`${API}/guardian/me`, { headers:{ Authorization:`Bearer ${saved}` } })
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => { setToken(saved); setGuardian(data); setScreen("dashboard"); })
+      .then(data => {
+        setToken(saved);
+        setGuardian(data);
+        setScreen(data.first_login ? "change-password" : "dashboard");
+      })
       .catch(() => localStorage.removeItem(SESSION_KEY));
   }, []);
 
@@ -750,8 +658,24 @@ export default function EncarregadoPortal() {
     setToken(null); setGuardian(null); setScreen("login");
   };
 
-  if (screen==="login") return <LoginScreen onSuccess={p=>{ setPhone(p); setScreen("otp"); }}/>;
-  if (screen==="otp")   return <OtpScreen phone={phone} onSuccess={(t,g)=>{ setToken(t); setGuardian(g); setScreen("dashboard"); }} onBack={()=>setScreen("login")}/>;
-  if (screen==="dashboard" && token && guardian) return <Dashboard token={token} guardian={guardian} onLogout={handleLogout}/>;
+  const handleLoginSuccess = (t: string, g: Guardian) => {
+    setToken(t); setGuardian(g);
+    setScreen(g.first_login ? "change-password" : "dashboard");
+  };
+
+  const handlePasswordChanged = () => {
+    if (guardian) setGuardian({ ...guardian, first_login: false });
+    setScreen("dashboard");
+  };
+
+  if (screen === "login")
+    return <LoginScreen onSuccess={handleLoginSuccess}/>;
+
+  if (screen === "change-password" && token && guardian)
+    return <ChangePasswordScreen token={token} guardian={guardian} onSuccess={handlePasswordChanged}/>;
+
+  if (screen === "dashboard" && token && guardian)
+    return <Dashboard token={token} guardian={guardian} onLogout={handleLogout}/>;
+
   return null;
 }
