@@ -1,465 +1,696 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation } from "wouter";
+import { useState, useEffect, useCallback } from "react";
+import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  GraduationCap, Phone, Hash, LogOut, CheckCircle2,
-  Clock, AlertCircle, ChevronRight, Building2,
-  CreditCard, TrendingUp, X, Bell, Download, ExternalLink,
+  Phone, Shield, ArrowLeft, Copy, Check, LogOut, ChevronRight,
+  AlertTriangle, Clock, CheckCircle, XCircle, Wallet, Users,
+  RefreshCw, X, CreditCard, Calendar, Info,
 } from "lucide-react";
-import { Button, Input, Card } from "@/components/ui-elements";
 
-interface GuardianSession {
-  phone: string;
-  schoolId: string;
-  schoolName: string;
-  studentName: string;
-  turma: string;
-  turno: string;
+const API = "/api";
+const SESSION_KEY = "kiwara_guardian_token";
+
+interface Guardian {
+  id: number;
+  nome: string;
+  telefone: string;
+}
+
+interface Student {
+  id: number;
+  nome: string;
+  bilhete: string;
+  turma: string | null;
+  turno: string | null;
+  divida_total: number;
+  total_multas: number;
+  propinas_vencidas: number;
+  propinas_pendentes: number;
 }
 
 interface Propina {
   id: number;
   mes: string;
   ano: string;
-  montante: number;
-  status: "pago" | "pendente" | "vencido";
+  valor_base: number;
+  multa: number;
+  total: number;
+  estado: "PENDENTE" | "PAGO" | "VENCIDO";
+  data_vencimento: string;
+  pagamento_id: number | null;
+  entidade: string | null;
   referencia: string | null;
-  pagoEm: string | null;
+  ref_valor: number | null;
+  ref_estado: string | null;
+  validade: string | null;
 }
 
-const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+type Screen = "login" | "otp" | "dashboard";
+type FilterType = "all" | "pendente" | "vencido" | "pago";
 
-function gerarPropinas(ano = 2025): Propina[] {
-  const agora = new Date();
-  const mesAtual = agora.getMonth();
-  return MESES.slice(1, 11).map((mes, i) => {
-    const idx = i + 1;
-    let status: Propina["status"] = "pendente";
-    if (idx < mesAtual - 1) status = "pago";
-    else if (idx < mesAtual) status = "vencido";
-    return {
-      id: idx,
-      mes,
-      ano: String(ano),
-      montante: 35000,
-      status,
-      referencia: status !== "pago" ? `925 ${String(1000 + idx * 37).padStart(4,"0")} ${String(ano).slice(2)}${String(idx).padStart(2,"0")}` : null,
-      pagoEm: status === "pago" ? `${String(idx).padStart(2,"0")}/${String(ano).slice(2)}` : null,
-    };
-  });
+function fmt(val: number | string) {
+  const n = typeof val === "string" ? parseFloat(val) : val;
+  return n.toLocaleString("pt-AO") + " Kz";
 }
 
-function StatusBadge({ status }: { status: Propina["status"] }) {
-  if (status === "pago") return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-      <CheckCircle2 className="w-3.5 h-3.5" /> Pago
-    </span>
-  );
-  if (status === "vencido") return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-      <AlertCircle className="w-3.5 h-3.5" /> Vencido
-    </span>
-  );
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function StatusBadge({ estado }: { estado: string }) {
+  const configs: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
+    PAGO:     { label: "Pago",     cls: "bg-emerald-100 text-emerald-800 border-emerald-200", icon: <CheckCircle size={11} /> },
+    PENDENTE: { label: "Pendente", cls: "bg-amber-100 text-amber-800 border-amber-200",       icon: <Clock size={11} /> },
+    VENCIDO:  { label: "Vencido",  cls: "bg-red-100 text-red-800 border-red-200",             icon: <AlertTriangle size={11} /> },
+  };
+  const c = configs[estado] ?? configs["PENDENTE"];
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-      <Clock className="w-3.5 h-3.5" /> Pendente
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${c.cls}`}>
+      {c.icon}{c.label}
     </span>
   );
 }
 
-// ────────────────────────────────────────
-// Login form
-// ────────────────────────────────────────
-function LoginPanel({ onLogin }: { onLogin: (s: GuardianSession) => void }) {
-  const [, params] = useLocation();
-  const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
-  const prefilledSchool = urlParams.get("escola") ?? "";
+function CopyBtn({ text, className = "" }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button onClick={copy} className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${className}`} title="Copiar">
+      {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} className="text-gray-500" />}
+    </button>
+  );
+}
 
-  const [form, setForm] = useState({ schoolId: prefilledSchool, phone: "" });
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+/* ─── Payment Modal ─── */
+function PaymentModal({ propina, onClose }: { propina: Propina; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setError("");
-    setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+  const copyAll = () => {
+    const txt = `Entidade: ${propina.entidade}\nReferência: ${propina.referencia}\nValor: ${fmt(propina.ref_valor ?? propina.total)}\nValidade: ${fmtDate(propina.validade ?? "")}`;
+    navigator.clipboard.writeText(txt).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    if (!form.schoolId.startsWith("SCH-") || form.schoolId.length < 9) {
-      setError("Introduza um código de escola válido (ex: SCH-XXXXXX).");
-      return;
-    }
-    if (form.phone.length < 9) {
-      setError("Introduza um número de telefone válido.");
-      return;
-    }
-
-    setLoading(true);
-    setTimeout(() => {
-      let schoolName = "Colégio Kiwara";
-      try {
-        const raw = localStorage.getItem("kiwara_school_session");
-        if (raw) {
-          const s = JSON.parse(raw);
-          if (s.schoolId === form.schoolId.toUpperCase()) schoolName = s.schoolName;
-        }
-      } catch {}
-
-      const session: GuardianSession = {
-        phone: form.phone,
-        schoolId: form.schoolId.toUpperCase(),
-        schoolName,
-        studentName: "João Manuel Silva",
-        turma: "10ª Classe",
-        turno: "Manhã",
-      };
-
-      localStorage.setItem("kiwara_guardian_session", JSON.stringify(session));
-      onLogin(session);
-      setLoading(false);
-    }, 900);
-  };
+  const refFormatted = propina.referencia?.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3") ?? "";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-emerald-50/30 flex flex-col items-center justify-center p-4">
-      <Link href="/escolar" className="absolute top-8 left-8 flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold text-sm">K</div>
-        <span className="font-display font-bold text-slate-900">Kiwara <span className="text-primary">Escolar</span></span>
-      </Link>
-
-      <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
-        <Card className="p-8 sm:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center mx-auto mb-5 shadow-lg shadow-primary/20">
-              <GraduationCap className="w-8 h-8 text-white" />
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <motion.div
+        initial={{ y: 80, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 80, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="relative w-full max-w-md bg-white rounded-2xl overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 p-5 text-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CreditCard size={18} />
+              <span className="font-semibold">Referência de Pagamento</span>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Portal do Encarregado</h1>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              Consulte as propinas e o estado de pagamento do seu educando.
-            </p>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
+              <X size={16} />
+            </button>
           </div>
+          <p className="text-blue-200 text-sm mt-1">{propina.mes} {propina.ano}</p>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-2">Código do Colégio</label>
-              <div className="relative">
-                <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  name="schoolId"
-                  required
-                  placeholder="SCH-XXXXXX"
-                  className="pl-11 uppercase tracking-widest font-mono"
-                  value={form.schoolId}
-                  onChange={handleChange}
-                />
+        <div className="p-5 space-y-4">
+          {propina.entidade ? (
+            <>
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Entidade</p>
+                  <p className="text-3xl font-bold text-gray-900 font-mono">{propina.entidade}</p>
+                </div>
+                <div className="border-t pt-3">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Referência</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-2xl font-bold text-blue-700 font-mono tracking-widest">{refFormatted}</p>
+                    <CopyBtn text={propina.referencia ?? ""} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Valor</p>
+                    <p className="font-bold text-gray-900">{fmt(propina.ref_valor ?? propina.total)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider mb-0.5">Validade</p>
+                    <p className="font-bold text-gray-900 text-sm">{fmtDate(propina.validade ?? "")}</p>
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">Fornecido pelo colégio do seu educando.</p>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-2">Número de Telefone</label>
-              <div className="relative">
-                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  name="phone"
-                  required
-                  type="tel"
-                  placeholder="9XX XXX XXX"
-                  className="pl-11"
-                  value={form.phone}
-                  onChange={handleChange}
-                />
+              {Number(propina.multa) > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                  <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-red-800 text-sm font-semibold">Multa por atraso incluída</p>
+                    <p className="text-red-600 text-xs mt-0.5">
+                      Base: {fmt(propina.valor_base)} + Multa: {fmt(propina.multa)} = {fmt(propina.total)}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex gap-2">
+                <Info size={15} className="text-blue-500 shrink-0 mt-0.5" />
+                <p className="text-blue-800 text-xs">
+                  Pague via ATM, Multicaixa Express ou internet banking utilizando exatamente esta entidade, referência e valor.
+                </p>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">O número registado pelo colégio.</p>
-            </div>
 
-            {error && (
-              <motion.p
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 flex items-center gap-2"
+              <button
+                onClick={copyAll}
+                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors flex items-center justify-center gap-2"
               >
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {error}
-              </motion.p>
-            )}
-
-            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
-              {loading ? "A verificar..." : "Aceder ao Portal"}
-              {!loading && <ChevronRight className="w-4 h-4 ml-1" />}
-            </Button>
-          </form>
-
-          <div className="mt-6 pt-6 border-t border-slate-100">
-            <p className="text-xs text-slate-400 text-center">
-              É responsável de um colégio?{" "}
-              <Link href="/signup" className="text-primary font-medium hover:underline">
-                Aceda ao painel de gestão →
-              </Link>
-            </p>
-          </div>
-        </Card>
-
-        <p className="text-center text-xs text-slate-400 mt-6">
-          Kiwara Escolar · Portal seguro para encarregados de educação
-        </p>
+                {copied ? <><Check size={16} /> Copiado!</> : <><Copy size={16} /> Copiar Dados de Pagamento</>}
+              </button>
+            </>
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              <CreditCard size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Referência não disponível para esta propina.</p>
+            </div>
+          )}
+        </div>
       </motion.div>
     </div>
   );
 }
 
-// ────────────────────────────────────────
-// Guardian dashboard
-// ────────────────────────────────────────
-function GuardianDashboard({ session, onLogout }: { session: GuardianSession; onLogout: () => void }) {
-  const propinas = gerarPropinas(2025);
-  const totalPago = propinas.filter(p => p.status === "pago").reduce((s, p) => s + p.montante, 0);
-  const totalPendente = propinas.filter(p => p.status !== "pago").reduce((s, p) => s + p.montante, 0);
-  const vencidas = propinas.filter(p => p.status === "vencido");
+/* ─── Login Screen ─── */
+function LoginScreen({ onSuccess }: { onSuccess: (phone: string) => void }) {
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const [selected, setSelected] = useState<Propina | null>(null);
-
-  const fmt = (n: number) => new Intl.NumberFormat("pt-AO").format(n) + " AOA";
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    const clean = phone.replace(/\D/g, "");
+    if (clean.length < 9) return setError("Introduza um número de telemóvel válido.");
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/guardian/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefone: clean }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao enviar código.");
+      onSuccess(clean);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Top bar */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
+      <div className="flex items-center p-6">
+        <Link href="/" className="flex items-center gap-2.5 text-white/70 hover:text-white transition-colors">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow">K</div>
+          <span className="font-medium text-sm">Kiwara Tech</span>
+        </Link>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center px-6">
+        <motion.div initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Phone size={28} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">Portal do Encarregado</h1>
+            <p className="text-blue-300 text-sm mt-1">Consulte propinas e referências de pagamento</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-blue-200 text-sm font-medium mb-2">Número de Telemóvel</label>
+              <div className="relative">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
+                  <span className="text-white/60 text-sm font-medium">+244</span>
+                  <span className="w-px h-4 bg-white/25" />
+                </div>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="943 612 744"
+                  className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl pl-[72px] pr-4 py-3.5 text-lg font-mono tracking-wide focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all"
+                  autoComplete="tel"
+                />
+              </div>
+              <AnimatePresence>
+                {error && (
+                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="text-red-300 text-sm mt-2 flex items-center gap-1.5">
+                    <AlertTriangle size={13} />{error}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/20 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              {loading ? <RefreshCw size={18} className="animate-spin" /> : <Phone size={18} />}
+              {loading ? "A enviar..." : "Receber Código OTP"}
+            </button>
+          </form>
+
+          <p className="text-blue-400/60 text-xs text-center mt-6">
+            Receberá um código de 4 dígitos para confirmar o seu acesso.
+          </p>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── OTP Screen ─── */
+function OtpScreen({ phone, onSuccess, onBack }: {
+  phone: string;
+  onSuccess: (token: string, guardian: Guardian) => void;
+  onBack: () => void;
+}) {
+  const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [resent, setResent] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (otp.length !== 4) return setError("O código OTP tem 4 dígitos.");
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/guardian/verify-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefone: phone, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Código inválido.");
+      localStorage.setItem(SESSION_KEY, data.token);
+      onSuccess(data.token, data.guardian);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    await fetch(`${API}/guardian/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telefone: phone }),
+    });
+    setResent(true);
+    setTimeout(() => setResent(false), 5000);
+  };
+
+  const masked = phone.slice(0, 3) + "***" + phone.slice(-2);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
+      <div className="p-6">
+        <button onClick={onBack} className="flex items-center gap-2 text-white/70 hover:text-white transition-colors">
+          <ArrowLeft size={18} />
+          <span className="text-sm">Voltar</span>
+        </button>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center px-6">
+        <motion.div initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Shield size={28} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">Verificação</h1>
+            <p className="text-blue-300 text-sm mt-1">
+              Código enviado para <span className="font-mono font-semibold text-white">+244 {masked}</span>
+            </p>
+          </div>
+
+          <div className="bg-amber-500/15 border border-amber-400/30 rounded-xl p-3 mb-5 text-center">
+            <p className="text-amber-200 text-xs">
+              <span className="font-semibold">Demo:</span> utilize o código{" "}
+              <span className="font-mono font-bold text-amber-100 text-base">1234</span>
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-blue-200 text-sm font-medium mb-2">Código OTP</label>
+              <input
+                type="tel"
+                value={otp}
+                onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                placeholder="0000"
+                className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-4 text-4xl font-mono text-center tracking-[0.6em] focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all"
+                autoComplete="one-time-code"
+                maxLength={4}
+              />
+              <AnimatePresence>
+                {error && (
+                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="text-red-300 text-sm mt-2 flex items-center gap-1.5">
+                    <AlertTriangle size={13} />{error}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || otp.length !== 4}
+              className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/20 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              {loading ? <RefreshCw size={18} className="animate-spin" /> : <Shield size={18} />}
+              {loading ? "A verificar..." : "Confirmar e Entrar"}
+            </button>
+          </form>
+
+          <div className="text-center mt-4">
+            <button onClick={handleResend} className="text-blue-300 hover:text-white text-sm transition-colors">
+              {resent ? <span className="text-emerald-400">✓ Código reenviado!</span> : "Reenviar código"}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Dashboard ─── */
+function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Guardian; onLogout: () => void }) {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [propinas, setPropinas] = useState<Propina[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(true);
+  const [loadingPropinas, setLoadingPropinas] = useState(false);
+  const [selectedPropina, setSelectedPropina] = useState<Propina | null>(null);
+  const [filter, setFilter] = useState<FilterType>("all");
+  const [error, setError] = useState("");
+
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  const loadStudents = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/guardian/alunos`, { headers });
+      if (!res.ok) { onLogout(); return; }
+      const data: Student[] = await res.json();
+      setStudents(data);
+      if (data.length > 0) setSelectedStudent(prev => prev ?? data[0]);
+    } catch { setError("Erro ao carregar dados."); }
+    finally { setLoadingStudents(false); }
+  }, [token]);
+
+  const loadPropinas = useCallback(async (id: number) => {
+    setLoadingPropinas(true);
+    try {
+      const res = await fetch(`${API}/guardian/alunos/${id}/propinas`, { headers });
+      if (!res.ok) return;
+      setPropinas(await res.json());
+    } catch { setError("Erro ao carregar propinas."); }
+    finally { setLoadingPropinas(false); }
+  }, [token]);
+
+  useEffect(() => { loadStudents(); }, [loadStudents]);
+  useEffect(() => { if (selectedStudent) loadPropinas(selectedStudent.id); }, [selectedStudent, loadPropinas]);
+
+  const totalDivida = students.reduce((s, st) => s + Number(st.divida_total), 0);
+  const totalMultas = students.reduce((s, st) => s + Number(st.total_multas), 0);
+  const totalVencidas = students.reduce((s, st) => s + Number(st.propinas_vencidas), 0);
+
+  const filtered = propinas.filter(p =>
+    filter === "all" ? true : p.estado.toLowerCase() === filter
+  );
+
+  const initials = guardian.nome.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
+
+  if (loadingStudents) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <RefreshCw size={24} className="animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow">
-              <span className="text-white font-extrabold text-sm">K</span>
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-emerald-500 flex items-center justify-center text-white font-bold text-sm">
+              {initials}
             </div>
             <div>
-              <p className="text-xs text-slate-500 leading-none">Portal do Encarregado</p>
-              <p className="font-semibold text-slate-900 text-sm leading-tight">{session.schoolName}</p>
+              <p className="font-semibold text-gray-900 text-sm leading-tight">{guardian.nome}</p>
+              <p className="text-xs text-gray-400">+244 {guardian.telefone}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button className="relative p-2 text-slate-400 hover:text-slate-600">
-              <Bell className="w-5 h-5" />
-              {vencidas.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-              )}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { loadStudents(); if (selectedStudent) loadPropinas(selectedStudent.id); }}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
+              title="Atualizar"
+            >
+              <RefreshCw size={16} />
             </button>
             <button
               onClick={onLogout}
-              className="flex items-center gap-2 text-sm text-slate-500 hover:text-red-500 transition-colors px-3 py-2 rounded-xl hover:bg-red-50"
+              className="p-2 rounded-lg hover:bg-red-50 transition-colors text-gray-400 hover:text-red-600"
+              title="Terminar sessão"
             >
-              <LogOut className="w-4 h-4" /> Sair
+              <LogOut size={16} />
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <div className="max-w-2xl mx-auto px-4 py-5 space-y-6">
 
-        {/* Alerta de propinas vencidas */}
-        {vencidas.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-center gap-4"
-          >
-            <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-red-800 text-sm">
-                {vencidas.length} propina{vencidas.length > 1 ? "s" : ""} vencida{vencidas.length > 1 ? "s" : ""}
-              </p>
-              <p className="text-red-600 text-xs mt-0.5">Regularize o pagamento para evitar penalizações.</p>
+        {/* Summary */}
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Resumo Geral</p>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { icon: <Wallet size={15} className="text-red-600" />, bg: "bg-red-50", label: "Em dívida", value: `${(totalDivida/1000).toFixed(0)}K Kz` },
+              { icon: <AlertTriangle size={15} className="text-amber-600" />, bg: "bg-amber-50", label: "Multas", value: `${(totalMultas/1000).toFixed(0)}K Kz` },
+              { icon: <Clock size={15} className="text-orange-600" />, bg: "bg-orange-50", label: "Em atraso", value: `${totalVencidas} ${totalVencidas === 1 ? "mês" : "meses"}` },
+            ].map((card, i) => (
+              <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                <div className={`w-7 h-7 ${card.bg} rounded-lg flex items-center justify-center mb-2`}>
+                  {card.icon}
+                </div>
+                <p className="text-xs text-gray-400 mb-0.5">{card.label}</p>
+                <p className="text-base font-bold text-gray-900 leading-tight">{card.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Students */}
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Users size={12} /> Educandos ({students.length})
+          </p>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {students.map(st => {
+              const sel = selectedStudent?.id === st.id;
+              const hasVenc = Number(st.propinas_vencidas) > 0;
+              const hasDebt = Number(st.divida_total) > 0;
+              return (
+                <button
+                  key={st.id}
+                  onClick={() => { setSelectedStudent(st); setFilter("all"); }}
+                  className={`flex-shrink-0 w-52 text-left rounded-2xl p-4 border-2 transition-all ${
+                    sel ? "border-blue-600 bg-blue-50 shadow-md" : "border-gray-200 bg-white hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-2.5">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white font-bold text-sm">
+                      {st.nome.split(" ").map(w => w[0]).join("").slice(0, 2)}
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                      hasVenc ? "bg-red-100 text-red-700" : hasDebt ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                    }`}>
+                      {hasVenc ? "Em atraso" : hasDebt ? "Pendente" : "Regular"}
+                    </span>
+                  </div>
+                  <p className="font-semibold text-gray-900 text-sm leading-snug">{st.nome}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{st.turma ?? "Sem turma"}</p>
+                  {hasDebt && <p className="text-xs font-bold text-red-600 mt-2">{fmt(st.divida_total)}</p>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Propinas */}
+        {selectedStudent && (
+          <div>
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Propinas</p>
+                <p className="text-sm font-semibold text-gray-800 mt-0.5">{selectedStudent.nome}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-400">Dívida total</p>
+                <p className="font-bold text-red-600 text-sm">{fmt(selectedStudent.divida_total)}</p>
+              </div>
             </div>
-          </motion.div>
+
+            {/* Filters */}
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-0.5">
+              {(["all","vencido","pendente","pago"] as FilterType[]).map(f => {
+                const labels = { all: "Todas", vencido: "Vencidas", pendente: "Pendentes", pago: "Pagas" };
+                return (
+                  <button key={f} onClick={() => setFilter(f)}
+                    className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      filter === f ? "bg-blue-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-200 hover:border-gray-300"
+                    }`}>
+                    {labels[f]}
+                  </button>
+                );
+              })}
+            </div>
+
+            {loadingPropinas ? (
+              <div className="flex items-center justify-center py-10">
+                <RefreshCw size={20} className="animate-spin text-blue-600" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+                <CheckCircle size={28} className="mx-auto mb-2 text-emerald-400 opacity-60" />
+                <p className="text-gray-400 text-sm">Nenhuma propina nesta categoria.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map(p => (
+                  <motion.div key={p.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${p.estado === "VENCIDO" ? "border-red-200" : "border-gray-100"}`}>
+                    {p.estado === "VENCIDO" && (
+                      <div className="bg-red-50 border-b border-red-100 px-4 py-1.5 flex items-center gap-1.5">
+                        <AlertTriangle size={12} className="text-red-500" />
+                        <span className="text-red-700 text-xs font-semibold">Propina vencida — multa por atraso aplicada</span>
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-semibold text-gray-900">{p.mes} {p.ano}</p>
+                          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                            <Calendar size={10} />
+                            Vencimento: {fmtDate(p.data_vencimento)}
+                          </p>
+                        </div>
+                        <StatusBadge estado={p.estado} />
+                      </div>
+
+                      <div className="space-y-1.5 text-sm mb-3">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Valor base</span>
+                          <span className="font-medium text-gray-800">{fmt(p.valor_base)}</span>
+                        </div>
+                        {Number(p.multa) > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-red-500 flex items-center gap-1"><AlertTriangle size={10} /> Multa (atraso)</span>
+                            <span className="font-semibold text-red-600">+ {fmt(p.multa)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between border-t pt-1.5 mt-0.5">
+                          <span className="font-semibold text-gray-900">Total a pagar</span>
+                          <span className="font-bold text-gray-900">{fmt(p.total)}</span>
+                        </div>
+                      </div>
+
+                      {p.estado !== "PAGO" ? (
+                        <button
+                          onClick={() => setSelectedPropina(p)}
+                          className={`w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
+                            p.estado === "VENCIDO" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-blue-600 hover:bg-blue-700 text-white"
+                          }`}
+                        >
+                          <CreditCard size={14} />
+                          Ver Referência de Pagamento
+                          <ChevronRight size={14} />
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 bg-emerald-50 rounded-xl px-3 py-2.5">
+                          <CheckCircle size={15} className="text-emerald-600" />
+                          <span className="text-emerald-700 text-sm font-medium">Propina liquidada</span>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Student card */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="p-6 flex items-center gap-5 border-primary/15 bg-gradient-to-r from-primary/3 to-accent/3">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-primary/20 shrink-0">
-              {session.studentName.split(" ").map(w => w[0]).slice(0, 2).join("")}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-900 text-lg leading-tight">{session.studentName}</p>
-              <div className="flex flex-wrap gap-3 mt-1.5">
-                <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-                  <GraduationCap className="w-3.5 h-3.5 text-primary" /> {session.turma}
-                </span>
-                <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-                  <Clock className="w-3.5 h-3.5 text-primary" /> Turno {session.turno}
-                </span>
-                <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-                  <Building2 className="w-3.5 h-3.5 text-primary" /> {session.schoolId}
-                </span>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 text-red-700 text-sm">
+            <AlertTriangle size={14} />{error}
+          </div>
+        )}
 
-        {/* Summary stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {[
-            { label: "Total Pago", value: fmt(totalPago), icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />, bg: "bg-emerald-50", border: "border-emerald-100" },
-            { label: "Em Dívida", value: fmt(totalPendente), icon: <AlertCircle className="w-5 h-5 text-amber-500" />, bg: "bg-amber-50", border: "border-amber-100" },
-            { label: "Propina Mensal", value: fmt(35000), icon: <CreditCard className="w-5 h-5 text-primary" />, bg: "bg-primary/5", border: "border-primary/10" },
-          ].map((s, i) => (
-            <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
-              <Card className={`p-5 ${s.border}`}>
-                <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center mb-3`}>{s.icon}</div>
-                <p className="text-xs font-medium text-slate-500 mb-0.5">{s.label}</p>
-                <p className="font-bold text-slate-900 text-base leading-tight">{s.value}</p>
-              </Card>
-            </motion.div>
-          ))}
+        <div className="text-center pb-6 pt-2">
+          <p className="text-xs text-gray-300">Kiwara Escolar — Portal do Encarregado</p>
         </div>
+      </div>
 
-        {/* Propinas table */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="overflow-hidden p-0">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <h2 className="font-bold text-slate-900">Propinas 2025</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Ano lectivo Fevereiro – Novembro</p>
-              </div>
-              <button className="flex items-center gap-2 text-xs font-medium text-primary hover:underline">
-                <Download className="w-3.5 h-3.5" /> Exportar
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-medium text-xs">
-                  <tr>
-                    <th className="px-6 py-3">Mês</th>
-                    <th className="px-6 py-3">Montante</th>
-                    <th className="px-6 py-3">Estado</th>
-                    <th className="px-6 py-3">Referência</th>
-                    <th className="px-6 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 bg-white">
-                  {propinas.map((p, i) => (
-                    <motion.tr
-                      key={p.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.25 + i * 0.04 }}
-                      className="hover:bg-slate-50/60 transition-colors"
-                    >
-                      <td className="px-6 py-4 font-medium text-slate-900">{p.mes}</td>
-                      <td className="px-6 py-4 font-semibold text-slate-800">{fmt(p.montante)}</td>
-                      <td className="px-6 py-4"><StatusBadge status={p.status} /></td>
-                      <td className="px-6 py-4">
-                        {p.referencia ? (
-                          <span className="font-mono text-xs text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">{p.referencia}</span>
-                        ) : (
-                          <span className="text-slate-400 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {p.status !== "pago" && (
-                          <button
-                            onClick={() => setSelected(p)}
-                            className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 ml-auto"
-                          >
-                            Pagar <ExternalLink className="w-3 h-3" />
-                          </button>
-                        )}
-                      </td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </motion.div>
-
-        {/* Footer contact */}
-        <div className="text-center py-4">
-          <p className="text-xs text-slate-400">
-            Dúvidas? Contacte o secretariado de{" "}
-            <span className="font-medium text-slate-600">{session.schoolName}</span>
-          </p>
-        </div>
-      </main>
-
-      {/* Payment modal */}
       <AnimatePresence>
-        {selected && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4"
-            onClick={() => setSelected(null)}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 40, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 40, scale: 0.95 }}
-              className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-bold text-slate-900 text-lg">Como Pagar</h3>
-                <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-slate-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="bg-slate-50 rounded-2xl p-5 mb-6 text-center border border-slate-200">
-                <p className="text-xs text-slate-500 mb-1">Propina de {selected.mes} {selected.ano}</p>
-                <p className="text-3xl font-extrabold text-slate-900">{fmt(selected.montante)}</p>
-                <div className="mt-4 pt-4 border-t border-slate-200">
-                  <p className="text-xs text-slate-500 mb-2">Referência Multicaixa / ATM</p>
-                  <p className="font-mono text-lg font-bold text-primary tracking-widest">{selected.referencia}</p>
-                </div>
-              </div>
-
-              <div className="space-y-3 text-sm text-slate-600">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
-                  <p>Vá a qualquer <strong>ATM / Multicaixa Express</strong></p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
-                  <p>Selecione <strong>Pagamento de Serviços</strong> e introduza a referência acima</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</div>
-                  <p>O pagamento é <strong>confirmado automaticamente</strong> no sistema do colégio</p>
-                </div>
-              </div>
-
-              <Button className="w-full mt-6" onClick={() => setSelected(null)}>
-                Fechar
-              </Button>
-            </motion.div>
-          </motion.div>
+        {selectedPropina && (
+          <PaymentModal propina={selectedPropina} onClose={() => setSelectedPropina(null)} />
         )}
       </AnimatePresence>
     </div>
   );
 }
 
-// ────────────────────────────────────────
-// Main export
-// ────────────────────────────────────────
-export default function Encarregado() {
-  const [session, setSession] = useState<GuardianSession | null>(() => {
-    try {
-      const raw = localStorage.getItem("kiwara_guardian_session");
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  });
+/* ─── Root ─── */
+export default function EncarregadoPortal() {
+  const [screen, setScreen] = useState<Screen>("login");
+  const [phone, setPhone] = useState("");
+  const [token, setToken] = useState<string | null>(null);
+  const [guardian, setGuardian] = useState<Guardian | null>(null);
 
-  const handleLogin = (s: GuardianSession) => setSession(s);
+  useEffect(() => {
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (!saved) return;
+    fetch(`${API}/guardian/me`, { headers: { Authorization: `Bearer ${saved}` } })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => { setToken(saved); setGuardian(data); setScreen("dashboard"); })
+      .catch(() => localStorage.removeItem(SESSION_KEY));
+  }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("kiwara_guardian_session");
-    setSession(null);
+    localStorage.removeItem(SESSION_KEY);
+    setToken(null); setGuardian(null); setScreen("login");
   };
 
-  return session
-    ? <GuardianDashboard session={session} onLogout={handleLogout} />
-    : <LoginPanel onLogin={handleLogin} />;
+  if (screen === "login") return <LoginScreen onSuccess={p => { setPhone(p); setScreen("otp"); }} />;
+  if (screen === "otp") return <OtpScreen phone={phone} onSuccess={(t, g) => { setToken(t); setGuardian(g); setScreen("dashboard"); }} onBack={() => setScreen("login")} />;
+  if (screen === "dashboard" && token && guardian) return <Dashboard token={token} guardian={guardian} onLogout={handleLogout} />;
+  return null;
 }
