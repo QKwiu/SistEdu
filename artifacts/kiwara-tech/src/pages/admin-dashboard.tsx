@@ -795,11 +795,11 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="h-screen flex bg-slate-50 overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div className="min-h-screen bg-slate-50">
+      {/* Sidebar — fixed to left */}
+      <aside className="fixed top-0 left-0 h-full w-64 bg-slate-900 text-white flex flex-col z-40">
         {/* Logo */}
-        <div className="px-5 py-5 border-b border-white/10">
+        <div className="px-5 py-5 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
               <Shield className="w-5 h-5 text-primary" />
@@ -812,7 +812,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {NAV.map(n => (
             <button key={n.id}
               onClick={() => { setView(n.id); setSelectedSchoolId(null); }}
@@ -828,7 +828,7 @@ export default function AdminDashboard() {
 
         {/* Stats mini */}
         {stats && (
-          <div className="px-4 py-3 border-t border-white/10 space-y-2">
+          <div className="px-4 py-3 border-t border-white/10 space-y-2 shrink-0">
             <div className="flex justify-between text-xs text-slate-500">
               <span>Colégios</span><span className="text-slate-300 font-semibold">{stats.total_colegios}</span>
             </div>
@@ -839,7 +839,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Logout */}
-        <div className="p-3 border-t border-white/10">
+        <div className="p-3 border-t border-white/10 shrink-0">
           <button onClick={logout}
             className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
             <LogOut className="w-4 h-4" /> Terminar sessão
@@ -847,8 +847,8 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-y-auto">
+      {/* Main — offset by sidebar width */}
+      <main className="ml-64 min-h-screen">
         {selectedSchoolId ? (
           loadingDetail ? (
             <div className="flex items-center justify-center h-64">
