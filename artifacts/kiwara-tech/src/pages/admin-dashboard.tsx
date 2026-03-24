@@ -795,9 +795,9 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Sidebar — fixed to left */}
-      <aside className="fixed top-0 left-0 h-full w-64 bg-slate-900 text-white flex flex-col z-40">
+    <div className="flex bg-slate-50">
+      {/* Sidebar — sticky, scrolls with page but stays in view */}
+      <aside className="sticky top-0 h-screen w-64 bg-slate-900 text-white flex flex-col shrink-0">
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-3">
@@ -847,8 +847,8 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      {/* Main — offset by sidebar width */}
-      <main className="ml-64 min-h-screen">
+      {/* Main content */}
+      <main className="flex-1 min-h-screen overflow-y-auto">
         {selectedSchoolId ? (
           loadingDetail ? (
             <div className="flex items-center justify-center h-64">
