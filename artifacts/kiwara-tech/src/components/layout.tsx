@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ChevronDown, Bot, BarChart2, GraduationCap } from "lucide-react";
+import { Menu, X, ChevronDown, Bot, BarChart2, GraduationCap, Users } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -58,7 +58,7 @@ export function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (location.startsWith("/dashboard")) return null;
+  if (location.startsWith("/dashboard") || location.startsWith("/encarregado")) return null;
 
   return (
     <header
@@ -157,6 +157,18 @@ export function Navbar() {
 
             <div className="w-px h-6 bg-slate-200 mx-2" />
             <Link
+              href="/encarregado"
+              className={cn(
+                "inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full border transition-all duration-200",
+                location.startsWith("/encarregado")
+                  ? "border-primary text-primary bg-primary/5"
+                  : "border-slate-200 text-slate-600 hover:border-primary hover:text-primary hover:bg-primary/5"
+              )}
+            >
+              <Users size={14} />
+              Portal Encarregado
+            </Link>
+            <Link
               href="/escolar"
               className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium rounded-full bg-primary text-white shadow-md shadow-primary/20 hover:shadow-lg hover:-translate-y-0.5 hover:bg-primary/90 transition-all duration-200"
             >
@@ -211,9 +223,17 @@ export function Navbar() {
             ))}
 
             <Link
+              href="/encarregado"
+              onClick={() => setMobileMenuOpen(false)}
+              className="mt-4 flex items-center justify-center gap-2 p-4 rounded-xl border-2 border-primary text-primary font-medium"
+            >
+              <Users size={16} />
+              Portal do Encarregado
+            </Link>
+            <Link
               href="/escolar"
               onClick={() => setMobileMenuOpen(false)}
-              className="mt-4 flex items-center justify-center p-4 rounded-xl bg-primary text-white font-medium shadow-md"
+              className="mt-2 flex items-center justify-center p-4 rounded-xl bg-primary text-white font-medium shadow-md"
             >
               Aderir ao Kiwara Escolar
             </Link>
@@ -249,7 +269,7 @@ export function Footer() {
               <li><Link href="/servicos" className="hover:text-primary transition-colors">Desenvolvimento Web</Link></li>
               <li><Link href="/servicos" className="hover:text-primary transition-colors">Consultoria IT</Link></li>
               <li><Link href="/solucoes/escolar" className="hover:text-primary transition-colors">Sistema de Gestão Escolar</Link></li>
-              <li><Link href="/servicos" className="hover:text-primary transition-colors">Integração de Sistemas</Link></li>
+              <li><Link href="/encarregado" className="hover:text-primary transition-colors">Portal do Encarregado</Link></li>
             </ul>
           </div>
           <div>
