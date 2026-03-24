@@ -4,8 +4,8 @@ import { pool } from "@workspace/db";
 
 const router = Router();
 
-const ADMIN_USER = process.env.ADMIN_USERNAME ?? "admin";
-const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? "admin";
+const ADMIN_USER = process.env.ADMIN_USERNAME ?? "Superaadmin";
+const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? "Superaadmin";
 
 /* ─── Auth helpers ─── */
 async function adminAuth(req: any, res: any, next: any) {

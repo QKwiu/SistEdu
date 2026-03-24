@@ -270,6 +270,7 @@ export function Footer() {
               <li><Link href="/servicos" className="hover:text-primary transition-colors">Consultoria IT</Link></li>
               <li><Link href="/solucoes/escolar" className="hover:text-primary transition-colors">Sistema de Gestão Escolar</Link></li>
               <li><Link href="/encarregado" className="hover:text-primary transition-colors">Portal do Encarregado</Link></li>
+              <li><Link href="/admin" className="hover:text-primary transition-colors">Administração Sistema Escolar</Link></li>
             </ul>
           </div>
           <div>
