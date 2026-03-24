@@ -206,7 +206,23 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
 
   const ENTIDADE = "00456";
   const totalValor = checkRes.rows.reduce((s: number, r: any) => s + Number(r.montante) + Number(r.multa), 0);
-  const validade = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+  // Validade = last day (23:59:59) of the LATEST month selected
+  const MES_NUM: Record<string, number> = {
+    'Janeiro':1,'Fevereiro':2,'Março':3,'Abril':4,'Maio':5,'Junho':6,
+    'Julho':7,'Agosto':8,'Setembro':9,'Outubro':10,'Novembro':11,'Dezembro':12
+  };
+  const latest = checkRes.rows.reduce((acc: any, r: any) => {
+    const rYear = parseInt(r.ano);
+    const rMonth = MES_NUM[r.mes] ?? 1;
+    if (!acc || rYear > acc.year || (rYear === acc.year && rMonth > acc.month)) {
+      return { year: rYear, month: rMonth };
+    }
+    return acc;
+  }, null);
+  const lastDay = new Date(latest.year, latest.month, 0); // day 0 = last day of previous month
+  lastDay.setHours(23, 59, 59, 0);
+  const validade = lastDay.toISOString();
 
   // Upsert pagamentos record for each propina with combined reference
   for (const row of checkRes.rows) {
