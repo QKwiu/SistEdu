@@ -905,29 +905,53 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [currentMultaRegra, setCurrentMultaRegra] = useState<MultaRegra | null>(multaRegra);
-  const multaPanelRef = useRef<HTMLDivElement>(null);
+
+  // Inline multa model state (shown when tipo=propina)
+  const [multaModelo, setMultaModelo] = useState<1|2|3>(multaRegra?.modelo ?? 1);
+  const [multaDia, setMultaDia] = useState(String(multaRegra?.dia_limite ?? 10));
+  const [multaAplica, setMultaAplica] = useState(multaRegra?.aplica_automatico ?? true);
+  const [multaPerc, setMultaPerc] = useState(String(multaRegra?.percentagem ?? ""));
+  const [multaFixo, setMultaFixo] = useState(String(multaRegra?.valor_fixo ?? ""));
+  const [multaBrackets, setMultaBrackets] = useState<Bracket[]>(
+    multaRegra?.brackets?.length ? multaRegra.brackets : DEFAULT_BRACKETS
+  );
+  const [multaModeloSelecionado, setMultaModeloSelecionado] = useState<boolean>(!!multaRegra);
 
   const isPropina = form.tipo === "propina";
-  const needsMulta = isPropina && !currentMultaRegra;
 
-  const scrollToMulta = () => {
-    multaPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const addBracket = () => {
+    const last = multaBrackets[multaBrackets.length - 1];
+    setMultaBrackets(b => [...b, { dia_inicio: last ? last.dia_fim + 1 : 1, dia_fim: last ? last.dia_fim + 10 : 10, percentagem: 0 }]);
   };
+  const removeBracket = (i: number) => setMultaBrackets(b => b.filter((_, idx) => idx !== i));
+  const updateBracket = (i: number, field: keyof Bracket, val: string) =>
+    setMultaBrackets(b => b.map((br, idx) => idx === i ? { ...br, [field]: Number(val) } : br));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setSaving(true);
-    if (needsMulta) {
-      setError("É obrigatório configurar o modelo de cálculo de multa antes de registar uma propina.");
+    if (isPropina && !multaModeloSelecionado) {
+      setError("Seleccione o modelo de cobrança de multa antes de registar a propina.");
       setSaving(false);
-      scrollToMulta();
       return;
     }
     try {
+      // If propina: save multa_regra first (inline, same submit)
+      if (isPropina) {
+        const multaBody: any = { modelo: multaModelo, dia_limite: Number(multaDia), aplica_automatico: multaAplica };
+        if (multaModelo === 1) multaBody.percentagem = Number(multaPerc);
+        else if (multaModelo === 2) multaBody.brackets = multaBrackets;
+        else multaBody.valor_fixo = Number(multaFixo);
+        const mr = await api(`/admin/colegios/${schoolId}/multa-regra`, { method: "PUT", body: JSON.stringify(multaBody) });
+        const mrData = await mr.json();
+        if (!mr.ok) throw new Error(mrData.error ?? "Erro ao guardar regra de multa.");
+        setCurrentMultaRegra(mrData);
+      }
+      // Save emolumento
       const res = await api(`/admin/colegios/${schoolId}/emolumentos`, {
         method: "POST", body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro.");
+      if (!res.ok) throw new Error(data.error ?? "Erro ao guardar emolumento.");
       setList(l => [data, ...l]);
       setForm(f => ({ ...f, nome: "", montante: "" }));
     } catch (err: any) { setError(err.message); }
@@ -940,12 +964,19 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
     setList(l => l.filter(x => x.id !== id));
   };
 
+  const MODELO_INLINE = [
+    { id: 1 as const, label: "Modelo 1", sub: "Percentagem única", icon: <BadgePercent className="w-3.5 h-3.5" /> },
+    { id: 2 as const, label: "Modelo 2", sub: "Progressiva (escalões)", icon: <TrendingUp className="w-3.5 h-3.5" /> },
+    { id: 3 as const, label: "Modelo 3", sub: "Taxa fixa (Kz)", icon: <Banknote className="w-3.5 h-3.5" /> },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Add form */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
         <h4 className="font-semibold text-slate-700 mb-4">Adicionar emolumento</h4>
         <form onSubmit={submit} className="space-y-4">
+          {/* Base fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Tipo de emolumento" required>
               <select className={selectCls} value={form.tipo}
@@ -969,36 +1000,142 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
               <input className={inputCls} placeholder="ex: Propina Mensal — 10ª Classe" value={form.nome}
                 onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required />
             </Field>
-            <Field label="Montante (AOA)" required>
+            <Field label="Montante base (AOA)" required>
               <input type="number" min="0" className={inputCls} placeholder="35000" value={form.montante}
                 onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} required />
             </Field>
           </div>
-          {/* Warning: propina requires multa rule */}
-          {needsMulta && (
-            <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 flex items-start gap-3">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-900">Modelo de multa obrigatório</p>
-                <p className="text-xs text-amber-700 mt-0.5">
-                  Para registar uma propina, é necessário configurar primeiro o modelo de cálculo de multa.
-                  A multa é somada automaticamente ao total a pagar pelo encarregado.
+
+          {/* Inline multa model — shown only for propina */}
+          <AnimatePresence>
+          {isPropina && (
+            <motion.div key="multa-inline-section"
+                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-4 space-y-4 overflow-hidden">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <p className="text-sm font-semibold text-amber-900">Modelo de cobrança de multa <span className="text-red-500">*</span></p>
+                </div>
+                <p className="text-xs text-amber-700 -mt-2">
+                  A multa é automaticamente adicionada à propina: <strong>Propina + Multa = Total pago pelo encarregado.</strong>
+                  Seleccione como a multa por atraso será calculada para este colégio.
                 </p>
-                <button type="button" onClick={scrollToMulta}
-                  className="mt-2 text-xs font-semibold text-amber-800 underline hover:text-amber-900">
-                  Configurar modelo de multa agora ↓
-                </button>
-              </div>
-            </div>
+
+                {/* 3 model cards */}
+                <div className="grid grid-cols-3 gap-2">
+                  {MODELO_INLINE.map(m => (
+                    <button key={m.id} type="button"
+                      onClick={() => { setMultaModelo(m.id); setMultaModeloSelecionado(true); }}
+                      className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                        multaModeloSelecionado && multaModelo === m.id
+                          ? "border-amber-500 bg-white shadow-sm"
+                          : "border-slate-200 bg-white hover:border-amber-300"
+                      }`}>
+                      <div className={`flex items-center gap-1 text-xs font-semibold mb-0.5 ${multaModeloSelecionado && multaModelo === m.id ? "text-amber-800" : "text-slate-600"}`}>
+                        {m.icon}{m.label}
+                      </div>
+                      <p className="text-xs text-slate-400 leading-tight">{m.sub}</p>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Model-specific fields */}
+                {multaModeloSelecionado && (
+                  <div className="space-y-3 bg-white rounded-xl p-3 border border-amber-200">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Dia limite mensal">
+                        <input type="number" min="1" max="31" className={inputCls}
+                          placeholder="ex: 10" value={multaDia}
+                          onChange={e => setMultaDia(e.target.value)} required />
+                      </Field>
+                      <Field label="Aplicar automaticamente">
+                        <div className="flex items-center gap-2 h-[42px]">
+                          <button type="button" onClick={() => setMultaAplica(a => !a)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${multaAplica ? "bg-amber-500" : "bg-slate-300"}`}>
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${multaAplica ? "translate-x-4" : "translate-x-1"}`} />
+                          </button>
+                          <span className="text-xs text-slate-600">{multaAplica ? "Sim" : "Não"}</span>
+                        </div>
+                      </Field>
+                    </div>
+
+                    {multaModelo === 1 && (
+                      <Field label="Percentagem da multa (%)">
+                        <input type="number" min="0" max="100" step="0.1" className={inputCls}
+                          placeholder="ex: 10" value={multaPerc}
+                          onChange={e => setMultaPerc(e.target.value)} required={isPropina && multaModelo === 1} />
+                      </Field>
+                    )}
+
+                    {multaModelo === 2 && (
+                      <div>
+                        <p className={labelCls}>Escalões progressivos</p>
+                        <div className="space-y-1.5">
+                          {multaBrackets.map((b, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2 text-xs">
+                              <span className="text-slate-400 shrink-0">Escalão {i+1}</span>
+                              <span className="text-slate-400">Dia</span>
+                              <input type="number" min="1" max="31" className="w-14 px-2 py-1 border border-slate-200 rounded-lg text-center text-xs"
+                                value={b.dia_inicio} onChange={e => updateBracket(i,"dia_inicio",e.target.value)} />
+                              <span className="text-slate-400">–</span>
+                              <input type="number" min="1" max="31" className="w-14 px-2 py-1 border border-slate-200 rounded-lg text-center text-xs"
+                                value={b.dia_fim} onChange={e => updateBracket(i,"dia_fim",e.target.value)} />
+                              <span className="text-slate-400">→</span>
+                              <input type="number" min="0" max="100" className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-center text-xs"
+                                value={b.percentagem} onChange={e => updateBracket(i,"percentagem",e.target.value)} />
+                              <span className="text-slate-400">%</span>
+                              {multaBrackets.length > 1 && (
+                                <button type="button" onClick={() => removeBracket(i)} className="ml-auto text-slate-300 hover:text-red-400">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button type="button" onClick={addBracket}
+                          className="mt-1.5 text-xs text-amber-700 font-semibold flex items-center gap-1 hover:text-amber-900">
+                          <Plus className="w-3 h-3" />Adicionar escalão
+                        </button>
+                      </div>
+                    )}
+
+                    {multaModelo === 3 && (
+                      <Field label="Valor fixo da multa (AOA)">
+                        <input type="number" min="0" step="0.01" className={inputCls}
+                          placeholder="ex: 5000" value={multaFixo}
+                          onChange={e => setMultaFixo(e.target.value)} required={isPropina && multaModelo === 3} />
+                      </Field>
+                    )}
+
+                    {/* Preview */}
+                    <div className="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-800">
+                      <strong>Resumo: </strong>
+                      {!multaAplica
+                        ? `Após o dia ${multaDia||"?"}, propinas marcadas como atrasadas (sem multa automática).`
+                        : multaModelo === 1
+                        ? `Após o dia ${multaDia||"?"}, aplica ${multaPerc||0}% de multa sobre o montante.`
+                        : multaModelo === 2
+                        ? `Multa progressiva: ${multaBrackets.map(b=>`dias ${b.dia_inicio}–${b.dia_fim}→${b.percentagem}%`).join("; ")}.`
+                        : `Após o dia ${multaDia||"?"}, taxa fixa de ${Number(multaFixo||0).toLocaleString("pt-AO")} AOA.`}
+                    </div>
+                  </div>
+                )}
+
+                {!multaModeloSelecionado && (
+                  <p className="text-xs text-amber-700 italic">↑ Seleccione um dos modelos acima para continuar.</p>
+                )}
+            </motion.div>
           )}
+          </AnimatePresence>
+
           {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
-          <button type="submit" disabled={saving || needsMulta}
+          <button type="submit" disabled={saving || (isPropina && !multaModeloSelecionado)}
             className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2 ${
-              needsMulta
+              isPropina && !multaModeloSelecionado
                 ? "bg-slate-200 text-slate-400 cursor-not-allowed"
                 : "bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
             }`}>
-            {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A guardar...</> : <><Plus className="w-4 h-4" />Adicionar</>}
+            {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A guardar...</> : <><Plus className="w-4 h-4" />Adicionar emolumento</>}
           </button>
         </form>
       </div>
@@ -1050,14 +1187,12 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
         </div>
       )}
 
-      {/* Regras de multa */}
-      <div ref={multaPanelRef}>
-        <MultaRegrasPanel
-          schoolId={schoolId}
-          initial={currentMultaRegra}
-          onSaved={regra => setCurrentMultaRegra(regra)}
-        />
-      </div>
+      {/* Regras de multa — painel separado para editar após configuração inicial */}
+      <MultaRegrasPanel
+        schoolId={schoolId}
+        initial={currentMultaRegra}
+        onSaved={regra => setCurrentMultaRegra(regra)}
+      />
     </div>
   );
 }
