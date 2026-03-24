@@ -1,0 +1,461 @@
+MVP — Portal do Aluno (Fase 1)
+
+🎯 Objetivo do MVP
+
+Permitir que o encarregado:
+	•	Veja todos os alunos associados
+	•	Consulte propinas em aberto
+	•	Veja referências de pagamento
+	•	Identifique multas aplicadas
+	•	Acompanhe estado do pagamento
+
+⸻
+
+👥 1. Perfis
+
+🔹 Encarregado (principal no MVP)
+	•	Pode ter 1 ou vários alunos
+	•	Visualiza dados financeiros de todos
+
+🔹 Aluno
+	•	Não obrigatório nesta fase (opcional / read-only)
+
+⸻
+
+🧩 2. Módulos do MVP
+
+⸻
+
+🔐 2.1 Autenticação
+
+Funcionalidades:
+	•	Login com:
+	•	Nº de telemóvel + OTP (principal)
+	•	Sessão persistente
+
+Regra crítica:
+	•	Um número → 1 encarregado → N alunos
+
+⸻
+
+👨‍👩‍👧 2.2 Seleção de Aluno
+
+Funcionalidades:
+	•	Lista de alunos associados
+	•	Alternar entre alunos
+
+UI:
+	•	Cards com:
+	•	Nome
+	•	Turma
+	•	Estado financeiro (cor)
+
+⸻
+
+📊 2.3 Dashboard (Resumo rápido)
+
+Por encarregado:
+	•	Total em dívida (todos alunos)
+	•	Total de multas
+	•	Nº de propinas em atraso
+
+Por aluno:
+	•	Dívida total
+	•	Última propina
+	•	Estado
+
+⸻
+
+💰 2.4 Propinas por Liquidar (CORE DO MVP)
+
+Funcionalidades:
+	•	Listagem de propinas em aberto
+
+Cada item deve mostrar:
+	•	Mês (ex: Março 2026)
+	•	Valor base
+	•	Multa (se existir)
+	•	Total a pagar
+	•	Estado:
+	•	Pendente
+	•	Vencido
+
+⸻
+
+💳 2.5 Referências de Pagamento
+
+Funcionalidades:
+
+🔹 Visualizar referência
+	•	Entidade
+	•	Referência
+	•	Valor
+	•	Validade
+
+🔹 Ações:
+	•	Copiar referência
+	•	Botão: “Pagar” (informativo)
+
+⸻
+
+⚠️ 2.6 Multas (CRÍTICO)
+
+Funcionalidades:
+	•	Indicar claramente:
+	•	Se existe multa
+	•	Valor da multa
+	•	Motivo:
+	•	Atraso
+	•	Penalidade
+
+Regra:
+	•	Multa deve ser visível separadamente
+
+⸻
+
+🔄 2.7 Estado do Pagamento
+
+Estados:
+	•	Pendente
+	•	Em processamento
+	•	Pago
+	•	Expirado
+
+⸻
+
+📜 2.8 Histórico simples (opcional MVP+)
+	•	Últimos pagamentos (3–5)
+	•	Apenas para confiança do utilizador
+
+⸻
+
+⚙️ 3. Regras de Negócio (ESSENCIAL)
+
+⸻
+
+💡 Associação Encarregado → Alunos
+
+Encarregado
+   │
+   ├── Aluno 1
+   ├── Aluno 2
+   └── Aluno N
+Regras:
+	•	Um encarregado pode ver TODOS os alunos
+	•	Dados isolados por aluno
+
+⸻
+
+💸 Propinas
+	•	Geradas mensalmente
+	•	Cada propina tem:
+	•	valor_base
+	•	multa
+	•	total
+
+Multas
+
+Condição:
+	•	Aplicada se data atual > data de vencimento
+
+Exemplo:
+	•	Propina: 50.000 Kz
+	•	Multa: 5.000 Kz
+	•	Total: 55.000 Kz
+
+⸻
+
+🔗 Referência de Pagamento
+	•	Gerada por propina
+	•	Pode expirar
+	•	Deve ser única
+
+⸻
+
+🔁 Reconciliação (mínimo no MVP)
+	•	Atualização via:
+	•	polling simples ou webhook
+	•	Se pago:
+	•	estado → “Pago”
+
+⸻
+
+🗄️ 4. Modelo de Dados (simplificado)
+
+Encarregado
+- id
+- nome
+- telefone
+
+Aluno
+- id
+- nome
+- turma
+
+Encarregado_Aluno
+- encarregado_id
+- aluno_id
+
+Propina
+- id
+- aluno_id
+- mes
+- ano
+- valor_base
+- multa
+- total
+- estado
+
+Pagamento
+- id
+- propina_id
+- referencia
+- entidade
+- valor
+- estado
+- data_pagamento
+📱 5. UX (muito importante)
+
+Tela principal:
+
+👇 Estrutura
+	1.	Seletor de aluno (dropdown ou cards)
+	2.	Resumo:
+	•	Dívida total
+	•	Multas
+	3.	Lista de propinas:
+	•	Destaque para vencidas (vermelho)
+	4.	Botão:
+	•	Copiar referência
+	•	Ver detalhes
+
+⸻
+
+🎨 6. Estados visuais
+	•	🟢 Pago
+	•	🟡 Pendente
+	•	🔴 Vencido (com multa)
+
+⸻
+
+🚨 7. Edge Cases
+	•	Referência expirada
+	•	Pagamento não refletido
+	•	Multa recalculada
+	•	Aluno sem propina
+	•	Encarregado sem alunos (erro de cadastro)
+
+⸻
+
+🔌 8. Integração mínima necessária
+	•	Sistema académico (para alunos)
+	•	Sistema financeiro
+	•	Gateway de pagamento (mesmo que simulado)
+
+⸻
+
+📊 9. Métricas do MVP
+	•	% de utilizadores que consultam referência
+	•	Tempo até pagamento
+	•	Taxa de propinas pagas
+	•	Nº de acessos por encarregado
+
+⸻
+
+🔥 10. Roadmap pós-MVP
+
+Depois disso, evoluir para:
+	1.	Pagamento direto no portal
+	2.	Notificações automáticas
+	3.	Boletim de notas
+	4.	Declarações
+	5.	App mobile
+
+⸻
+
+✅ RESUMO EXECUTIVO
+
+Este MVP resolve o problema principal:
+
+✔ Saber quanto deve
+✔ Saber se tem multa
+✔ Saber como pagar
+✔ Fazer isso para vários filhos
+Prompt
+
+You are a senior full-stack engineer specialized in fintech and educational systems.
+
+Build a complete MVP web application called:
+
+"Portal do Encarregado - Gestão de Propinas"
+
+## 🎯 OBJECTIVE
+Create a system where a parent/guardian (encarregado) can:
+- Login using phone number
+- View multiple students linked to them
+- Check outstanding school fees (propinas)
+- View payment references
+- See penalties (multas)
+- Track payment status
+
+---
+
+## 🧱 TECH STACK
+
+Use:
+
+Frontend:
+- React (with Vite)
+- TailwindCSS
+- Axios
+
+Backend:
+- Node.js
+- Express.js
+
+Database:
+- SQLite (for MVP simplicity)
+
+Other:
+- JWT for authentication
+- Simple OTP simulation (no real SMS needed)
+
+---
+
+## 🔐 AUTHENTICATION
+
+- Login with phone number
+- Simulate OTP (hardcode: 1234)
+- Generate JWT after login
+- Each user = Encarregado
+
+---
+
+## 🗄️ DATABASE MODELS
+
+Create the following tables:
+
+### Encarregado
+- id
+- nome
+- telefone
+
+### Aluno
+- id
+- nome
+- turma
+
+### Encarregado_Aluno
+- id
+- encarregado_id
+- aluno_id
+
+### Propina
+- id
+- aluno_id
+- mes
+- ano
+- valor_base
+- multa
+- total
+- estado (PENDENTE, PAGO, VENCIDO)
+- data_vencimento
+
+### Pagamento
+- id
+- propina_id
+- entidade
+- referencia
+- valor
+- estado (PENDENTE, PAGO)
+- validade
+
+---
+
+## 🔁 BUSINESS LOGIC
+
+- If current date > data_vencimento → estado = VENCIDO
+- Multa is applied automatically if overdue
+- total = valor_base + multa
+
+---
+
+## 🌐 API ENDPOINTS
+
+### Auth
+POST /auth/login
+POST /auth/verify-otp
+
+### Encarregado
+GET /me
+
+### Alunos
+GET /alunos
+
+### Propinas
+GET /alunos/:id/propinas
+
+### Pagamentos
+GET /propinas/:id/pagamento
+
+---
+
+## 🎨 FRONTEND PAGES
+
+### 1. Login Page
+- Input: phone number
+- OTP screen
+
+---
+
+### 2. Dashboard
+
+Show:
+- Total dívida (all students)
+- Total multas
+- Number of overdue propinas
+
+---
+
+### 3. Student Selector
+- List all students
+- Click to switch context
+
+---
+
+### 4. Propinas List (CORE)
+
+For selected student, show:
+
+Each item:
+- Month + Year
+- Valor base
+- Multa (if any)
+- Total
+- Status (color-coded)
+- Button: "Ver Referência"
+
+---
+
+### 5. Payment Details
+
+Display:
+- Entidade
+- Referência
+- Valor
+- Validade
+
+Buttons:
+- Copy reference
+- Back
+
+---
+
+## 🎨 UI REQUIREMENTS
+
+- Clean, mobile-first design
+- Use colors:
+  - Green = Paid
+  - Yellow = Pending
+  - Red = Overdue
+- Use cards for students and propinas
