@@ -5,7 +5,7 @@ import {
   Shield, LayoutDashboard, Building2, LogOut, Plus, Trash2, ChevronRight,
   Upload, Landmark, Receipt, Users, GraduationCap, RefreshCw, CheckCircle2,
   AlertCircle, X, Download, TrendingUp, Banknote, School, FileSpreadsheet,
-  Eye, EyeOff, Search, ArrowLeft,
+  Eye, EyeOff, Search, ArrowLeft, Menu,
 } from "lucide-react";
 
 const API = "/api";
@@ -108,14 +108,14 @@ function StatsView({ stats }: { stats: Stats | null }) {
     { icon: <TrendingUp className="w-6 h-6 text-primary" />, label: "Total Propinas", value: fmt(stats.total_propinas), bg: "bg-primary/8" },
   ];
   return (
-    <div className="p-6 lg:p-8">
-      <h2 className="text-2xl font-bold text-slate-900 mb-6">Visão Geral da Plataforma</h2>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="p-4 sm:p-6 lg:p-8">
+      <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-5">Visão Geral da Plataforma</h2>
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         {cards.map((c, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-            className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-            <div className={`w-11 h-11 rounded-xl ${c.bg} flex items-center justify-center mb-3`}>{c.icon}</div>
-            <div className="text-2xl font-bold text-slate-900">{c.value}</div>
+            className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-5 shadow-sm">
+            <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${c.bg} flex items-center justify-center mb-3`}>{c.icon}</div>
+            <div className="text-xl sm:text-2xl font-bold text-slate-900">{c.value}</div>
             <div className="text-xs text-slate-500 mt-0.5">{c.label}</div>
           </motion.div>
         ))}
@@ -550,37 +550,39 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
   ];
 
   return (
-    <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-start gap-3 mb-5">
         <button onClick={onBack}
-          className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors">
+          className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors shrink-0 mt-0.5">
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div className="flex-1">
-          <h2 className="text-2xl font-bold text-slate-900">{currentSchool.name}</h2>
-          <p className="text-sm text-slate-500">{currentSchool.email} · {currentSchool.school_id}</p>
-        </div>
-        <div className="flex gap-2">
-          <span className="flex items-center gap-1.5 text-sm text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">
-            <Users className="w-4 h-4" />{currentSchool.total_alunos} alunos
-          </span>
-          <span className="flex items-center gap-1.5 text-sm text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">
-            <School className="w-4 h-4" />{currentSchool.total_turmas} turmas
-          </span>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{currentSchool.name}</h2>
+          <p className="text-sm text-slate-500 truncate">{currentSchool.email} · {currentSchool.school_id}</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+              <Users className="w-3.5 h-3.5" />{currentSchool.total_alunos} alunos
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+              <School className="w-3.5 h-3.5" />{currentSchool.total_turmas} turmas
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-slate-100 p-1 rounded-xl w-fit">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-              tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            }`}>
-            {t.icon}{t.label}
-          </button>
-        ))}
+      {/* Tabs — scrollable on mobile */}
+      <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 mb-5">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-max sm:w-fit">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${
+                tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              }`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab content */}
@@ -671,16 +673,16 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
   );
 
   return (
-    <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
-        <h2 className="text-2xl font-bold text-slate-900">Colégios ({colegios.length})</h2>
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Colégios ({colegios.length})</h2>
         <button onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+          className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors w-full sm:w-auto justify-center">
           <Plus className="w-4 h-4" /> Criar Colégio
         </button>
       </div>
 
-      <div className="relative mb-5">
+      <div className="relative mb-4">
         <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Pesquisar por nome ou email..."
@@ -705,36 +707,39 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
           )}
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-3 sm:gap-4">
           {filtered.map(c => (
             <div key={c.id}
-              className="bg-white border border-slate-100 rounded-2xl p-5 hover:border-slate-200 hover:shadow-sm transition-all flex items-center gap-5">
-              <div className="w-12 h-12 rounded-xl bg-primary/8 flex items-center justify-center shrink-0">
-                <Building2 className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-semibold text-slate-900 truncate">{c.name}</span>
-                  {c.iban && <Badge text="IBAN" color="green" />}
+              className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-5 hover:border-slate-200 hover:shadow-sm transition-all">
+              <div className="flex items-center gap-3 sm:gap-5">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/8 flex items-center justify-center shrink-0">
+                  <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
                 </div>
-                <p className="text-sm text-slate-500 truncate">{c.email}</p>
-                <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-400">
-                  <span>{c.total_alunos} alunos</span>
-                  <span>·</span>
-                  <span>{c.total_turmas} turmas</span>
-                  {c.nif && <><span>·</span><span>NIF: {c.nif}</span></>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className="font-semibold text-slate-900 truncate">{c.name}</span>
+                    {c.iban && <Badge text="IBAN" color="green" />}
+                  </div>
+                  <p className="text-sm text-slate-500 truncate">{c.email}</p>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-400 flex-wrap">
+                    <span>{c.total_alunos} alunos</span>
+                    <span>·</span>
+                    <span>{c.total_turmas} turmas</span>
+                    {c.nif && <><span>·</span><span>NIF: {c.nif}</span></>}
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button onClick={() => onSelect(c.id)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors">
-                  <Eye className="w-4 h-4" /> Gerir
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </button>
-                <button onClick={() => del(c.id, c.name)}
-                  className="p-2 rounded-xl hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => onSelect(c.id)}
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors">
+                    <Eye className="w-4 h-4" />
+                    <span className="hidden sm:inline">Gerir</span>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                  <button onClick={() => del(c.id, c.name)}
+                    className="p-2 rounded-xl hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -763,8 +768,8 @@ export default function AdminDashboard() {
   const [schoolDetail, setSchoolDetail] = useState<ColegioDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Auth check
   useEffect(() => {
     const token = getToken();
     if (!token) { setLocation("/admin"); return; }
@@ -774,7 +779,6 @@ export default function AdminDashboard() {
     });
   }, []);
 
-  // Load school detail when selected
   useEffect(() => {
     if (!selectedSchoolId) { setSchoolDetail(null); return; }
     setLoadingDetail(true);
@@ -790,65 +794,149 @@ export default function AdminDashboard() {
   };
 
   const NAV = [
-    { id: "stats" as const, label: "Visão Geral", icon: <LayoutDashboard className="w-4 h-4" /> },
-    { id: "colegios" as const, label: "Colégios", icon: <Building2 className="w-4 h-4" /> },
+    { id: "stats" as const, label: "Visão Geral", icon: <LayoutDashboard className="w-5 h-5" /> },
+    { id: "colegios" as const, label: "Colégios", icon: <Building2 className="w-5 h-5" /> },
   ];
 
+  const navigate = (id: AdminView) => {
+    setView(id);
+    setSelectedSchoolId(null);
+    setSidebarOpen(false);
+  };
+
+  const currentLabel = selectedSchoolId
+    ? schoolDetail?.name ?? "Colégio"
+    : NAV.find(n => n.id === view)?.label ?? "";
+
   return (
-    <div className="flex bg-slate-50">
-      {/* Sidebar — sticky, scrolls with page but stays in view */}
-      <aside className="sticky top-0 h-screen w-64 bg-slate-900 text-white flex flex-col shrink-0">
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-white/10 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-primary" />
+    <div className="min-h-screen bg-slate-50">
+
+      {/* ── Top Header ── */}
+      <header className="sticky top-0 z-30 bg-slate-900 text-white shadow-lg">
+        <div className="flex items-center h-14 px-4 gap-3">
+          {/* Menu toggle */}
+          <button
+            onClick={() => setSidebarOpen(o => !o)}
+            className="p-2 rounded-xl hover:bg-white/10 transition-colors shrink-0"
+            aria-label="Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          {/* Branding */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-primary" />
             </div>
-            <div>
-              <div className="font-bold text-sm leading-tight">Kiwara Tech</div>
-              <div className="text-xs text-slate-400">Administração Central</div>
+            <div className="hidden sm:block">
+              <span className="font-bold text-sm">Kiwara Tech</span>
+              <span className="text-slate-400 text-xs ml-1.5 hidden md:inline">— Administração Central</span>
             </div>
           </div>
-        </div>
 
-        {/* Nav */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {NAV.map(n => (
-            <button key={n.id}
-              onClick={() => { setView(n.id); setSelectedSchoolId(null); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                view === n.id && !selectedSchoolId
-                  ? "bg-white/10 text-white"
-                  : "text-slate-400 hover:text-white hover:bg-white/5"
-              }`}>
-              {n.icon}{n.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* Stats mini */}
-        {stats && (
-          <div className="px-4 py-3 border-t border-white/10 space-y-2 shrink-0">
-            <div className="flex justify-between text-xs text-slate-500">
-              <span>Colégios</span><span className="text-slate-300 font-semibold">{stats.total_colegios}</span>
-            </div>
-            <div className="flex justify-between text-xs text-slate-500">
-              <span>Alunos</span><span className="text-slate-300 font-semibold">{fmt(stats.total_alunos)}</span>
-            </div>
+          {/* Breadcrumb / page title */}
+          <div className="flex-1 flex items-center gap-2 min-w-0 ml-2">
+            <span className="text-slate-400 text-xs hidden sm:block">›</span>
+            <span className="text-sm font-medium text-slate-200 truncate">{currentLabel}</span>
           </div>
-        )}
 
-        {/* Logout */}
-        <div className="p-3 border-t border-white/10 shrink-0">
+          {/* Logout */}
           <button onClick={logout}
-            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
-            <LogOut className="w-4 h-4" /> Terminar sessão
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Sair</span>
           </button>
         </div>
-      </aside>
+      </header>
 
-      {/* Main content */}
-      <main className="flex-1 min-h-screen overflow-y-auto">
+      {/* ── Sidebar Drawer ── */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setSidebarOpen(false)}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            />
+
+            {/* Drawer */}
+            <motion.aside
+              key="drawer"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "tween", duration: 0.22, ease: "easeInOut" }}
+              className="fixed top-0 left-0 z-50 h-full w-72 bg-slate-900 text-white flex flex-col shadow-2xl"
+            >
+              {/* Drawer header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm leading-tight">Kiwara Tech</div>
+                    <div className="text-xs text-slate-400">Administração Central</div>
+                  </div>
+                </div>
+                <button onClick={() => setSidebarOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Nav */}
+              <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+                {NAV.map(n => (
+                  <button key={n.id}
+                    onClick={() => navigate(n.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                      view === n.id && !selectedSchoolId
+                        ? "bg-white/10 text-white"
+                        : "text-slate-400 hover:text-white hover:bg-white/5"
+                    }`}>
+                    {n.icon}{n.label}
+                  </button>
+                ))}
+              </nav>
+
+              {/* Stats mini */}
+              {stats && (
+                <div className="px-4 py-3 border-t border-white/10 space-y-2">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Colégios</span>
+                    <span className="text-slate-300 font-semibold">{stats.total_colegios}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Alunos</span>
+                    <span className="text-slate-300 font-semibold">{fmt(stats.total_alunos)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Dívida total</span>
+                    <span className="text-slate-300 font-semibold">{fmtCur(stats.divida_total)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Logout */}
+              <div className="p-3 border-t border-white/10">
+                <button onClick={logout}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
+                  <LogOut className="w-4 h-4" /> Terminar sessão
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Main Content ── */}
+      <main className="w-full">
         {selectedSchoolId ? (
           loadingDetail ? (
             <div className="flex items-center justify-center h-64">
