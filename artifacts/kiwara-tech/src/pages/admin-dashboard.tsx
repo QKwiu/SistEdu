@@ -43,10 +43,15 @@ interface Colegio {
 interface ColegioDetail extends Colegio {
   turmas: { id: number; nome: string; ano: string; turno: string }[];
   emolumentos: Emolumento[];
+  multa_regra: MultaRegra | null;
 }
 interface Emolumento {
   id: number; school_id: number; tipo: string; nome: string;
   montante: number; ano_lectivo: string;
+}
+interface MultaRegra {
+  id: number; school_id: number; dia_limite: number;
+  aplica_automatico: boolean; tipo_calculo: "fixa" | "percentual"; valor: number;
 }
 
 /* ─── Shared UI ─── */
@@ -363,21 +368,173 @@ function UploadAlunosPanel({ schoolId, anoLectivo }: { schoolId: number; anoLect
   );
 }
 
+/* ─── Emolumento tipo helpers ─── */
+const TIPO_GRUPOS = [
+  {
+    grupo: "Obrigatórios (fixos)",
+    items: [
+      { value: "propina", label: "Propina (mensalidade)" },
+      { value: "matricula", label: "Matrícula (primeira inscrição)" },
+      { value: "confirmacao_matricula", label: "Confirmação de matrícula (renovação anual)" },
+      { value: "seguro", label: "Seguro escolar" },
+      { value: "cartao_estudante", label: "Cartão de estudante" },
+    ],
+  },
+  {
+    grupo: "Académicos (por serviço)",
+    items: [
+      { value: "declaracao", label: "Declarações" },
+      { value: "certificado", label: "Certificados" },
+      { value: "emissao_notas", label: "Emissão de notas" },
+      { value: "segunda_via", label: "Segunda via de documentos" },
+      { value: "pedido_especial", label: "Pedidos especiais (transferência, equivalência)" },
+    ],
+  },
+  {
+    grupo: "Operacionais / Serviços",
+    items: [
+      { value: "transporte", label: "Transporte escolar" },
+      { value: "alimentacao", label: "Alimentação" },
+      { value: "uniforme", label: "Uniforme" },
+      { value: "extracurricular", label: "Atividades extracurriculares" },
+    ],
+  },
+  {
+    grupo: "Punitivos (multas)",
+    items: [
+      { value: "multa_atraso", label: "Multa por atraso de propina" },
+      { value: "multa_dano", label: "Multa por dano material" },
+    ],
+  },
+];
+
+function tipoLabel(v: string) {
+  for (const g of TIPO_GRUPOS) {
+    const found = g.items.find(i => i.value === v);
+    if (found) return found.label;
+  }
+  return v;
+}
+
+/* ─── Regras de Multa Panel ─── */
+function MultaRegrasPanel({ schoolId, initial }: { schoolId: number; initial: MultaRegra | null }) {
+  const [regra, setRegra] = useState<MultaRegra | null>(initial);
+  const [form, setForm] = useState({
+    dia_limite: String(initial?.dia_limite ?? 10),
+    aplica_automatico: initial?.aplica_automatico ?? true,
+    tipo_calculo: initial?.tipo_calculo ?? "fixa" as "fixa" | "percentual",
+    valor: String(initial?.valor ?? ""),
+  });
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(""); setSuccess(false); setSaving(true);
+    try {
+      const res = await api(`/admin/colegios/${schoolId}/multa-regra`, {
+        method: "PUT",
+        body: JSON.stringify({
+          dia_limite: Number(form.dia_limite),
+          aplica_automatico: form.aplica_automatico,
+          tipo_calculo: form.tipo_calculo,
+          valor: Number(form.valor),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setRegra(data);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err: any) { setError(err.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="mt-8 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+        <h4 className="font-semibold text-amber-900">Regras de cálculo de multa</h4>
+      </div>
+      <p className="text-xs text-amber-700 mb-5">
+        Após o dia limite mensal, o sistema marca as propinas como atrasadas. Se activado, aplica automaticamente a multa conforme a regra definida abaixo.
+      </p>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Dia limite mensal">
+            <input type="number" min="1" max="31" className={inputCls}
+              placeholder="ex: 10" value={form.dia_limite}
+              onChange={e => setForm(f => ({ ...f, dia_limite: e.target.value }))} required />
+          </Field>
+          <Field label="Tipo de cálculo da multa">
+            <select className={selectCls} value={form.tipo_calculo}
+              onChange={e => setForm(f => ({ ...f, tipo_calculo: e.target.value as "fixa" | "percentual" }))}>
+              <option value="fixa">Valor fixo (ex: 5.000 Kz)</option>
+              <option value="percentual">Percentual (ex: 10%)</option>
+            </select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label={form.tipo_calculo === "fixa" ? "Valor da multa (AOA)" : "Percentagem (%)"}>
+            <input type="number" min="0" step="0.01" className={inputCls}
+              placeholder={form.tipo_calculo === "fixa" ? "ex: 5000" : "ex: 10"}
+              value={form.valor}
+              onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} required />
+          </Field>
+          <Field label="Aplicar automaticamente">
+            <div className="flex items-center gap-3 h-[42px]">
+              <button type="button"
+                onClick={() => setForm(f => ({ ...f, aplica_automatico: !f.aplica_automatico }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  form.aplica_automatico ? "bg-primary" : "bg-slate-300"
+                }`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  form.aplica_automatico ? "translate-x-6" : "translate-x-1"
+                }`} />
+              </button>
+              <span className="text-sm text-slate-600">
+                {form.aplica_automatico ? "Sim — multa aplicada automaticamente" : "Não — apenas sinalizar atraso"}
+              </span>
+            </div>
+          </Field>
+        </div>
+
+        {/* Preview */}
+        <div className="bg-white border border-amber-200 rounded-xl px-4 py-3 text-sm text-slate-600">
+          <span className="font-semibold text-slate-800">Resumo da regra: </span>
+          Após o dia <span className="font-semibold">{form.dia_limite || "?"}</span> de cada mês,
+          {form.aplica_automatico
+            ? <> aplica automaticamente uma multa de <span className="font-semibold text-amber-700">
+                {form.tipo_calculo === "fixa"
+                  ? `${Number(form.valor || 0).toLocaleString("pt-AO")} AOA`
+                  : `${form.valor || 0}%`}
+              </span> sobre as propinas em atraso.</>
+            : <> apenas marca as propinas como atrasadas (sem multa automática).</>}
+        </div>
+
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
+        {success && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" /> Regra guardada com sucesso.
+          </div>
+        )}
+        <button type="submit" disabled={saving}
+          className="px-5 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60 flex items-center gap-2">
+          {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A guardar...</> : "Guardar regra de multa"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /* ─── Emolumentos Panel ─── */
-function EmolumentosPanel({ schoolId, initial }: { schoolId: number; initial: Emolumento[] }) {
+function EmolumentosPanel({ schoolId, initial, multaRegra }: {
+  schoolId: number; initial: Emolumento[]; multaRegra: MultaRegra | null;
+}) {
   const [list, setList] = useState<Emolumento[]>(initial);
   const [form, setForm] = useState({ tipo: "propina", nome: "", montante: "", ano_lectivo: "2025/2026" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  const TIPOS = [
-    { value: "matricula", label: "Matrícula" },
-    { value: "propina", label: "Propina Mensal" },
-    { value: "folha_prova", label: "Folha de Prova" },
-    { value: "seguro", label: "Seguro Escolar" },
-    { value: "exame", label: "Taxa de Exame" },
-    { value: "outro", label: "Outro" },
-  ];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setSaving(true);
@@ -399,25 +556,31 @@ function EmolumentosPanel({ schoolId, initial }: { schoolId: number; initial: Em
     setList(l => l.filter(x => x.id !== id));
   };
 
-  const tipoLabel = (t: string) => TIPOS.find(x => x.value === t)?.label ?? t;
-
   return (
     <div className="space-y-6">
       {/* Add form */}
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
         <h4 className="font-semibold text-slate-700 mb-4">Adicionar emolumento</h4>
         <form onSubmit={submit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Tipo">
-              <select className={selectCls} value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-                {TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Tipo de emolumento" required>
+              <select className={selectCls} value={form.tipo}
+                onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                {TIPO_GRUPOS.map(g => (
+                  <optgroup key={g.grupo} label={g.grupo}>
+                    {g.items.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </Field>
             <Field label="Ano lectivo">
-              <input className={inputCls} value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+              <input className={inputCls} value={form.ano_lectivo}
+                onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Descrição" required>
               <input className={inputCls} placeholder="ex: Propina Mensal — 10ª Classe" value={form.nome}
                 onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required />
@@ -442,8 +605,8 @@ function EmolumentosPanel({ schoolId, initial }: { schoolId: number; initial: Em
           <p className="text-sm">Nenhum emolumento registado</p>
         </div>
       ) : (
-        <div className="border border-slate-200 rounded-2xl overflow-hidden">
-          <table className="w-full text-sm text-left">
+        <div className="border border-slate-200 rounded-2xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm text-left min-w-[500px]">
             <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
               <tr>
                 <th className="px-5 py-3">Tipo</th>
@@ -458,8 +621,12 @@ function EmolumentosPanel({ schoolId, initial }: { schoolId: number; initial: Em
                 <tr key={em.id} className="hover:bg-slate-50/50">
                   <td className="px-5 py-3">
                     <Badge text={tipoLabel(em.tipo)} color={
-                      em.tipo === "matricula" ? "blue" : em.tipo === "propina" ? "green" :
-                      em.tipo === "folha_prova" ? "amber" : "slate"
+                      ["propina","confirmacao_matricula"].includes(em.tipo) ? "green" :
+                      ["matricula","cartao_estudante"].includes(em.tipo) ? "blue" :
+                      ["multa_atraso","multa_dano"].includes(em.tipo) ? "red" :
+                      ["declaracao","certificado","emissao_notas","segunda_via","pedido_especial"].includes(em.tipo) ? "blue" :
+                      ["transporte","alimentacao","uniforme","extracurricular"].includes(em.tipo) ? "slate" :
+                      "amber"
                     } />
                   </td>
                   <td className="px-5 py-3 font-medium text-slate-900">{em.nome}</td>
@@ -477,6 +644,9 @@ function EmolumentosPanel({ schoolId, initial }: { schoolId: number; initial: Em
           </table>
         </div>
       )}
+
+      {/* Regras de multa */}
+      <MultaRegrasPanel schoolId={schoolId} initial={multaRegra} />
     </div>
   );
 }
@@ -625,10 +795,16 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
         </div>
       )}
       {tab === "emolumentos" && (
-        <div className="bg-white border border-slate-100 rounded-2xl p-6">
-          <h3 className="font-semibold text-slate-900 mb-1">Emolumentos do colégio</h3>
-          <p className="text-sm text-slate-500 mb-5">Defina os tipos e valores de propinas, matrículas e outros encargos.</p>
-          <EmolumentosPanel schoolId={currentSchool.id} initial={currentSchool.emolumentos} />
+        <div className="space-y-0">
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-6">
+            <h3 className="font-semibold text-slate-900 mb-1">Emolumentos do colégio</h3>
+            <p className="text-sm text-slate-500 mb-5">Defina os tipos e valores de propinas, matrículas e outros encargos.</p>
+            <EmolumentosPanel
+              schoolId={currentSchool.id}
+              initial={currentSchool.emolumentos}
+              multaRegra={currentSchool.multa_regra}
+            />
+          </div>
         </div>
       )}
       {tab === "iban" && (

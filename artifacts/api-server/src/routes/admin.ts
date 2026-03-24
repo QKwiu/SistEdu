@@ -102,7 +102,16 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
     "SELECT * FROM emolumentos WHERE school_id=$1 ORDER BY tipo, ano_lectivo",
     [req.params.id]
   );
-  res.json({ ...r.rows[0], turmas: turmas.rows, emolumentos: emolumentos.rows });
+  const mregra = await pool.query(
+    "SELECT * FROM multa_regras WHERE school_id=$1",
+    [req.params.id]
+  );
+  res.json({
+    ...r.rows[0],
+    turmas: turmas.rows,
+    emolumentos: emolumentos.rows,
+    multa_regra: mregra.rows[0] ?? null,
+  });
 });
 
 /* ─── PUT /admin/colegios/:id/iban ─── */
@@ -144,6 +153,32 @@ router.post("/admin/colegios/:id/emolumentos", adminAuth, async (req, res) => {
 router.delete("/admin/emolumentos/:id", adminAuth, async (req, res) => {
   await pool.query("DELETE FROM emolumentos WHERE id=$1", [req.params.id]);
   res.status(204).end();
+});
+
+/* ─── GET /admin/colegios/:id/multa-regra ─── */
+router.get("/admin/colegios/:id/multa-regra", adminAuth, async (req, res) => {
+  const r = await pool.query("SELECT * FROM multa_regras WHERE school_id=$1", [req.params.id]);
+  res.json(r.rows[0] ?? null);
+});
+
+/* ─── PUT /admin/colegios/:id/multa-regra ─── */
+router.put("/admin/colegios/:id/multa-regra", adminAuth, async (req, res) => {
+  const { dia_limite, aplica_automatico, tipo_calculo, valor } = req.body;
+  if (!dia_limite || !tipo_calculo || valor === undefined) {
+    return res.status(400).json({ error: "dia_limite, tipo_calculo e valor são obrigatórios." });
+  }
+  if (!["fixa", "percentual"].includes(tipo_calculo)) {
+    return res.status(400).json({ error: "tipo_calculo deve ser 'fixa' ou 'percentual'." });
+  }
+  const r = await pool.query(
+    `INSERT INTO multa_regras (school_id, dia_limite, aplica_automatico, tipo_calculo, valor)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (school_id) DO UPDATE
+       SET dia_limite=$2, aplica_automatico=$3, tipo_calculo=$4, valor=$5, updated_at=NOW()
+     RETURNING *`,
+    [req.params.id, Number(dia_limite), Boolean(aplica_automatico), tipo_calculo, Number(valor)]
+  );
+  res.json(r.rows[0]);
 });
 
 /* ─── POST /admin/colegios/:id/alunos/upload ─── */
