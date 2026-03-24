@@ -267,4 +267,77 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
   });
 });
 
+/* ─── GET /school/propinas/:id/ajustes ─── */
+router.get("/school/propinas/:id/ajustes", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const check = await pool.query(
+    "SELECT id FROM propinas WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: "Propina não encontrada." });
+  const r = await pool.query(
+    "SELECT * FROM propina_ajustes WHERE propina_id=$1 ORDER BY created_at DESC",
+    [req.params.id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /school/propinas/:id/ajuste ─── */
+router.post("/school/propinas/:id/ajuste", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { tipo, multa_nova, valor_novo, nova_data_vencimento, motivo } = req.body;
+  if (!tipo || !["perdao","ajuste_valor","reagendamento","justificacao"].includes(tipo)) {
+    return res.status(400).json({ error: "tipo inválido." });
+  }
+  if (!motivo?.trim()) return res.status(400).json({ error: "Motivo é obrigatório." });
+
+  const propina = await pool.query(
+    "SELECT * FROM propinas WHERE id=$1 AND school_id=$2",
+    [req.params.id, school.school_id]
+  );
+  if (!propina.rows.length) return res.status(404).json({ error: "Propina não encontrada." });
+  const p = propina.rows[0];
+
+  const log: any = {
+    propina_id: p.id, tipo, motivo: motivo.trim(),
+    multa_anterior: p.multa, valor_anterior: p.montante,
+    created_by: `escola:${school.school_id}`,
+  };
+
+  if (tipo === "perdao") {
+    await pool.query("UPDATE propinas SET multa=0 WHERE id=$1", [p.id]);
+    log.multa_nova = 0;
+  } else if (tipo === "ajuste_valor") {
+    if (multa_nova !== undefined) {
+      await pool.query("UPDATE propinas SET multa=$1 WHERE id=$2", [Number(multa_nova), p.id]);
+      log.multa_nova = Number(multa_nova);
+    }
+    if (valor_novo !== undefined) {
+      await pool.query("UPDATE propinas SET montante=$1 WHERE id=$2", [Number(valor_novo), p.id]);
+      log.valor_novo = Number(valor_novo);
+    }
+  } else if (tipo === "reagendamento") {
+    if (!nova_data_vencimento) return res.status(400).json({ error: "Nova data é obrigatória." });
+    await pool.query(
+      "UPDATE propinas SET data_vencimento=$1, status='pendente', multa=0 WHERE id=$2",
+      [nova_data_vencimento, p.id]
+    );
+    log.nova_data_vencimento = nova_data_vencimento;
+  }
+
+  await pool.query(
+    `INSERT INTO propina_ajustes
+       (propina_id, tipo, multa_anterior, multa_nova, valor_anterior, valor_novo, nova_data_vencimento, motivo, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [log.propina_id, log.tipo, log.multa_anterior, log.multa_nova ?? null,
+     log.valor_anterior, log.valor_novo ?? null, log.nova_data_vencimento ?? null,
+     log.motivo, log.created_by]
+  );
+
+  const updated = await pool.query("SELECT * FROM propinas WHERE id=$1", [p.id]);
+  res.json(updated.rows[0]);
+});
+
 export default router;

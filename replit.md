@@ -110,6 +110,8 @@ Utility scripts package. Each script is a `.ts` file in `src/` with a correspond
 | `propinas` | school_id, student_id, mes, ano, montante, multa, status, data_vencimento |
 | `pagamentos` | propina_id (UNIQUE), entidade, referencia, valor, estado, validade |
 | `ocorrencias` | student_id, tipo, descricao, registado_por, data_ocorrencia |
+| `multa_regras` | school_id (UNIQUE), modelo (1=única/2=progressiva/3=fixa), dia_limite, aplica_automatico, percentagem, valor_fixo, brackets (JSONB) |
+| `propina_ajustes` | propina_id, tipo (perdao/ajuste_valor/reagendamento/justificacao), multa_anterior, multa_nova, valor_anterior, valor_novo, nova_data_vencimento, motivo, created_by |
 
 ### students.estado values: activo | inactivo | transferido | concluido
 ### students.sexo values: M | F | Outro
@@ -140,7 +142,10 @@ Propinas de Março 2026: Carlos Silva=PAGO, Mateus Gomes=PAGO, Ana Silva=PENDENT
 - `GET/POST /api/school/turmas`, `DELETE /api/school/turmas/:id`
 - `GET/POST /api/school/alunos` (includes data_nascimento, sexo, numero_processo, estado, turno), `DELETE /api/school/alunos/:id`
 - `GET /api/school/propinas`, `POST /api/school/propinas/gerar`, `POST /api/school/propinas/referencia`
+- `GET /api/school/propinas/:id/ajustes`, `POST /api/school/propinas/:id/ajuste`
 - `POST /api/guardian/login`, `POST /api/guardian/change-password`, `GET /api/guardian/me`
 - `GET /api/guardian/alunos`, `GET /api/guardian/alunos/:id/propinas`, `GET /api/guardian/alunos/:id/ocorrencias`
 - `POST /api/guardian/pagamentos/gerar`
 - `GET/POST/DELETE /api/ocorrencias` (school backoffice)
+- `GET/PUT /api/admin/colegios/:id/multa-regra` (3 models: 1=única%, 2=progressiva escalões, 3=fixa Kz)
+- `GET /api/admin/colegios/:id/propinas`, `GET /api/admin/propinas/:id/ajustes`, `POST /api/admin/propinas/:id/ajuste`

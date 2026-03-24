@@ -138,12 +138,62 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
   );
   if (check.rows.length === 0) return res.status(403).json({ error: "Acesso negado." });
 
-  // Auto-update vencido status for past-due propinas
-  await pool.query(`
-    UPDATE propinas
-    SET status = 'vencido', multa = CASE WHEN multa = 0 THEN 5000 ELSE multa END
-    WHERE student_id = $1 AND status = 'pendente' AND data_vencimento < NOW()
-  `, [id]);
+  // Auto-update vencido status and apply multa based on school rule
+  const overdueRes = await pool.query(
+    `SELECT p.id, p.montante, p.multa, p.school_id
+     FROM propinas p
+     WHERE p.student_id=$1 AND p.status='pendente' AND p.data_vencimento < NOW()`,
+    [id]
+  );
+
+  if (overdueRes.rows.length > 0) {
+    // Load school multa rule once (all propinas belong to same school)
+    const schoolId = overdueRes.rows[0].school_id;
+    const regraRes = await pool.query(
+      "SELECT * FROM multa_regras WHERE school_id=$1", [schoolId]
+    );
+    const regra = regraRes.rows[0] ?? null;
+    const today = new Date();
+    const diaAtual = today.getDate();
+
+    for (const p of overdueRes.rows) {
+      let multa = Number(p.multa);
+      if (multa === 0 && regra && regra.aplica_automatico) {
+        const modelo = Number(regra.modelo ?? 1);
+        if (modelo === 1) {
+          if (diaAtual > Number(regra.dia_limite)) {
+            multa = Number(p.montante) * (Number(regra.percentagem) / 100);
+          }
+        } else if (modelo === 2) {
+          const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
+          for (const b of brackets) {
+            if (diaAtual >= Number(b.dia_inicio) && diaAtual <= Number(b.dia_fim)) {
+              multa = Number(p.montante) * (Number(b.percentagem) / 100);
+              break;
+            }
+          }
+          if (multa === 0 && brackets.length > 0 && diaAtual > Number(brackets[brackets.length - 1].dia_fim)) {
+            multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
+          }
+        } else if (modelo === 3) {
+          if (diaAtual > Number(regra.dia_limite)) {
+            multa = Number(regra.valor_fixo);
+          }
+        }
+        if (multa === 0) multa = 0;
+      }
+      await pool.query(
+        "UPDATE propinas SET status='vencido', multa=$1 WHERE id=$2",
+        [multa, p.id]
+      );
+    }
+  } else {
+    // Still mark as vencido even if no rule
+    await pool.query(
+      "UPDATE propinas SET status='vencido' WHERE student_id=$1 AND status='pendente' AND data_vencimento < NOW()",
+      [id]
+    );
+  }
 
   const result = await pool.query(`
     SELECT

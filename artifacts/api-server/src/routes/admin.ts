@@ -161,24 +161,118 @@ router.get("/admin/colegios/:id/multa-regra", adminAuth, async (req, res) => {
   res.json(r.rows[0] ?? null);
 });
 
-/* ─── PUT /admin/colegios/:id/multa-regra ─── */
+/* ─── PUT /admin/colegios/:id/multa-regra — supports 3 models ─── */
 router.put("/admin/colegios/:id/multa-regra", adminAuth, async (req, res) => {
-  const { dia_limite, aplica_automatico, tipo_calculo, valor } = req.body;
-  if (!dia_limite || !tipo_calculo || valor === undefined) {
-    return res.status(400).json({ error: "dia_limite, tipo_calculo e valor são obrigatórios." });
+  const { modelo, dia_limite, aplica_automatico, percentagem, valor_fixo, brackets } = req.body;
+  if (!modelo || ![1, 2, 3].includes(Number(modelo)) || !dia_limite) {
+    return res.status(400).json({ error: "modelo (1-3) e dia_limite são obrigatórios." });
   }
-  if (!["fixa", "percentual"].includes(tipo_calculo)) {
-    return res.status(400).json({ error: "tipo_calculo deve ser 'fixa' ou 'percentual'." });
-  }
+  const m = Number(modelo);
+  const tipoCal = m === 3 ? "fixa" : "percentual";
+  const valor = m === 3 ? Number(valor_fixo ?? 0) : Number(percentagem ?? 0);
   const r = await pool.query(
-    `INSERT INTO multa_regras (school_id, dia_limite, aplica_automatico, tipo_calculo, valor)
-     VALUES ($1,$2,$3,$4,$5)
+    `INSERT INTO multa_regras
+       (school_id, modelo, dia_limite, aplica_automatico, percentagem, valor_fixo, brackets, tipo_calculo, valor)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (school_id) DO UPDATE
-       SET dia_limite=$2, aplica_automatico=$3, tipo_calculo=$4, valor=$5, updated_at=NOW()
+       SET modelo=$2, dia_limite=$3, aplica_automatico=$4,
+           percentagem=$5, valor_fixo=$6, brackets=$7,
+           tipo_calculo=$8, valor=$9, updated_at=NOW()
      RETURNING *`,
-    [req.params.id, Number(dia_limite), Boolean(aplica_automatico), tipo_calculo, Number(valor)]
+    [
+      req.params.id, m, Number(dia_limite), Boolean(aplica_automatico),
+      Number(percentagem ?? 0), Number(valor_fixo ?? 0),
+      JSON.stringify(brackets ?? []), tipoCal, valor,
+    ]
   );
   res.json(r.rows[0]);
+});
+
+/* ─── GET /admin/colegios/:id/propinas ─── */
+router.get("/admin/colegios/:id/propinas", adminAuth, async (req, res) => {
+  const { student_id } = req.query;
+  const extra = student_id ? "AND p.student_id = $2" : "";
+  const params: any[] = [req.params.id];
+  if (student_id) params.push(student_id);
+  const r = await pool.query(
+    `SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa,
+            (p.montante + p.multa) AS total, p.status, p.data_vencimento,
+            s.nome AS aluno_nome,
+            COALESCE(t.nome,'Sem turma') AS turma,
+            pg.entidade, pg.referencia AS ref_numero, pg.validade AS ref_validade
+     FROM propinas p
+     JOIN students s ON s.id = p.student_id
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     LEFT JOIN pagamentos pg ON pg.propina_id = p.id
+     WHERE p.school_id = $1 ${extra}
+     ORDER BY p.ano DESC,
+       CASE p.mes
+         WHEN 'Janeiro' THEN 1 WHEN 'Fevereiro' THEN 2 WHEN 'Março' THEN 3
+         WHEN 'Abril' THEN 4 WHEN 'Maio' THEN 5 WHEN 'Junho' THEN 6
+         WHEN 'Julho' THEN 7 WHEN 'Agosto' THEN 8 WHEN 'Setembro' THEN 9
+         WHEN 'Outubro' THEN 10 WHEN 'Novembro' THEN 11 WHEN 'Dezembro' THEN 12
+       END DESC, s.nome`,
+    params
+  );
+  res.json(r.rows);
+});
+
+/* ─── GET /admin/propinas/:id/ajustes ─── */
+router.get("/admin/propinas/:id/ajustes", adminAuth, async (req, res) => {
+  const r = await pool.query(
+    "SELECT * FROM propina_ajustes WHERE propina_id=$1 ORDER BY created_at DESC",
+    [req.params.id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /admin/propinas/:id/ajuste ─── */
+router.post("/admin/propinas/:id/ajuste", adminAuth, async (req, res) => {
+  const { tipo, multa_nova, valor_novo, nova_data_vencimento, motivo } = req.body;
+  if (!tipo || !["perdao","ajuste_valor","reagendamento","justificacao"].includes(tipo)) {
+    return res.status(400).json({ error: "tipo inválido." });
+  }
+  if (!motivo?.trim()) return res.status(400).json({ error: "Motivo é obrigatório." });
+
+  const propina = await pool.query("SELECT * FROM propinas WHERE id=$1", [req.params.id]);
+  if (!propina.rows.length) return res.status(404).json({ error: "Propina não encontrada." });
+  const p = propina.rows[0];
+
+  const log: any = {
+    propina_id: p.id, tipo, motivo: motivo.trim(),
+    multa_anterior: p.multa, valor_anterior: p.montante, created_by: "admin",
+  };
+
+  if (tipo === "perdao") {
+    await pool.query("UPDATE propinas SET multa=0 WHERE id=$1", [p.id]);
+    log.multa_nova = 0;
+  } else if (tipo === "ajuste_valor") {
+    if (multa_nova !== undefined) {
+      await pool.query("UPDATE propinas SET multa=$1 WHERE id=$2", [Number(multa_nova), p.id]);
+      log.multa_nova = Number(multa_nova);
+    }
+    if (valor_novo !== undefined) {
+      await pool.query("UPDATE propinas SET montante=$1 WHERE id=$2", [Number(valor_novo), p.id]);
+      log.valor_novo = Number(valor_novo);
+    }
+  } else if (tipo === "reagendamento") {
+    if (!nova_data_vencimento) return res.status(400).json({ error: "Nova data é obrigatória." });
+    await pool.query("UPDATE propinas SET data_vencimento=$1, status='pendente' WHERE id=$2",
+      [nova_data_vencimento, p.id]);
+    log.nova_data_vencimento = nova_data_vencimento;
+  }
+
+  await pool.query(
+    `INSERT INTO propina_ajustes
+       (propina_id, tipo, multa_anterior, multa_nova, valor_anterior, valor_novo, nova_data_vencimento, motivo, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [log.propina_id, log.tipo, log.multa_anterior, log.multa_nova ?? null,
+     log.valor_anterior, log.valor_novo ?? null, log.nova_data_vencimento ?? null,
+     log.motivo, log.created_by]
+  );
+
+  const updated = await pool.query("SELECT * FROM propinas WHERE id=$1", [p.id]);
+  res.json(updated.rows[0]);
 });
 
 /* ─── POST /admin/colegios/:id/alunos/upload ─── */
