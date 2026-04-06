@@ -1,6 +1,28 @@
 import { Router } from "express";
 import { randomBytes } from "crypto";
 import { pool } from "@workspace/db";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${randomBytes(6).toString("hex")}${ext}`);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+  },
+});
 
 const router = Router();
 
@@ -475,51 +497,72 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
   res.json({ inserted, skipped, errors, total: alunos.length, encarregados_criados });
 });
 
-/* ─── POST /admin/colegios/:id/alunos — create single student ─── */
-router.post("/admin/colegios/:id/alunos", adminAuth, async (req, res) => {
+/* ─── POST /admin/colegios/:id/alunos — create single student (multipart) ─── */
+const alunoUpload = upload.fields([
+  { name: "bi_doc", maxCount: 1 },
+  { name: "bi_encarregado_doc", maxCount: 1 },
+  { name: "docs_transferencia", maxCount: 5 },
+]);
+
+router.post("/admin/colegios/:id/alunos", adminAuth, (req, res, next) => {
+  alunoUpload(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req: any, res: any) => {
   const schoolId = Number(req.params.id);
-  const row = req.body as {
-    nome: string; bilhete?: string; numero_processo?: string;
-    data_nascimento?: string; sexo?: string;
-    turma_id?: number; turma_nome?: string; turno?: string;
-    nome_encarregado?: string; telefone_encarregado?: string;
-    pacote_id?: number; ano_lectivo?: string;
-  };
+  const b = req.body;
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
 
-  if (!row.nome?.trim()) return res.status(400).json({ error: "Nome do aluno é obrigatório." });
+  if (!b.nome?.trim()) return res.status(400).json({ error: "Nome do aluno é obrigatório." });
 
-  const anoLectivo = row.ano_lectivo || "2025/2026";
+  const isTransferencia = b.is_transferencia === "true" || b.is_transferencia === "1";
+  if (isTransferencia && !files?.docs_transferencia?.length) {
+    return res.status(400).json({ error: "Para transferência, o documento da instituição anterior é obrigatório." });
+  }
+
+  const anoLectivo = b.ano_lectivo || "2025/2026";
+  const biDocPath = files?.bi_doc?.[0]?.filename ?? null;
+  const biEncDocPath = files?.bi_encarregado_doc?.[0]?.filename ?? null;
+  const docsTransfPaths = files?.docs_transferencia?.map(f => f.filename).join(",") ?? null;
 
   try {
     // Resolve turma
-    let turmaId: number | null = row.turma_id ?? null;
-    if (!turmaId && row.turma_nome?.trim()) {
+    let turmaId: number | null = b.turma_id ? Number(b.turma_id) : null;
+    if (!turmaId && b.turma_nome?.trim()) {
       const existing = await pool.query(
-        "SELECT id FROM turmas WHERE school_id=$1 AND LOWER(nome)=LOWER($2)", [schoolId, row.turma_nome.trim()]
+        "SELECT id FROM turmas WHERE school_id=$1 AND LOWER(nome)=LOWER($2)", [schoolId, b.turma_nome.trim()]
       );
       if (existing.rows[0]) {
         turmaId = existing.rows[0].id;
       } else {
         const nt = await pool.query(
           "INSERT INTO turmas (school_id, nome, ano, turno) VALUES ($1,$2,$3,$4) RETURNING id",
-          [schoolId, row.turma_nome.trim(), anoLectivo, row.turno || "Manhã"]
+          [schoolId, b.turma_nome.trim(), anoLectivo, b.turno || "Manhã"]
         );
         turmaId = nt.rows[0].id;
       }
     }
 
-    // Insert student
+    // Insert student with all fields
     const st = await pool.query(
       `INSERT INTO students
-         (school_id, turma_id, nome, bilhete, numero_processo, data_nascimento,
-          sexo, nome_encarregado, telefone_encarregado, estado)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'activo')
-       RETURNING id, nome, bilhete, numero_processo, data_nascimento, sexo,
-                 nome_encarregado, telefone_encarregado, turma_id, estado, created_at`,
-      [schoolId, turmaId, row.nome.trim(),
-       row.bilhete?.trim() || null, row.numero_processo?.trim() || null,
-       row.data_nascimento || null, row.sexo || null,
-       row.nome_encarregado?.trim() || null, row.telefone_encarregado?.trim() || null]
+         (school_id, turma_id, nome, bilhete, numero_processo, data_nascimento, sexo,
+          nome_encarregado, telefone_encarregado, estado,
+          bi_doc_path, bi_encarregado_doc_path,
+          is_transferencia, escola_anterior, ano_classe_anterior, docs_transferencia_path)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'activo',$10,$11,$12,$13,$14,$15)
+       RETURNING id, nome, bilhete, estado, created_at`,
+      [
+        schoolId, turmaId, b.nome.trim(),
+        b.bilhete?.trim() || null, b.numero_processo?.trim() || null,
+        b.data_nascimento || null, b.sexo || null,
+        b.nome_encarregado?.trim() || null, b.telefone_encarregado?.trim() || null,
+        biDocPath, biEncDocPath,
+        isTransferencia,
+        b.escola_anterior?.trim() || null, b.ano_classe_anterior?.trim() || null,
+        docsTransfPaths,
+      ]
     );
     const student = st.rows[0];
 
@@ -529,13 +572,13 @@ router.post("/admin/colegios/:id/alunos", adminAuth, async (req, res) => {
         `INSERT INTO matriculas (student_id, turma_id, ano_lectivo, pacote_id)
          VALUES ($1,$2,$3,$4) ON CONFLICT (student_id, turma_id, ano_lectivo)
          DO UPDATE SET pacote_id = EXCLUDED.pacote_id`,
-        [student.id, turmaId, anoLectivo, row.pacote_id ?? null]
+        [student.id, turmaId, anoLectivo, b.pacote_id ? Number(b.pacote_id) : null]
       );
     }
 
     // Encarregado
-    const telefoneEnc = row.telefone_encarregado?.toString().replace(/\D/g, "").trim();
-    if (telefoneEnc && row.nome_encarregado?.trim()) {
+    const telefoneEnc = b.telefone_encarregado?.toString().replace(/\D/g, "").trim();
+    if (telefoneEnc && b.nome_encarregado?.trim()) {
       const existing = await pool.query("SELECT id FROM encarregados WHERE telefone=$1", [telefoneEnc]);
       let encId: number;
       if (existing.rows[0]) {
@@ -545,7 +588,7 @@ router.post("/admin/colegios/:id/alunos", adminAuth, async (req, res) => {
         const hash = await bcrypt.hash("1234", 10);
         const ne = await pool.query(
           `INSERT INTO encarregados (nome, telefone, password, first_login) VALUES ($1,$2,$3,TRUE) RETURNING id`,
-          [row.nome_encarregado.trim(), telefoneEnc, hash]
+          [b.nome_encarregado.trim(), telefoneEnc, hash]
         );
         encId = ne.rows[0].id;
       }
