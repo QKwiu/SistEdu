@@ -134,25 +134,43 @@ router.get("/admin/colegios/:id/pacotes", adminAuth, async (req, res) => {
 /* ─── POST /admin/colegios/:id/pacotes — create package ─── */
 router.post("/admin/colegios/:id/pacotes", adminAuth, async (req, res) => {
   const schoolId = Number(req.params.id);
-  const { nome, componentes, valor, descricao } = req.body;
+  const { nome, itens, descricao } = req.body as {
+    nome: string;
+    itens: Array<{ nome: string; tipo: string; valor: number }>;
+    descricao?: string;
+  };
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do pacote é obrigatório." });
-  if (!valor || isNaN(Number(valor))) return res.status(400).json({ error: "Valor é obrigatório." });
+  if (!Array.isArray(itens) || itens.length === 0) return res.status(400).json({ error: "Adicione pelo menos um item ao pacote." });
+
+  // Auto-calculate total from items
+  const total = itens.reduce((s, item) => s + Number(item.valor || 0), 0);
+  const itensClean = itens.map(i => ({ nome: i.nome?.trim() || "", tipo: i.tipo || "outro", valor: Number(i.valor || 0) }));
+
   const r = await pool.query(
-    `INSERT INTO pacotes_emolumentos (school_id, nome, componentes, valor, descricao)
+    `INSERT INTO pacotes_emolumentos (school_id, nome, itens, valor, descricao)
      VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [schoolId, nome.trim(), componentes?.trim() || "", Number(valor), descricao?.trim() || null]
+    [schoolId, nome.trim(), JSON.stringify(itensClean), total, descricao?.trim() || null]
   );
   res.status(201).json(r.rows[0]);
 });
 
 /* ─── PUT /admin/pacotes/:id — update package ─── */
 router.put("/admin/pacotes/:id", adminAuth, async (req, res) => {
-  const { nome, componentes, valor, descricao, activo } = req.body;
+  const { nome, itens, descricao, activo } = req.body as {
+    nome: string;
+    itens: Array<{ nome: string; tipo: string; valor: number }>;
+    descricao?: string;
+    activo?: boolean;
+  };
+  const itensClean = Array.isArray(itens)
+    ? itens.map(i => ({ nome: i.nome?.trim() || "", tipo: i.tipo || "outro", valor: Number(i.valor || 0) }))
+    : [];
+  const total = itensClean.reduce((s, i) => s + i.valor, 0);
   const r = await pool.query(
     `UPDATE pacotes_emolumentos
-     SET nome=$1, componentes=$2, valor=$3, descricao=$4, activo=$5
+     SET nome=$1, itens=$2, valor=$3, descricao=$4, activo=$5
      WHERE id=$6 RETURNING *`,
-    [nome?.trim(), componentes?.trim() || "", Number(valor), descricao?.trim() || null, activo !== false, req.params.id]
+    [nome?.trim(), JSON.stringify(itensClean), total, descricao?.trim() || null, activo !== false, req.params.id]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Pacote não encontrado." });
   res.json(r.rows[0]);

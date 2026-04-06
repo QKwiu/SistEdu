@@ -41,9 +41,12 @@ interface Colegio {
   email: string; iban?: string; created_at: string;
   total_alunos: number; total_turmas: number; usa_pacotes: boolean;
 }
+interface PacoteItem { nome: string; tipo: string; valor: number; }
 interface PacoteEmolumento {
-  id: number; school_id: number; nome: string; componentes: string;
-  valor: number; descricao?: string; activo: boolean; created_at: string;
+  id: number; school_id: number; nome: string;
+  itens: PacoteItem[];
+  valor: number;
+  descricao?: string; activo: boolean; created_at: string;
 }
 interface ColegioDetail extends Colegio {
   turmas: { id: number; nome: string; ano: string; turno: string }[];
@@ -1449,6 +1452,22 @@ function IBANPanel({ schoolId, currentIban, onUpdated }: { schoolId: number; cur
 }
 
 /* ─── Pacotes de Emolumentos Panel ─── */
+const ITEM_TIPOS: { value: string; label: string; color: string }[] = [
+  { value: "propina",         label: "Propina Mensal",             color: "bg-blue-50 text-blue-700 border-blue-100" },
+  { value: "transporte",      label: "Transporte",                 color: "bg-amber-50 text-amber-700 border-amber-100" },
+  { value: "atl",             label: "ATL",                        color: "bg-purple-50 text-purple-700 border-purple-100" },
+  { value: "alimentacao",     label: "Alimentação",                color: "bg-green-50 text-green-700 border-green-100" },
+  { value: "seguro",          label: "Seguro Escolar",             color: "bg-rose-50 text-rose-700 border-rose-100" },
+  { value: "uniforme",        label: "Uniforme",                   color: "bg-cyan-50 text-cyan-700 border-cyan-100" },
+  { value: "extracurricular", label: "Actividades Extracurriculares", color: "bg-orange-50 text-orange-700 border-orange-100" },
+  { value: "outro",           label: "Outro",                      color: "bg-slate-50 text-slate-600 border-slate-200" },
+];
+const pacItemLabel = (t: string) => ITEM_TIPOS.find(x => x.value === t)?.label ?? t;
+const pacItemColor = (t: string) => ITEM_TIPOS.find(x => x.value === t)?.color ?? "bg-slate-50 text-slate-600 border-slate-200";
+const fmtKz = (v: number) => Number(v).toLocaleString("pt-AO") + " Kz";
+
+const BLANK_ITEM = (): { nome: string; tipo: string; valor: string } => ({ nome: "", tipo: "propina", valor: "" });
+
 function PacotesPanel({ schoolId, initial, onUpdated }: {
   schoolId: number;
   initial: PacoteEmolumento[];
@@ -1457,59 +1476,82 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
   const [pacotes, setPacotes] = useState(initial);
   const [editId, setEditId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ nome: "", componentes: "", valor: "", descricao: "" });
+  const [nome, setNome] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [itens, setItens] = useState<Array<{ nome: string; tipo: string; valor: string }>>([BLANK_ITEM()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const fmtVal = (v: number) => Number(v).toLocaleString("pt-AO") + " Kz";
+  const totalCalc = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
 
-  const resetForm = () => { setForm({ nome: "", componentes: "", valor: "", descricao: "" }); setError(""); };
-
+  const resetForm = () => {
+    setNome(""); setDescricao(""); setItens([BLANK_ITEM()]); setError("");
+  };
   const startCreate = () => { resetForm(); setCreating(true); setEditId(null); };
   const startEdit = (p: PacoteEmolumento) => {
-    setForm({ nome: p.nome, componentes: p.componentes, valor: String(p.valor), descricao: p.descricao || "" });
-    setEditId(p.id); setCreating(false);
+    setNome(p.nome);
+    setDescricao(p.descricao || "");
+    setItens(
+      Array.isArray(p.itens) && p.itens.length > 0
+        ? p.itens.map(i => ({ nome: i.nome, tipo: i.tipo, valor: String(i.valor) }))
+        : [BLANK_ITEM()]
+    );
+    setEditId(p.id); setCreating(false); setError("");
   };
   const cancel = () => { setCreating(false); setEditId(null); resetForm(); };
 
+  const addItem = () => setItens(prev => [...prev, BLANK_ITEM()]);
+  const removeItem = (idx: number) => setItens(prev => prev.filter((_, i) => i !== idx));
+  const updateItem = (idx: number, field: keyof typeof itens[0], val: string) =>
+    setItens(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
+
+  const buildPayload = () => ({
+    nome: nome.trim(),
+    descricao: descricao.trim() || undefined,
+    itens: itens.map(i => ({ nome: i.nome.trim(), tipo: i.tipo, valor: Number(i.valor) || 0 })),
+  });
+
+  const validate = () => {
+    if (!nome.trim()) { setError("O nome do pacote é obrigatório."); return false; }
+    if (itens.length === 0) { setError("Adicione pelo menos um item ao pacote."); return false; }
+    for (const it of itens) {
+      if (!it.nome.trim()) { setError("Todos os itens precisam de um nome."); return false; }
+      if (!it.valor || Number(it.valor) <= 0) { setError("Todos os itens precisam de um valor maior que zero."); return false; }
+    }
+    return true;
+  };
+
   const saveCreate = async () => {
-    if (!form.nome.trim() || !form.valor) { setError("Nome e valor são obrigatórios."); return; }
+    if (!validate()) return;
     setSaving(true); setError("");
     try {
-      const r = await api(`/admin/colegios/${schoolId}/pacotes`, {
-        method: "POST", body: JSON.stringify(form),
-      });
+      const r = await api(`/admin/colegios/${schoolId}/pacotes`, { method: "POST", body: JSON.stringify(buildPayload()) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao criar pacote.");
       const next = [...pacotes, d];
-      setPacotes(next); onUpdated(next);
-      setCreating(false); resetForm();
+      setPacotes(next); onUpdated(next); setCreating(false); resetForm();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
   };
 
   const saveEdit = async () => {
-    if (!form.nome.trim() || !form.valor) { setError("Nome e valor são obrigatórios."); return; }
+    if (!validate()) return;
     setSaving(true); setError("");
     try {
-      const r = await api(`/admin/pacotes/${editId}`, {
-        method: "PUT", body: JSON.stringify({ ...form, activo: true }),
-      });
+      const r = await api(`/admin/pacotes/${editId}`, { method: "PUT", body: JSON.stringify({ ...buildPayload(), activo: true }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao actualizar pacote.");
       const next = pacotes.map(p => p.id === editId ? d : p);
-      setPacotes(next); onUpdated(next);
-      setEditId(null); resetForm();
+      setPacotes(next); onUpdated(next); setEditId(null); resetForm();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
   };
 
   const toggleActivo = async (p: PacoteEmolumento) => {
     const r = await api(`/admin/pacotes/${p.id}`, {
-      method: "PUT", body: JSON.stringify({ ...p, activo: !p.activo }),
+      method: "PUT", body: JSON.stringify({ nome: p.nome, itens: p.itens, descricao: p.descricao, activo: !p.activo }),
     });
-    const d = await r.json();
-    if (r.ok) { const next = pacotes.map(x => x.id === p.id ? d : x); setPacotes(next); onUpdated(next); }
+    if (r.ok) { const d = await r.json(); const next = pacotes.map(x => x.id === p.id ? d : x); setPacotes(next); onUpdated(next); }
   };
 
   const deletePacote = async (id: number) => {
@@ -1520,26 +1562,85 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
   };
 
   const formJSX = (onSave: () => void) => (
-    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
-      <h4 className="font-semibold text-slate-800 text-sm">{editId ? "Editar pacote" : "Novo pacote de emolumentos"}</h4>
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-5">
+      <h4 className="font-semibold text-slate-800">{editId ? "Editar pacote" : "Novo pacote de emolumentos"}</h4>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Nome do pacote" required>
-          <input className={inputCls} placeholder="ex: Mensalidade + Transporte + ATL"
-            value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
-        </Field>
-        <Field label="Valor total do pacote (Kz)" required>
-          <input type="number" className={inputCls} placeholder="ex: 50000"
-            value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} />
-        </Field>
-        <Field label="Componentes incluídos">
-          <input className={inputCls} placeholder="ex: Mensalidade, Transporte, ATL"
-            value={form.componentes} onChange={e => setForm(f => ({ ...f, componentes: e.target.value }))} />
+          <input className={inputCls} placeholder="ex: Pacote 1.ª Classe Completo"
+            value={nome} onChange={e => setNome(e.target.value)} />
         </Field>
         <Field label="Descrição (opcional)">
-          <input className={inputCls} placeholder="Notas adicionais"
-            value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} />
+          <input className={inputCls} placeholder="Notas adicionais sobre o pacote"
+            value={descricao} onChange={e => setDescricao(e.target.value)} />
         </Field>
       </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-700">Itens do pacote <span className="text-red-500">*</span></p>
+          <button onClick={addItem}
+            className="flex items-center gap-1 text-xs text-primary font-medium border border-primary/30 bg-primary/5 rounded-lg px-3 py-1.5 hover:bg-primary/10 transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Adicionar item
+          </button>
+        </div>
+
+        <div className="border border-slate-200 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100/80 border-b border-slate-200">
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-2/5">Designação</th>
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-1/4">Tipo</th>
+                <th className="text-right px-3 py-2.5 text-xs font-semibold text-slate-500 w-1/4">Valor (Kz)</th>
+                <th className="w-8"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {itens.map((it, idx) => (
+                <tr key={idx}>
+                  <td className="px-2 py-1.5">
+                    <input className={`${inputCls} text-sm py-1.5`} placeholder="ex: Propina mensal"
+                      value={it.nome} onChange={e => updateItem(idx, "nome", e.target.value)} />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <select className={`${inputCls} text-sm py-1.5`}
+                      value={it.tipo} onChange={e => updateItem(idx, "tipo", e.target.value)}>
+                      {ITEM_TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input type="number" min="0" className={`${inputCls} text-sm py-1.5 text-right`} placeholder="0"
+                      value={it.valor} onChange={e => updateItem(idx, "valor", e.target.value)} />
+                  </td>
+                  <td className="px-1 py-1.5 text-center">
+                    {itens.length > 1 && (
+                      <button onClick={() => removeItem(idx)} className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {totalCalc > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-emerald-600 font-medium">Fórmula de cálculo</p>
+              <p className="text-xs text-emerald-700 mt-0.5 font-mono">
+                {itens.filter(i => Number(i.valor) > 0).map(i => fmtKz(Number(i.valor))).join(" + ")}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-emerald-600">Total mensal</p>
+              <p className="text-xl font-bold text-emerald-700">{fmtKz(totalCalc)}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm">{error}</div>}
       <div className="flex gap-3">
         <button onClick={cancel} className="px-4 py-2 text-sm border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50">Cancelar</button>
@@ -1553,13 +1654,11 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-slate-500">
-            Defina pacotes de emolumentos para agrupar serviços com um valor fixo por aluno.
-            Cada pacote pode incluir mensalidade, transporte, ATL e outros.
-          </p>
-        </div>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-slate-500">
+          Defina pacotes de emolumentos por escola. Cada pacote é composto por itens individuais
+          (propina, transporte, ATL, etc.) — o total mensal é calculado automaticamente pela soma dos itens.
+        </p>
         {!creating && editId === null && (
           <button onClick={startCreate}
             className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 transition-colors shrink-0">
@@ -1580,41 +1679,58 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
 
       <div className="space-y-3">
         {pacotes.map(p => (
-          <div key={p.id} className={`border rounded-xl p-4 transition-all ${p.activo ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 opacity-60"}`}>
+          <div key={p.id} className={`border rounded-xl overflow-hidden transition-all ${p.activo ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 opacity-60"}`}>
             {editId === p.id ? (
-              formJSX(saveEdit)
+              <div className="p-4">{formJSX(saveEdit)}</div>
             ) : (
-              <div className="flex items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-slate-900">{p.nome}</span>
-                    {!p.activo && <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full">Inactivo</span>}
-                  </div>
-                  {p.componentes && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {p.componentes.split(",").map((c, i) => (
-                        <span key={i} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full">{c.trim()}</span>
-                      ))}
+              <div>
+                <div className="flex items-start gap-4 p-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-900">{p.nome}</span>
+                      {!p.activo && <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full">Inactivo</span>}
                     </div>
-                  )}
-                  {p.descricao && <p className="text-xs text-slate-400 mt-1.5">{p.descricao}</p>}
+                    {p.descricao && <p className="text-xs text-slate-400 mt-1">{p.descricao}</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xl font-bold text-slate-900">{fmtKz(p.valor)}</p>
+                    <p className="text-xs text-slate-400">total / mês</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => toggleActivo(p)} title={p.activo ? "Desactivar" : "Activar"}
+                      className={`p-2 rounded-lg transition-colors ${p.activo ? "text-emerald-600 hover:bg-emerald-50" : "text-slate-400 hover:bg-slate-100"}`}>
+                      {p.activo ? <CheckCircle2 className="w-4 h-4" /> : <Slash className="w-4 h-4" />}
+                    </button>
+                    <button onClick={() => startEdit(p)} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deletePacote(p.id)} className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-lg font-bold text-slate-900">{fmtVal(p.valor)}</p>
-                  <p className="text-xs text-slate-400">por aluno / mês</p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button onClick={() => toggleActivo(p)} title={p.activo ? "Desactivar" : "Activar"}
-                    className={`p-2 rounded-lg text-sm transition-colors ${p.activo ? "text-emerald-600 hover:bg-emerald-50" : "text-slate-400 hover:bg-slate-100"}`}>
-                    {p.activo ? <CheckCircle2 className="w-4 h-4" /> : <Slash className="w-4 h-4" />}
-                  </button>
-                  <button onClick={() => startEdit(p)} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => deletePacote(p.id)} className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+
+                {Array.isArray(p.itens) && p.itens.length > 0 && (
+                  <div className="border-t border-slate-100 bg-slate-50/60">
+                    <div className="px-4 pt-2 pb-3 space-y-1.5">
+                      {p.itens.map((it, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs border px-2 py-0.5 rounded-full ${pacItemColor(it.tipo)}`}>{pacItemLabel(it.tipo)}</span>
+                            <span className="text-slate-600">{it.nome}</span>
+                          </div>
+                          <span className="font-mono text-slate-700">{fmtKz(it.valor)}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200 mt-1">
+                        <span className="text-xs text-slate-500 font-mono">
+                          {p.itens.map(i => fmtKz(i.valor)).join(" + ")} =
+                        </span>
+                        <span className="text-sm font-bold text-emerald-700">{fmtKz(p.valor)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
