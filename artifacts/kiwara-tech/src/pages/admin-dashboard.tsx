@@ -581,6 +581,108 @@ function ImportResult({ result }: { result: { inserted: number; skipped: number;
 }
 
 /* ─── Emolumento tipo helpers ─── */
+const DESCRICAO_POR_TIPO: Record<string, string[]> = {
+  propina: [
+    "Propina Mensal",
+    "Propina Mensal — 1.ª a 4.ª Classe",
+    "Propina Mensal — 5.ª a 6.ª Classe",
+    "Propina Mensal — 7.ª a 9.ª Classe",
+    "Propina Mensal — 10.ª a 13.ª Classe",
+  ],
+  matricula: [
+    "Matrícula Escolar",
+    "Matrícula Escolar — 1.ª Classe",
+    "Matrícula Escolar — Ensino Primário",
+    "Matrícula Escolar — I Ciclo",
+    "Matrícula Escolar — II Ciclo",
+  ],
+  confirmacao_matricula: [
+    "Confirmação de Matrícula",
+    "Renovação de Matrícula — Ensino Primário",
+    "Renovação de Matrícula — I Ciclo",
+    "Renovação de Matrícula — II Ciclo",
+  ],
+  seguro: [
+    "Seguro Escolar Anual",
+    "Seguro Escolar Semestral",
+    "Seguro de Acidentes Pessoais",
+  ],
+  cartao_estudante: [
+    "Cartão de Estudante",
+    "Segunda Via de Cartão de Estudante",
+    "Cartão de Acesso às Instalações",
+  ],
+  declaracao: [
+    "Declaração de Frequência",
+    "Declaração de Notas",
+    "Declaração de Matrícula",
+    "Declaração para Bolsa",
+    "Declaração para Visto / Passaporte",
+    "Declaração de Conclusão de Ano Lectivo",
+  ],
+  certificado: [
+    "Certificado de Habilitações",
+    "Certificado de Conclusão — Ensino Primário",
+    "Certificado de Conclusão — I Ciclo",
+    "Certificado de Conclusão — II Ciclo",
+    "Certificado de Aproveitamento Escolar",
+  ],
+  emissao_notas: [
+    "Emissão de Notas — Boletim Completo",
+    "Emissão de Notas — Por Disciplina",
+    "Histórico de Notas",
+  ],
+  segunda_via: [
+    "Segunda Via de Notas",
+    "Segunda Via de Matrícula",
+    "Segunda Via de Certificado",
+    "Segunda Via de Declaração",
+    "Segunda Via de Diploma",
+  ],
+  pedido_especial: [
+    "Transferência Escolar",
+    "Equivalência de Disciplinas",
+    "Reingresso Escolar",
+    "Mudança de Curso / Área",
+  ],
+  transporte: [
+    "Transporte Escolar — Ida e Volta",
+    "Transporte Escolar — Só Ida",
+    "Transporte Escolar — Só Volta",
+    "Transporte Escolar — Percurso Especial",
+  ],
+  alimentacao: [
+    "Refeição Escolar — Almoço",
+    "Refeição Escolar — Almoço e Lanche",
+    "ATL — Actividades de Tempos Livres",
+    "Lanche Escolar",
+  ],
+  uniforme: [
+    "Kit de Uniforme Completo",
+    "Calças / Saia de Uniforme",
+    "Camisa / Blusa de Uniforme",
+    "Casaco de Uniforme",
+    "Calçado Escolar",
+  ],
+  extracurricular: [
+    "Actividades Extracurriculares — Desporto",
+    "Actividades Extracurriculares — Arte e Cultura",
+    "Clube de Informática",
+    "Clube de Inglês",
+    "Natação Escolar",
+    "Banda Escolar / Música",
+  ],
+  multa_atraso: [
+    "Multa por Atraso no Pagamento de Propina",
+  ],
+  multa_dano: [
+    "Multa por Dano de Material Escolar",
+    "Multa por Dano de Equipamento Informático",
+    "Multa por Dano de Mobiliário",
+    "Multa por Perda de Material da Escola",
+  ],
+};
+
 const TIPO_GRUPOS = [
   {
     grupo: "Obrigatórios (fixos)",
@@ -1098,7 +1200,12 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
   schoolId: number; initial: Emolumento[]; multaRegra: MultaRegra | null;
 }) {
   const [list, setList] = useState<Emolumento[]>(initial);
-  const [form, setForm] = useState({ tipo: "propina", nome: "", montante: "", ano_lectivo: "2025/2026" });
+  const [form, setForm] = useState({
+    tipo: "propina",
+    nome: DESCRICAO_POR_TIPO["propina"][0],
+    montante: "",
+    ano_lectivo: "2025/2026",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [currentMultaRegra, setCurrentMultaRegra] = useState<MultaRegra | null>(multaRegra);
@@ -1150,7 +1257,7 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar emolumento.");
       setList(l => [data, ...l]);
-      setForm(f => ({ ...f, nome: "", montante: "" }));
+      setForm(f => ({ ...f, nome: (DESCRICAO_POR_TIPO[f.tipo] ?? [])[0] ?? "", montante: "" }));
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -1177,7 +1284,11 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Tipo de emolumento" required>
               <select className={selectCls} value={form.tipo}
-                onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                onChange={e => {
+                  const tipo = e.target.value;
+                  const firstDesc = (DESCRICAO_POR_TIPO[tipo] ?? [])[0] ?? "";
+                  setForm(f => ({ ...f, tipo, nome: firstDesc }));
+                }}>
                 {TIPO_GRUPOS.map(g => (
                   <optgroup key={g.grupo} label={g.grupo}>
                     {g.items.map(t => (
@@ -1194,8 +1305,15 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Descrição" required>
-              <input className={inputCls} placeholder="ex: Propina Mensal — 10ª Classe" value={form.nome}
-                onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required />
+              <select className={selectCls} value={form.nome}
+                onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required>
+                {(DESCRICAO_POR_TIPO[form.tipo] ?? []).map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+                {!(DESCRICAO_POR_TIPO[form.tipo]?.length) && (
+                  <option value="">— Seleccione um tipo de emolumento primeiro —</option>
+                )}
+              </select>
             </Field>
             <Field label="Montante base (AOA)" required>
               <input type="number" min="0" className={inputCls} placeholder="35000" value={form.montante}
