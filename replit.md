@@ -54,6 +54,8 @@ Every package extends a shared `tsconfig.base.json` with `composite: true`. The 
 -   **Penalty Panel**: Separate panel to edit existing penalty models.
 -   **Tuition Fees**: View all school tuition fees. Filters by status. Adjustment options (forgiveness, value adjustment, rescheduling, justification). Adjustment history.
 -   **Students / Classes**: Full CRUD for students and classes of the selected school.
+-   **Bulk Student Import** (`UploadAlunosPanel`): Two modes — "Preencher no browser" (inline table editor with all CSV columns, including optional Pacote column when usa_pacotes=true) and "Carregar ficheiro CSV" (file upload). Both call `POST /admin/colegios/:id/alunos/upload`. API auto-creates turmas, encarregados (default PIN 1234, first_login=true), links them via encarregado_aluno, and optionally links matriculas to packages. CSV format: `nome,bilhete,numero_processo,data_nascimento,sexo,turma_nome,turno,nome_encarregado,telefone_encarregado,pacote_nome`.
+-   **Fee Packages** (`usa_pacotes`): Optional feature per school. Enabled via toggle in school creation modal or in Visão Geral tab. When enabled: "Pacotes" tab appears with full CRUD for packages (`PacotesPanel`). Each package has nome, componentes (comma-separated), valor (total Kz per student/month), descricao, activo flag. Packages linked to students via `matriculas.pacote_id`. Import editor shows Pacote dropdown when school uses packages.
 -   **Incidents**: Register and manage incidents per student.
 -   **Announcements**: Create and manage school announcements.
 -   **Guardians**: View all registered guardians on the platform.

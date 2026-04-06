@@ -68,7 +68,7 @@ router.get("/admin/colegios", adminAuth, async (_req, res) => {
 
 /* ─── POST /admin/colegios — create school ─── */
 router.post("/admin/colegios", adminAuth, async (req, res) => {
-  const { name, nif, phone, email, password, iban } = req.body;
+  const { name, nif, phone, email, password, iban, usa_pacotes } = req.body;
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: "Nome e email são obrigatórios." });
   }
@@ -78,9 +78,9 @@ router.post("/admin/colegios", adminAuth, async (req, res) => {
   const schoolId = `SCH-${Date.now()}`;
 
   const r = await pool.query(
-    `INSERT INTO schools (school_id, name, nif, phone, email, password_hash, iban)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, school_id, name, email, iban, created_at`,
-    [schoolId, name.trim(), nif?.trim() || null, phone?.trim() || null, email.trim(), hash, iban?.trim() || null]
+    `INSERT INTO schools (school_id, name, nif, phone, email, password_hash, iban, usa_pacotes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, school_id, name, email, iban, usa_pacotes, created_at`,
+    [schoolId, name.trim(), nif?.trim() || null, phone?.trim() || null, email.trim(), hash, iban?.trim() || null, !!usa_pacotes]
   );
   res.status(201).json(r.rows[0]);
 });
@@ -97,21 +97,71 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
   );
   if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
 
-  const turmas = await pool.query("SELECT * FROM turmas WHERE school_id=$1 ORDER BY nome", [req.params.id]);
-  const emolumentos = await pool.query(
-    "SELECT * FROM emolumentos WHERE school_id=$1 ORDER BY tipo, ano_lectivo",
-    [req.params.id]
-  );
-  const mregra = await pool.query(
-    "SELECT * FROM multa_regras WHERE school_id=$1",
-    [req.params.id]
-  );
+  const [turmas, emolumentos, mregra, pacotes] = await Promise.all([
+    pool.query("SELECT * FROM turmas WHERE school_id=$1 ORDER BY nome", [req.params.id]),
+    pool.query("SELECT * FROM emolumentos WHERE school_id=$1 ORDER BY tipo, ano_lectivo", [req.params.id]),
+    pool.query("SELECT * FROM multa_regras WHERE school_id=$1", [req.params.id]),
+    pool.query("SELECT * FROM pacotes_emolumentos WHERE school_id=$1 ORDER BY nome", [req.params.id]),
+  ]);
   res.json({
     ...r.rows[0],
     turmas: turmas.rows,
     emolumentos: emolumentos.rows,
     multa_regra: mregra.rows[0] ?? null,
+    pacotes: pacotes.rows,
   });
+});
+
+/* ─── PUT /admin/colegios/:id/configuracao — update school settings ─── */
+router.put("/admin/colegios/:id/configuracao", adminAuth, async (req, res) => {
+  const { usa_pacotes } = req.body;
+  await pool.query(
+    "UPDATE schools SET usa_pacotes=$1 WHERE id=$2",
+    [!!usa_pacotes, req.params.id]
+  );
+  res.json({ ok: true, usa_pacotes: !!usa_pacotes });
+});
+
+/* ─── GET /admin/colegios/:id/pacotes ─── */
+router.get("/admin/colegios/:id/pacotes", adminAuth, async (req, res) => {
+  const r = await pool.query(
+    "SELECT * FROM pacotes_emolumentos WHERE school_id=$1 ORDER BY nome",
+    [req.params.id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /admin/colegios/:id/pacotes — create package ─── */
+router.post("/admin/colegios/:id/pacotes", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+  const { nome, componentes, valor, descricao } = req.body;
+  if (!nome?.trim()) return res.status(400).json({ error: "Nome do pacote é obrigatório." });
+  if (!valor || isNaN(Number(valor))) return res.status(400).json({ error: "Valor é obrigatório." });
+  const r = await pool.query(
+    `INSERT INTO pacotes_emolumentos (school_id, nome, componentes, valor, descricao)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [schoolId, nome.trim(), componentes?.trim() || "", Number(valor), descricao?.trim() || null]
+  );
+  res.status(201).json(r.rows[0]);
+});
+
+/* ─── PUT /admin/pacotes/:id — update package ─── */
+router.put("/admin/pacotes/:id", adminAuth, async (req, res) => {
+  const { nome, componentes, valor, descricao, activo } = req.body;
+  const r = await pool.query(
+    `UPDATE pacotes_emolumentos
+     SET nome=$1, componentes=$2, valor=$3, descricao=$4, activo=$5
+     WHERE id=$6 RETURNING *`,
+    [nome?.trim(), componentes?.trim() || "", Number(valor), descricao?.trim() || null, activo !== false, req.params.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Pacote não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── DELETE /admin/pacotes/:id ─── */
+router.delete("/admin/pacotes/:id", adminAuth, async (req, res) => {
+  await pool.query("DELETE FROM pacotes_emolumentos WHERE id=$1", [req.params.id]);
+  res.status(204).end();
 });
 
 /* ─── PUT /admin/colegios/:id/iban ─── */
@@ -290,6 +340,7 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
       turno?: string;
       nome_encarregado?: string;
       telefone_encarregado?: string;
+      pacote_nome?: string;
     }>;
     ano_lectivo?: string;
   };
@@ -300,16 +351,19 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
 
   const anoLectivo = ano_lectivo || "2025/2026";
   const turmaCache: Record<string, number> = {};
+  const pacoteCache: Record<string, number> = {};
   let inserted = 0;
   let skipped = 0;
   let encarregados_criados = 0;
   const errors: string[] = [];
 
-  // Preload existing turmas
-  const existingTurmas = await pool.query(
-    "SELECT id, nome FROM turmas WHERE school_id=$1", [schoolId]
-  );
+  // Preload existing turmas and packages
+  const [existingTurmas, existingPacotes] = await Promise.all([
+    pool.query("SELECT id, nome FROM turmas WHERE school_id=$1", [schoolId]),
+    pool.query("SELECT id, nome FROM pacotes_emolumentos WHERE school_id=$1 AND activo=TRUE", [schoolId]),
+  ]);
   for (const t of existingTurmas.rows) turmaCache[t.nome.toLowerCase()] = t.id;
+  for (const p of existingPacotes.rows) pacoteCache[p.nome.toLowerCase()] = p.id;
 
   for (const row of alunos) {
     if (!row.nome?.trim()) { skipped++; continue; }
@@ -350,12 +404,18 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
       );
       if (st.rows[0]) {
         const studentId = st.rows[0].id;
-        // Create matricula
+        // Resolve package (optional)
+        let pacoteId: number | null = null;
+        if (row.pacote_nome?.trim()) {
+          pacoteId = pacoteCache[row.pacote_nome.trim().toLowerCase()] ?? null;
+        }
+        // Create matricula (link package if provided)
         if (turmaId) {
           await pool.query(
-            `INSERT INTO matriculas (student_id, turma_id, ano_lectivo)
-             VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-            [studentId, turmaId, anoLectivo]
+            `INSERT INTO matriculas (student_id, turma_id, ano_lectivo, pacote_id)
+             VALUES ($1,$2,$3,$4) ON CONFLICT (student_id, turma_id, ano_lectivo)
+             DO UPDATE SET pacote_id = EXCLUDED.pacote_id`,
+            [studentId, turmaId, anoLectivo, pacoteId]
           );
         }
         // Create or find encarregado and link to student

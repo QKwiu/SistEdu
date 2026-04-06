@@ -39,12 +39,17 @@ interface Stats {
 interface Colegio {
   id: number; school_id: string; name: string; nif?: string; phone?: string;
   email: string; iban?: string; created_at: string;
-  total_alunos: number; total_turmas: number;
+  total_alunos: number; total_turmas: number; usa_pacotes: boolean;
+}
+interface PacoteEmolumento {
+  id: number; school_id: number; nome: string; componentes: string;
+  valor: number; descricao?: string; activo: boolean; created_at: string;
 }
 interface ColegioDetail extends Colegio {
   turmas: { id: number; nome: string; ano: string; turno: string }[];
   emolumentos: Emolumento[];
   multa_regra: MultaRegra | null;
+  pacotes: PacoteEmolumento[];
 }
 interface Emolumento {
   id: number; school_id: number; tipo: string; nome: string;
@@ -149,6 +154,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
   const [form, setForm] = useState({
     name: "", nif: "", phone: "", email: "", password: "", iban: "",
   });
+  const [usaPacotes, setUsaPacotes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -157,11 +163,11 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
     e.preventDefault(); setError(""); setSaving(true);
     try {
       const res = await api("/admin/colegios", {
-        method: "POST", body: JSON.stringify(form),
+        method: "POST", body: JSON.stringify({ ...form, usa_pacotes: usaPacotes }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao criar colégio.");
-      onCreated({ ...data, total_alunos: 0, total_turmas: 0 });
+      onCreated({ ...data, total_alunos: 0, total_turmas: 0, usa_pacotes: !!data.usa_pacotes });
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -199,6 +205,20 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
         <Field label="IBAN (opcional)">
           <input className={inputCls} placeholder="AO06004400006729503010102" value={form.iban} onChange={f("iban")} />
         </Field>
+        {/* Pacotes toggle */}
+        <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+          <button type="button" onClick={() => setUsaPacotes(v => !v)}
+            className={`relative shrink-0 w-10 h-5.5 rounded-full transition-colors mt-0.5 ${usaPacotes ? "bg-primary" : "bg-slate-300"}`}
+            style={{ height: 22, width: 40 }}>
+            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${usaPacotes ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+          </button>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Pacotes de emolumentos</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Permite agrupar emolumentos (ex: Mensalidade + Transporte + ATL) num pacote com valor fixo por aluno. Configurável após criar o colégio.
+            </p>
+          </div>
+        </div>
         {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={onClose}
@@ -221,14 +241,19 @@ type CSVRow = {
   data_nascimento: string; sexo: string;
   turma_nome: string; turno: string;
   nome_encarregado: string; telefone_encarregado: string;
+  pacote_nome: string;
 };
 const EMPTY_ROW = (): CSVRow => ({
   nome: "", bilhete: "", numero_processo: "", data_nascimento: "",
   sexo: "M", turma_nome: "", turno: "Manhã", nome_encarregado: "", telefone_encarregado: "",
+  pacote_nome: "",
 });
-const CSV_HEADERS_LIST = ["nome","bilhete","numero_processo","data_nascimento","sexo","turma_nome","turno","nome_encarregado","telefone_encarregado"];
+const CSV_HEADERS_LIST = ["nome","bilhete","numero_processo","data_nascimento","sexo","turma_nome","turno","nome_encarregado","telefone_encarregado","pacote_nome"];
 
-function UploadAlunosPanel({ schoolId, anoLectivo }: { schoolId: number; anoLectivo: string }) {
+function UploadAlunosPanel({ schoolId, anoLectivo, usaPacotes, pacotes }: {
+  schoolId: number; anoLectivo: string;
+  usaPacotes?: boolean; pacotes?: PacoteEmolumento[];
+}) {
   const [mode, setMode] = useState<"manual"|"file">("manual");
   const [ano, setAno] = useState(anoLectivo);
   const [uploading, setUploading] = useState(false);
@@ -344,6 +369,7 @@ function UploadAlunosPanel({ schoolId, anoLectivo }: { schoolId: number; anoLect
                   <th className="px-2 py-2 text-left text-slate-500 font-semibold w-20">Turno</th>
                   <th className="px-2 py-2 text-left text-slate-500 font-semibold w-36">Nome encarregado</th>
                   <th className="px-2 py-2 text-left text-slate-500 font-semibold w-28">Telef. encarregado</th>
+                  {usaPacotes && <th className="px-2 py-2 text-left text-slate-500 font-semibold w-36">Pacote</th>}
                   <th className="w-8" />
                 </tr>
               </thead>
@@ -392,6 +418,17 @@ function UploadAlunosPanel({ schoolId, anoLectivo }: { schoolId: number; anoLect
                       <input className={cellCls} placeholder="924000001" value={row.telefone_encarregado}
                         onChange={e => updateRow(i, "telefone_encarregado", e.target.value)} />
                     </td>
+                    {usaPacotes && (
+                      <td className="px-1 py-1">
+                        <select className={selCls} value={row.pacote_nome}
+                          onChange={e => updateRow(i, "pacote_nome", e.target.value)}>
+                          <option value="">— sem pacote —</option>
+                          {(pacotes || []).filter(p => p.activo).map(p => (
+                            <option key={p.id} value={p.nome}>{p.nome}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
                     <td className="px-1 py-1 text-center">
                       {rows.length > 1 && (
                         <button onClick={() => removeRow(i)} title="Remover linha"
@@ -1411,14 +1448,204 @@ function IBANPanel({ schoolId, currentIban, onUpdated }: { schoolId: number; cur
   );
 }
 
+/* ─── Pacotes de Emolumentos Panel ─── */
+function PacotesPanel({ schoolId, initial, onUpdated }: {
+  schoolId: number;
+  initial: PacoteEmolumento[];
+  onUpdated: (pacotes: PacoteEmolumento[]) => void;
+}) {
+  const [pacotes, setPacotes] = useState(initial);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ nome: "", componentes: "", valor: "", descricao: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const fmtVal = (v: number) => Number(v).toLocaleString("pt-AO") + " Kz";
+
+  const resetForm = () => { setForm({ nome: "", componentes: "", valor: "", descricao: "" }); setError(""); };
+
+  const startCreate = () => { resetForm(); setCreating(true); setEditId(null); };
+  const startEdit = (p: PacoteEmolumento) => {
+    setForm({ nome: p.nome, componentes: p.componentes, valor: String(p.valor), descricao: p.descricao || "" });
+    setEditId(p.id); setCreating(false);
+  };
+  const cancel = () => { setCreating(false); setEditId(null); resetForm(); };
+
+  const saveCreate = async () => {
+    if (!form.nome.trim() || !form.valor) { setError("Nome e valor são obrigatórios."); return; }
+    setSaving(true); setError("");
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/pacotes`, {
+        method: "POST", body: JSON.stringify(form),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao criar pacote.");
+      const next = [...pacotes, d];
+      setPacotes(next); onUpdated(next);
+      setCreating(false); resetForm();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const saveEdit = async () => {
+    if (!form.nome.trim() || !form.valor) { setError("Nome e valor são obrigatórios."); return; }
+    setSaving(true); setError("");
+    try {
+      const r = await api(`/admin/pacotes/${editId}`, {
+        method: "PUT", body: JSON.stringify({ ...form, activo: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao actualizar pacote.");
+      const next = pacotes.map(p => p.id === editId ? d : p);
+      setPacotes(next); onUpdated(next);
+      setEditId(null); resetForm();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const toggleActivo = async (p: PacoteEmolumento) => {
+    const r = await api(`/admin/pacotes/${p.id}`, {
+      method: "PUT", body: JSON.stringify({ ...p, activo: !p.activo }),
+    });
+    const d = await r.json();
+    if (r.ok) { const next = pacotes.map(x => x.id === p.id ? d : x); setPacotes(next); onUpdated(next); }
+  };
+
+  const deletePacote = async (id: number) => {
+    if (!confirm("Tem a certeza que quer eliminar este pacote?")) return;
+    await api(`/admin/pacotes/${id}`, { method: "DELETE" });
+    const next = pacotes.filter(p => p.id !== id);
+    setPacotes(next); onUpdated(next);
+  };
+
+  const formJSX = (onSave: () => void) => (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
+      <h4 className="font-semibold text-slate-800 text-sm">{editId ? "Editar pacote" : "Novo pacote de emolumentos"}</h4>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Nome do pacote" required>
+          <input className={inputCls} placeholder="ex: Mensalidade + Transporte + ATL"
+            value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+        </Field>
+        <Field label="Valor total do pacote (Kz)" required>
+          <input type="number" className={inputCls} placeholder="ex: 50000"
+            value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} />
+        </Field>
+        <Field label="Componentes incluídos">
+          <input className={inputCls} placeholder="ex: Mensalidade, Transporte, ATL"
+            value={form.componentes} onChange={e => setForm(f => ({ ...f, componentes: e.target.value }))} />
+        </Field>
+        <Field label="Descrição (opcional)">
+          <input className={inputCls} placeholder="Notas adicionais"
+            value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} />
+        </Field>
+      </div>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm">{error}</div>}
+      <div className="flex gap-3">
+        <button onClick={cancel} className="px-4 py-2 text-sm border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50">Cancelar</button>
+        <button onClick={onSave} disabled={saving}
+          className="px-5 py-2 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-60 flex items-center gap-2">
+          {saving ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />A guardar...</> : <><CheckCircle2 className="w-3.5 h-3.5" />Guardar</>}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-slate-500">
+            Defina pacotes de emolumentos para agrupar serviços com um valor fixo por aluno.
+            Cada pacote pode incluir mensalidade, transporte, ATL e outros.
+          </p>
+        </div>
+        {!creating && editId === null && (
+          <button onClick={startCreate}
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 transition-colors shrink-0">
+            <Plus className="w-4 h-4" /> Novo pacote
+          </button>
+        )}
+      </div>
+
+      {creating && formJSX(saveCreate)}
+
+      {pacotes.length === 0 && !creating && (
+        <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-2xl">
+          <Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <p className="font-medium text-slate-500">Nenhum pacote definido</p>
+          <p className="text-sm text-slate-400 mt-1">Clique em "Novo pacote" para começar.</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {pacotes.map(p => (
+          <div key={p.id} className={`border rounded-xl p-4 transition-all ${p.activo ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 opacity-60"}`}>
+            {editId === p.id ? (
+              formJSX(saveEdit)
+            ) : (
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-900">{p.nome}</span>
+                    {!p.activo && <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full">Inactivo</span>}
+                  </div>
+                  {p.componentes && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {p.componentes.split(",").map((c, i) => (
+                        <span key={i} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full">{c.trim()}</span>
+                      ))}
+                    </div>
+                  )}
+                  {p.descricao && <p className="text-xs text-slate-400 mt-1.5">{p.descricao}</p>}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-bold text-slate-900">{fmtVal(p.valor)}</p>
+                  <p className="text-xs text-slate-400">por aluno / mês</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => toggleActivo(p)} title={p.activo ? "Desactivar" : "Activar"}
+                    className={`p-2 rounded-lg text-sm transition-colors ${p.activo ? "text-emerald-600 hover:bg-emerald-50" : "text-slate-400 hover:bg-slate-100"}`}>
+                    {p.activo ? <CheckCircle2 className="w-4 h-4" /> : <Slash className="w-4 h-4" />}
+                  </button>
+                  <button onClick={() => startEdit(p)} className="p-2 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => deletePacote(p.id)} className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── School Detail View ─── */
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "iban">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban">("geral");
   const [currentSchool, setCurrentSchool] = useState(school);
+  const [togglingPacotes, setTogglingPacotes] = useState(false);
+
+  const toggleUsaPacotes = async () => {
+    setTogglingPacotes(true);
+    try {
+      const r = await api(`/admin/colegios/${currentSchool.id}/configuracao`, {
+        method: "PUT", body: JSON.stringify({ usa_pacotes: !currentSchool.usa_pacotes }),
+      });
+      const d = await r.json();
+      if (r.ok) setCurrentSchool(s => ({ ...s, usa_pacotes: d.usa_pacotes }));
+    } finally { setTogglingPacotes(false); }
+  };
+
   const TABS = [
     { id: "geral" as const, label: "Visão Geral", icon: <Building2 className="w-4 h-4" /> },
     { id: "alunos" as const, label: "Carregar Alunos", icon: <Upload className="w-4 h-4" /> },
     { id: "emolumentos" as const, label: "Emolumentos", icon: <Receipt className="w-4 h-4" /> },
+    ...(currentSchool.usa_pacotes ? [{ id: "pacotes" as const, label: "Pacotes", icon: <BadgePercent className="w-4 h-4" /> }] : []),
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
   ];
@@ -1461,41 +1688,78 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
 
       {/* Tab content */}
       {tab === "geral" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {[
-            { label: "Nome", value: currentSchool.name },
-            { label: "NIF", value: currentSchool.nif || "—" },
-            { label: "Telefone", value: currentSchool.phone || "—" },
-            { label: "Email", value: currentSchool.email },
-            { label: "IBAN", value: currentSchool.iban || "Não definido" },
-            { label: "Escola ID", value: currentSchool.school_id },
-            { label: "Turmas", value: String(currentSchool.total_turmas) },
-            { label: "Alunos", value: String(currentSchool.total_alunos) },
-          ].map(item => (
-            <div key={item.label} className="bg-white border border-slate-100 rounded-xl p-4">
-              <p className="text-xs text-slate-400 uppercase font-semibold tracking-wider mb-1">{item.label}</p>
-              <p className="font-medium text-slate-900 font-mono text-sm">{item.value}</p>
-            </div>
-          ))}
-          {currentSchool.turmas.length > 0 && (
-            <div className="md:col-span-2 bg-white border border-slate-100 rounded-xl p-4">
-              <p className="text-xs text-slate-400 uppercase font-semibold tracking-wider mb-3">Turmas registadas</p>
-              <div className="flex flex-wrap gap-2">
-                {currentSchool.turmas.map(t => (
-                  <span key={t.id} className="text-sm bg-slate-100 text-slate-700 px-3 py-1 rounded-lg">
-                    {t.nome} <span className="text-slate-400">({t.turno})</span>
-                  </span>
-                ))}
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {[
+              { label: "Nome", value: currentSchool.name },
+              { label: "NIF", value: currentSchool.nif || "—" },
+              { label: "Telefone", value: currentSchool.phone || "—" },
+              { label: "Email", value: currentSchool.email },
+              { label: "IBAN", value: currentSchool.iban || "Não definido" },
+              { label: "Escola ID", value: currentSchool.school_id },
+              { label: "Turmas", value: String(currentSchool.total_turmas) },
+              { label: "Alunos", value: String(currentSchool.total_alunos) },
+            ].map(item => (
+              <div key={item.label} className="bg-white border border-slate-100 rounded-xl p-4">
+                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wider mb-1">{item.label}</p>
+                <p className="font-medium text-slate-900 font-mono text-sm">{item.value}</p>
               </div>
+            ))}
+            {currentSchool.turmas.length > 0 && (
+              <div className="md:col-span-2 bg-white border border-slate-100 rounded-xl p-4">
+                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wider mb-3">Turmas registadas</p>
+                <div className="flex flex-wrap gap-2">
+                  {currentSchool.turmas.map(t => (
+                    <span key={t.id} className="text-sm bg-slate-100 text-slate-700 px-3 py-1 rounded-lg">
+                      {t.nome} <span className="text-slate-400">({t.turno})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Pacotes toggle */}
+          <div className="bg-white border border-slate-100 rounded-xl p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold text-slate-800">Pacotes de emolumentos</p>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Permite agrupar serviços (mensalidade, transporte, ATL…) num pacote com valor fixo por aluno.
+                  {currentSchool.usa_pacotes && " A aba «Pacotes» fica disponível para configurar os pacotes."}
+                </p>
+              </div>
+              <button onClick={toggleUsaPacotes} disabled={togglingPacotes}
+                className={`relative shrink-0 rounded-full transition-colors disabled:opacity-60 ${currentSchool.usa_pacotes ? "bg-primary" : "bg-slate-300"}`}
+                style={{ height: 24, width: 44 }}>
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${currentSchool.usa_pacotes ? "translate-x-[20px]" : "translate-x-0.5"}`} />
+              </button>
             </div>
-          )}
+          </div>
         </div>
       )}
       {tab === "alunos" && (
         <div className="bg-white border border-slate-100 rounded-2xl p-6">
           <h3 className="font-semibold text-slate-900 mb-1">Importar base de dados de alunos</h3>
-          <p className="text-sm text-slate-500 mb-5">Carregue um ficheiro CSV com os dados dos alunos. Turmas inexistentes serão criadas automaticamente.</p>
-          <UploadAlunosPanel schoolId={currentSchool.id} anoLectivo="2025/2026" />
+          <p className="text-sm text-slate-500 mb-5">
+            Preencha directamente no browser ou carregue um ficheiro CSV. Turmas e encarregados são criados automaticamente.
+            {currentSchool.usa_pacotes && " Pode atribuir um pacote de emolumentos a cada aluno."}
+          </p>
+          <UploadAlunosPanel
+            schoolId={currentSchool.id}
+            anoLectivo="2025/2026"
+            usaPacotes={currentSchool.usa_pacotes}
+            pacotes={currentSchool.pacotes}
+          />
+        </div>
+      )}
+      {tab === "pacotes" && (
+        <div className="bg-white border border-slate-100 rounded-2xl p-6">
+          <h3 className="font-semibold text-slate-900 mb-1">Pacotes de emolumentos</h3>
+          <PacotesPanel
+            schoolId={currentSchool.id}
+            initial={currentSchool.pacotes}
+            onUpdated={pacotes => setCurrentSchool(s => ({ ...s, pacotes }))}
+          />
         </div>
       )}
       {tab === "emolumentos" && (
