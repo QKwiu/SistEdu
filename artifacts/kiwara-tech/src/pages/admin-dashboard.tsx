@@ -1593,13 +1593,16 @@ const pacItemColor = (t: string) => ITEM_TIPOS.find(x => x.value === t)?.color ?
 const fmtKz = (v: number) => Number(v).toLocaleString("pt-AO") + " Kz";
 
 type PacoteItemForm = { emolId: string; nome: string; tipo: string; valor: string; };
-const BLANK_ITEM = (): PacoteItemForm => ({ emolId: "outro", nome: "", tipo: "propina", valor: "" });
+const BLANK_ITEM = (): PacoteItemForm => ({ emolId: "", nome: "", tipo: "propina", valor: "" });
 
-const EMOL_TIPO_TO_ITEM: Record<string, string> = {
-  propina: "propina", transporte: "transporte", alimentacao: "alimentacao",
-  uniforme: "uniforme", extracurricular: "extracurricular", seguro: "seguro",
+const emolToItemTipo = (t: string) => {
+  const MAP: Record<string, string> = {
+    propina: "propina", transporte: "transporte", alimentacao: "alimentacao",
+    uniforme: "uniforme", extracurricular: "extracurricular", seguro: "seguro",
+    atl: "atl", matricula: "outro",
+  };
+  return MAP[t] ?? "outro";
 };
-const emolToItemTipo = (t: string) => EMOL_TIPO_TO_ITEM[t] ?? "outro";
 
 function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
   schoolId: number;
@@ -1618,10 +1621,19 @@ function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
 
   const totalCalc = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
 
+  const makeItemFromTipo = (tipo: string): PacoteItemForm => {
+    const em = emolumentos.find(e => emolToItemTipo(e.tipo) === tipo);
+    return {
+      emolId: em ? String(em.id) : "",
+      nome: em ? em.nome : (pacItemLabel(tipo)),
+      tipo,
+      valor: em ? String(em.montante) : "",
+    };
+  };
+
   const resetForm = () => {
-    const first = emolumentos[0];
     setNome(""); setDescricao("");
-    setItens([first ? makeItemFromEmol(first) : BLANK_ITEM()]);
+    setItens([makeItemFromTipo("propina")]);
     setError("");
   };
   const startCreate = () => { resetForm(); setCreating(true); setEditId(null); };
@@ -1631,30 +1643,20 @@ function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
     setItens(
       Array.isArray(p.itens) && p.itens.length > 0
         ? p.itens.map(i => {
-            const match = emolumentos.find(e => e.nome === i.nome);
-            return { emolId: match ? String(match.id) : "outro", nome: i.nome, tipo: i.tipo, valor: String(i.valor) };
+            const em = emolumentos.find(e => e.nome === i.nome);
+            return { emolId: em ? String(em.id) : "", nome: i.nome, tipo: i.tipo, valor: String(i.valor) };
           })
-        : [BLANK_ITEM()]
+        : [makeItemFromTipo("propina")]
     );
     setEditId(p.id); setCreating(false); setError("");
   };
   const cancel = () => { setCreating(false); setEditId(null); resetForm(); };
 
-  const makeItemFromEmol = (em: Emolumento): PacoteItemForm => ({
-    emolId: String(em.id), nome: em.nome, tipo: emolToItemTipo(em.tipo), valor: String(em.montante),
-  });
-
-  const addItem = () => {
-    const first = emolumentos[0];
-    setItens(prev => [...prev, first ? makeItemFromEmol(first) : BLANK_ITEM()]);
-  };
+  const addItem = () => setItens(prev => [...prev, makeItemFromTipo("propina")]);
   const removeItem = (idx: number) => setItens(prev => prev.filter((_, i) => i !== idx));
 
-  const selectEmol = (idx: number, emolId: string) => {
-    const em = emolumentos.find(e => String(e.id) === emolId);
-    if (!em) return;
-    setItens(prev => prev.map((it, i) => i === idx ? makeItemFromEmol(em) : it));
-  };
+  const selectTipo = (idx: number, tipo: string) =>
+    setItens(prev => prev.map((it, i) => i === idx ? makeItemFromTipo(tipo) : it));
 
   const updateItemValor = (idx: number, valor: string) =>
     setItens(prev => prev.map((it, i) => i === idx ? { ...it, valor } : it));
@@ -1739,45 +1741,44 @@ function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
           </button>
         </div>
 
-        {emolumentos.length === 0 ? (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-amber-800">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            Registe primeiro os emolumentos do colégio no separador <strong>"Emolumentos"</strong> para poder criar pacotes.
-          </div>
-        ) : (
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-100/80 border-b border-slate-200">
-                  <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500">Emolumento</th>
-                  <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-[150px]">Tipo</th>
-                  <th className="text-right px-3 py-2.5 text-xs font-semibold text-slate-500 w-[130px]">Valor (Kz)</th>
-                  <th className="w-8"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {itens.map((it, idx) => (
+        <div className="border border-slate-200 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100/80 border-b border-slate-200">
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-[55%]">Tipo de Emolumento</th>
+                <th className="text-right px-3 py-2.5 text-xs font-semibold text-slate-500">Valor (Kz)</th>
+                <th className="w-8"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {itens.map((it, idx) => {
+                const hasRegisto = !!it.emolId;
+                return (
                   <tr key={idx}>
-                    <td className="px-2 py-1.5">
+                    <td className="px-2 py-2">
                       <select className={`${inputCls} text-sm py-1.5`}
-                        value={it.emolId} onChange={e => selectEmol(idx, e.target.value)}>
-                        {emolumentos.map(em => (
-                          <option key={em.id} value={String(em.id)}>
-                            {em.nome}
-                          </option>
+                        value={it.tipo} onChange={e => selectTipo(idx, e.target.value)}>
+                        {ITEM_TIPOS.map(t => (
+                          <option key={t.value} value={t.value}>{t.label}</option>
                         ))}
                       </select>
+                      {hasRegisto && (
+                        <p className="text-xs text-emerald-600 mt-0.5 px-1">✓ {it.nome}</p>
+                      )}
+                      {!hasRegisto && (
+                        <p className="text-xs text-amber-600 mt-0.5 px-1">Sem registo — introduza o valor manualmente</p>
+                      )}
                     </td>
-                    <td className="px-2 py-1.5">
-                      <span className={`inline-flex items-center text-xs border px-2 py-1 rounded-full ${pacItemColor(it.tipo)}`}>
-                        {pacItemLabel(it.tipo)}
-                      </span>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number" min="0" required={!hasRegisto}
+                        className={`${inputCls} text-sm py-1.5 text-right ${hasRegisto ? "border-emerald-300 bg-emerald-50 focus:border-emerald-400" : "border-amber-300 bg-amber-50 focus:border-amber-400"}`}
+                        placeholder={hasRegisto ? "" : "Obrigatório"}
+                        value={it.valor}
+                        onChange={e => updateItemValor(idx, e.target.value)}
+                      />
                     </td>
-                    <td className="px-2 py-1.5">
-                      <input type="number" min="0" className={`${inputCls} text-sm py-1.5 text-right`} placeholder="0"
-                        value={it.valor} onChange={e => updateItemValor(idx, e.target.value)} />
-                    </td>
-                    <td className="px-1 py-1.5 text-center">
+                    <td className="px-1 py-2 text-center">
                       {itens.length > 1 && (
                         <button onClick={() => removeItem(idx)} className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors">
                           <X className="w-3.5 h-3.5" />
@@ -1785,11 +1786,11 @@ function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
                       )}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
 
         {totalCalc > 0 && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center justify-between">
