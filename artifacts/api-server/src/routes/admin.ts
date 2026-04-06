@@ -302,6 +302,7 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
   const turmaCache: Record<string, number> = {};
   let inserted = 0;
   let skipped = 0;
+  let encarregados_criados = 0;
   const errors: string[] = [];
 
   // Preload existing turmas
@@ -348,12 +349,40 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
         ]
       );
       if (st.rows[0]) {
+        const studentId = st.rows[0].id;
         // Create matricula
         if (turmaId) {
           await pool.query(
             `INSERT INTO matriculas (student_id, turma_id, ano_lectivo)
              VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-            [st.rows[0].id, turmaId, anoLectivo]
+            [studentId, turmaId, anoLectivo]
+          );
+        }
+        // Create or find encarregado and link to student
+        const telefoneEnc = row.telefone_encarregado?.toString().replace(/\D/g, "").trim();
+        if (telefoneEnc && row.nome_encarregado?.trim()) {
+          const existing = await pool.query(
+            "SELECT id FROM encarregados WHERE telefone=$1", [telefoneEnc]
+          );
+          let encId: number;
+          if (existing.rows[0]) {
+            encId = existing.rows[0].id;
+          } else {
+            // Default PIN "1234" — encarregado must change on first login
+            const bcrypt = await import("bcryptjs");
+            const hash = await bcrypt.hash("1234", 10);
+            const ne = await pool.query(
+              `INSERT INTO encarregados (nome, telefone, password, first_login)
+               VALUES ($1,$2,$3,TRUE) RETURNING id`,
+              [row.nome_encarregado.trim(), telefoneEnc, hash]
+            );
+            encId = ne.rows[0].id;
+            encarregados_criados++;
+          }
+          await pool.query(
+            `INSERT INTO encarregado_aluno (encarregado_id, aluno_id)
+             VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [encId, studentId]
           );
         }
         inserted++;
@@ -365,7 +394,7 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
     }
   }
 
-  res.json({ inserted, skipped, errors, total: alunos.length });
+  res.json({ inserted, skipped, errors, total: alunos.length, encarregados_criados });
 });
 
 /* ─── DELETE /admin/colegios/:id ─── */

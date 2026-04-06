@@ -6,7 +6,7 @@ import {
   Upload, Landmark, Receipt, Users, GraduationCap, RefreshCw, CheckCircle2,
   AlertCircle, X, Download, TrendingUp, Banknote, School, FileSpreadsheet,
   Eye, EyeOff, Search, ArrowLeft, Menu, Calendar, Pencil, MoreHorizontal,
-  FileText, Clock, CreditCard, History, Slash, BadgePercent,
+  FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties,
 } from "lucide-react";
 
 const API = "/api";
@@ -216,67 +216,61 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
 }
 
 /* ─── CSV Upload Panel ─── */
+type CSVRow = {
+  nome: string; bilhete: string; numero_processo: string;
+  data_nascimento: string; sexo: string;
+  turma_nome: string; turno: string;
+  nome_encarregado: string; telefone_encarregado: string;
+};
+const EMPTY_ROW = (): CSVRow => ({
+  nome: "", bilhete: "", numero_processo: "", data_nascimento: "",
+  sexo: "M", turma_nome: "", turno: "Manhã", nome_encarregado: "", telefone_encarregado: "",
+});
+const CSV_HEADERS_LIST = ["nome","bilhete","numero_processo","data_nascimento","sexo","turma_nome","turno","nome_encarregado","telefone_encarregado"];
+
 function UploadAlunosPanel({ schoolId, anoLectivo }: { schoolId: number; anoLectivo: string }) {
-  const [dragging, setDragging] = useState(false);
-  const [preview, setPreview] = useState<any[]>([]);
-  const [fileName, setFileName] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ inserted: number; skipped: number; errors: string[] } | null>(null);
-  const [error, setError] = useState("");
+  const [mode, setMode] = useState<"manual"|"file">("manual");
   const [ano, setAno] = useState(anoLectivo);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<{ inserted: number; skipped: number; errors: string[]; encarregados_criados?: number } | null>(null);
+  const [error, setError] = useState("");
+
+  // Manual mode
+  const [rows, setRows] = useState<CSVRow[]>([EMPTY_ROW()]);
+  const updateRow = (i: number, field: keyof CSVRow, val: string) =>
+    setRows(r => r.map((x, idx) => idx === i ? { ...x, [field]: val } : x));
+  const addRow = () => setRows(r => [...r, EMPTY_ROW()]);
+  const removeRow = (i: number) => setRows(r => r.filter((_, idx) => idx !== i));
+  const validRows = rows.filter(r => r.nome.trim());
+
+  // File mode
+  const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState<CSVRow[]>([]);
+  const [fileName, setFileName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const CSV_HEADERS = ["nome", "bilhete", "numero_processo", "data_nascimento", "sexo", "turma_nome", "turno", "nome_encarregado", "telefone_encarregado"];
-
-  function parseCSV(text: string) {
+  function parseCSV(text: string): CSVRow[] {
     const lines = text.trim().split(/\r?\n/);
     if (lines.length < 2) return [];
     const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z_]/g, ""));
     return lines.slice(1).map(line => {
       const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
-      const obj: Record<string, string> = {};
-      headers.forEach((h, i) => { if (vals[i]) obj[h] = vals[i]; });
+      const obj: any = { ...EMPTY_ROW() };
+      headers.forEach((h, i) => { if (vals[i] !== undefined) obj[h] = vals[i]; });
       return obj;
     }).filter(r => r.nome);
   }
 
   function handleFile(file: File) {
     if (!file.name.endsWith(".csv")) { setError("Apenas ficheiros CSV são suportados."); return; }
-    setFileName(file.name);
-    setError(""); setResult(null);
+    setFileName(file.name); setError(""); setResult(null);
     const reader = new FileReader();
-    reader.onload = e => {
-      const text = e.target?.result as string;
-      const rows = parseCSV(text);
-      setPreview(rows);
-    };
+    reader.onload = e => setPreview(parseCSV(e.target?.result as string));
     reader.readAsText(file, "UTF-8");
   }
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  };
-
-  const doUpload = async () => {
-    if (!preview.length) return;
-    setUploading(true); setResult(null); setError("");
-    try {
-      const res = await api(`/admin/colegios/${schoolId}/alunos/upload`, {
-        method: "POST",
-        body: JSON.stringify({ alunos: preview, ano_lectivo: ano }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro no carregamento.");
-      setResult(data);
-      setPreview([]); setFileName("");
-    } catch (err: any) { setError(err.message); }
-    finally { setUploading(false); }
-  };
-
   const downloadTemplate = () => {
-    const header = CSV_HEADERS.join(",");
+    const header = CSV_HEADERS_LIST.join(",");
     const example = "João Manuel Silva,009874321LA041,PROC-2025-001,2009-05-15,M,10ª Classe A,Manhã,António Silva,924000001";
     const blob = new Blob([header + "\n" + example], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -284,100 +278,263 @@ function UploadAlunosPanel({ schoolId, anoLectivo }: { schoolId: number; anoLect
     URL.revokeObjectURL(url);
   };
 
+  const doImport = async (alunos: CSVRow[]) => {
+    if (!alunos.length) return;
+    setUploading(true); setResult(null); setError("");
+    try {
+      const res = await api(`/admin/colegios/${schoolId}/alunos/upload`, {
+        method: "POST",
+        body: JSON.stringify({ alunos, ano_lectivo: ano }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro no carregamento.");
+      setResult(data);
+      if (mode === "manual") setRows([EMPTY_ROW()]);
+      if (mode === "file") { setPreview([]); setFileName(""); }
+    } catch (err: any) { setError(err.message); }
+    finally { setUploading(false); }
+  };
+
+  const cellCls = "bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20 w-full";
+  const selCls  = `${cellCls} cursor-pointer`;
+
   return (
     <div className="space-y-5">
-      {/* Ano lectivo */}
-      <div className="flex items-center gap-4">
-        <Field label="Ano lectivo de importação">
-          <input className={`${inputCls} w-36`} value={ano} onChange={e => setAno(e.target.value)} placeholder="2025/2026" />
+      {/* Header controls */}
+      <div className="flex flex-wrap items-end gap-4">
+        <Field label="Ano lectivo">
+          <input className={`${inputCls} w-32`} value={ano} onChange={e => setAno(e.target.value)} placeholder="2025/2026" />
         </Field>
-        <button onClick={downloadTemplate}
-          className="mt-5 flex items-center gap-2 text-sm text-primary hover:text-primary/70 font-medium">
-          <Download className="w-4 h-4" /> Descarregar modelo CSV
-        </button>
+        {/* Mode tabs */}
+        <div className="flex bg-slate-100 rounded-xl p-1 gap-1 mb-0.5">
+          <button onClick={() => { setMode("manual"); setError(""); setResult(null); }}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${mode==="manual" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            <TableProperties className="w-3.5 h-3.5" /> Preencher no browser
+          </button>
+          <button onClick={() => { setMode("file"); setError(""); setResult(null); }}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${mode==="file" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            <FileSpreadsheet className="w-3.5 h-3.5" /> Carregar ficheiro CSV
+          </button>
+        </div>
+        {mode === "file" && (
+          <button onClick={downloadTemplate}
+            className="mb-0.5 flex items-center gap-1.5 text-xs text-primary hover:text-primary/70 font-medium">
+            <Download className="w-3.5 h-3.5" /> Descarregar modelo CSV
+          </button>
+        )}
       </div>
 
-      {/* Drop zone */}
-      {!preview.length && (
-        <div
-          onDragOver={e => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          onClick={() => inputRef.current?.click()}
-          className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors ${dragging ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300 bg-slate-50"}`}
-        >
-          <FileSpreadsheet className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-          <p className="font-medium text-slate-600">Arraste o ficheiro CSV aqui</p>
-          <p className="text-sm text-slate-400 mt-1">ou clique para seleccionar</p>
-          <input ref={inputRef} type="file" accept=".csv" className="hidden"
-            onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
-        </div>
-      )}
+      {/* ── MANUAL MODE ── */}
+      {mode === "manual" && (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">Preencha os dados de cada aluno directamente na tabela. Campos marcados com <span className="text-red-500">*</span> são obrigatórios.</p>
 
-      {/* Preview */}
-      {preview.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              <span className="text-sm font-semibold text-slate-700">{fileName}</span>
-              <Badge text={`${preview.length} alunos`} color="blue" />
-            </div>
-            <button onClick={() => { setPreview([]); setFileName(""); }}
-              className="text-sm text-slate-400 hover:text-red-500 transition-colors">Remover</button>
-          </div>
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500 font-semibold uppercase">
+          {/* Scrollable inline table editor */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden overflow-x-auto shadow-sm">
+            <table className="w-full text-xs min-w-[1100px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {["Nome", "Bilhete", "Turma", "Sexo", "Encarregado"].map(h => (
-                    <th key={h} className="px-3 py-2">{h}</th>
-                  ))}
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-6">#</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-44">Nome completo <span className="text-red-500">*</span></th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-32">Bilhete (BI)</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-28">Nº processo</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-28">Data nasc.</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-16">Sexo</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-32">Turma <span className="text-red-500">*</span></th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-20">Turno</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-36">Nome encarregado</th>
+                  <th className="px-2 py-2 text-left text-slate-500 font-semibold w-28">Telef. encarregado</th>
+                  <th className="w-8" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {preview.slice(0, 8).map((r, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-1.5 font-medium text-slate-900">{r.nome}</td>
-                    <td className="px-3 py-1.5 text-slate-500 font-mono">{r.bilhete || "—"}</td>
-                    <td className="px-3 py-1.5 text-slate-600">{r.turma_nome || "—"}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{r.sexo || "—"}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{r.nome_encarregado || "—"}</td>
+                {rows.map((row, i) => (
+                  <tr key={i} className={row.nome.trim() ? "bg-white" : "bg-slate-50/50"}>
+                    <td className="px-2 py-1.5 text-slate-400 text-center">{i+1}</td>
+                    <td className="px-1 py-1">
+                      <input className={cellCls} placeholder="ex: João Manuel Silva" value={row.nome}
+                        onChange={e => updateRow(i, "nome", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input className={cellCls} placeholder="009874321LA041" value={row.bilhete}
+                        onChange={e => updateRow(i, "bilhete", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input className={cellCls} placeholder="PROC-2025-001" value={row.numero_processo}
+                        onChange={e => updateRow(i, "numero_processo", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input type="date" className={cellCls} value={row.data_nascimento}
+                        onChange={e => updateRow(i, "data_nascimento", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <select className={selCls} value={row.sexo} onChange={e => updateRow(i, "sexo", e.target.value)}>
+                        <option value="M">M</option>
+                        <option value="F">F</option>
+                        <option value="Outro">Outro</option>
+                      </select>
+                    </td>
+                    <td className="px-1 py-1">
+                      <input className={cellCls} placeholder="10ª Classe A" value={row.turma_nome}
+                        onChange={e => updateRow(i, "turma_nome", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <select className={selCls} value={row.turno} onChange={e => updateRow(i, "turno", e.target.value)}>
+                        <option>Manhã</option>
+                        <option>Tarde</option>
+                      </select>
+                    </td>
+                    <td className="px-1 py-1">
+                      <input className={cellCls} placeholder="António Silva" value={row.nome_encarregado}
+                        onChange={e => updateRow(i, "nome_encarregado", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input className={cellCls} placeholder="924000001" value={row.telefone_encarregado}
+                        onChange={e => updateRow(i, "telefone_encarregado", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      {rows.length > 1 && (
+                        <button onClick={() => removeRow(i)} title="Remover linha"
+                          className="p-1 rounded-lg text-slate-300 hover:text-red-400 hover:bg-red-50 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {preview.length > 8 && (
-              <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 border-t border-slate-100">
-                + {preview.length - 8} mais registos...
-              </div>
-            )}
           </div>
+
+          {/* Add row + info */}
+          <div className="flex items-center justify-between">
+            <button onClick={addRow}
+              className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/70 transition-colors">
+              <Plus className="w-3.5 h-3.5" /> Adicionar linha
+            </button>
+            <span className="text-xs text-slate-400">
+              {validRows.length} {validRows.length === 1 ? "aluno pronto" : "alunos prontos"} para importar
+            </span>
+          </div>
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
+          {result && <ImportResult result={result} />}
+
+          <button onClick={() => doImport(validRows)} disabled={uploading || !validRows.length}
+            className="w-full py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {uploading
+              ? <><RefreshCw className="w-4 h-4 animate-spin" />A importar...</>
+              : <><Upload className="w-4 h-4" />Importar {validRows.length} {validRows.length === 1 ? "aluno" : "alunos"}</>}
+          </button>
         </div>
       )}
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
-
-      {result && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            <span className="font-semibold text-emerald-800">Importação concluída</span>
-          </div>
-          <p className="text-sm text-emerald-700">{result.inserted} alunos adicionados, {result.skipped} ignorados.</p>
-          {result.errors.length > 0 && (
-            <div className="mt-2 text-xs text-red-600">
-              {result.errors.slice(0, 5).map((e, i) => <p key={i}>• {e}</p>)}
+      {/* ── FILE MODE ── */}
+      {mode === "file" && (
+        <div className="space-y-4">
+          {!preview.length && (
+            <div
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }}
+              onClick={() => inputRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors ${dragging ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300 bg-slate-50"}`}>
+              <FileSpreadsheet className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <p className="font-medium text-slate-600">Arraste o ficheiro CSV aqui</p>
+              <p className="text-sm text-slate-400 mt-1">ou clique para seleccionar</p>
+              <input ref={inputRef} type="file" accept=".csv" className="hidden"
+                onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
             </div>
+          )}
+
+          {preview.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span className="text-sm font-semibold text-slate-700">{fileName}</span>
+                  <Badge text={`${preview.length} alunos`} color="blue" />
+                </div>
+                <button onClick={() => { setPreview([]); setFileName(""); }}
+                  className="text-sm text-slate-400 hover:text-red-500 transition-colors">Remover</button>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden overflow-x-auto">
+                <table className="w-full text-xs text-left min-w-[600px]">
+                  <thead className="bg-slate-50 text-slate-500 font-semibold uppercase">
+                    <tr>
+                      {["Nome", "Bilhete", "Turma", "Turno", "Sexo", "Encarregado", "Telefone"].map(h => (
+                        <th key={h} className="px-3 py-2">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {preview.slice(0, 8).map((r, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-1.5 font-medium text-slate-900">{r.nome}</td>
+                        <td className="px-3 py-1.5 text-slate-500 font-mono">{r.bilhete || "—"}</td>
+                        <td className="px-3 py-1.5 text-slate-600">{r.turma_nome || "—"}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{r.turno || "—"}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{r.sexo || "—"}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{r.nome_encarregado || "—"}</td>
+                        <td className="px-3 py-1.5 text-slate-500 font-mono">{r.telefone_encarregado || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {preview.length > 8 && (
+                  <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 border-t border-slate-100">
+                    + {preview.length - 8} mais registos...
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
+          {result && <ImportResult result={result} />}
+
+          {preview.length > 0 && (
+            <button onClick={() => doImport(preview)} disabled={uploading}
+              className="w-full py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+              {uploading
+                ? <><RefreshCw className="w-4 h-4 animate-spin" />A importar...</>
+                : <><Upload className="w-4 h-4" />Importar {preview.length} alunos</>}
+            </button>
           )}
         </div>
       )}
+    </div>
+  );
+}
 
-      {preview.length > 0 && (
-        <button onClick={doUpload} disabled={uploading}
-          className="w-full py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-          {uploading ? <><RefreshCw className="w-4 h-4 animate-spin" />A importar...</> : <><Upload className="w-4 h-4" />Importar {preview.length} alunos</>}
-        </button>
+function ImportResult({ result }: { result: { inserted: number; skipped: number; errors: string[]; encarregados_criados?: number } }) {
+  return (
+    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+        <span className="font-semibold text-emerald-800">Importação concluída com sucesso</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+        <div className="bg-white rounded-lg px-3 py-2 border border-emerald-100">
+          <p className="text-xs text-emerald-600 font-medium">Alunos criados</p>
+          <p className="text-xl font-bold text-emerald-800">{result.inserted}</p>
+        </div>
+        <div className="bg-white rounded-lg px-3 py-2 border border-emerald-100">
+          <p className="text-xs text-slate-500 font-medium">Já existentes</p>
+          <p className="text-xl font-bold text-slate-600">{result.skipped}</p>
+        </div>
+        {(result.encarregados_criados ?? 0) > 0 && (
+          <div className="bg-white rounded-lg px-3 py-2 border border-blue-100">
+            <p className="text-xs text-blue-600 font-medium">Encarregados criados</p>
+            <p className="text-xl font-bold text-blue-800">{result.encarregados_criados}</p>
+          </div>
+        )}
+      </div>
+      {result.errors.length > 0 && (
+        <div className="mt-2 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <p className="text-xs font-semibold text-red-700 mb-1">Erros ({result.errors.length}):</p>
+          {result.errors.slice(0, 5).map((e, i) => <p key={i} className="text-xs text-red-600">• {e}</p>)}
+        </div>
       )}
     </div>
   );
