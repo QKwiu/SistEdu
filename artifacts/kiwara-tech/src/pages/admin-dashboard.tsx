@@ -1196,10 +1196,18 @@ function PropinasAdminPanel({ schoolId }: { schoolId: number }) {
 }
 
 /* ─── Emolumentos Panel ─── */
-function EmolumentosPanel({ schoolId, initial, multaRegra }: {
+function EmolumentosPanel({ schoolId, initial, multaRegra, onUpdated }: {
   schoolId: number; initial: Emolumento[]; multaRegra: MultaRegra | null;
+  onUpdated?: (list: Emolumento[]) => void;
 }) {
   const [list, setList] = useState<Emolumento[]>(initial);
+  const setListAndNotify = (updater: (prev: Emolumento[]) => Emolumento[]) => {
+    setList(prev => {
+      const next = updater(prev);
+      onUpdated?.(next);
+      return next;
+    });
+  };
   const [form, setForm] = useState({
     tipo: "propina",
     nome: DESCRICAO_POR_TIPO["propina"][0],
@@ -1256,7 +1264,7 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar emolumento.");
-      setList(l => [data, ...l]);
+      setListAndNotify(l => [data, ...l]);
       setForm(f => ({ ...f, nome: (DESCRICAO_POR_TIPO[f.tipo] ?? [])[0] ?? "", montante: "" }));
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
@@ -1265,7 +1273,7 @@ function EmolumentosPanel({ schoolId, initial, multaRegra }: {
   const deleteEm = async (id: number) => {
     if (!confirm("Eliminar este emolumento?")) return;
     await api(`/admin/emolumentos/${id}`, { method: "DELETE" });
-    setList(l => l.filter(x => x.id !== id));
+    setListAndNotify(l => l.filter(x => x.id !== id));
   };
 
   const MODELO_INLINE = [
@@ -2046,6 +2054,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
               schoolId={currentSchool.id}
               initial={currentSchool.emolumentos}
               multaRegra={currentSchool.multa_regra}
+              onUpdated={emolumentos => setCurrentSchool(s => ({ ...s, emolumentos }))}
             />
           </div>
         </div>
