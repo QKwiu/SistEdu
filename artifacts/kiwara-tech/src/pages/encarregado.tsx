@@ -6,6 +6,7 @@ import {
   AlertTriangle, Clock, CheckCircle, Wallet, Users,
   RefreshCw, X, CreditCard, Calendar, Info,
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
+  Phone, HelpCircle, RotateCcw,
 } from "lucide-react";
 
 const API = "/api";
@@ -274,12 +275,131 @@ function CombinedRefModal({ ref: generated, onClose }: { ref: GeneratedRef; onCl
   );
 }
 
-/* ─── Login Screen ─── */
+/* ─── Recuperar PIN Modal ─── */
+function RecuperarPinModal({ onClose }: { onClose: () => void }) {
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError("");
+    const clean = phone.replace(/\D/g, "");
+    if (clean.length < 9) return setError("Introduza um número de telemóvel válido.");
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/guardian/recuperar-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefone: clean }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao repor o PIN.");
+      setSuccess(data.nome);
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <motion.div
+        initial={{ opacity: 0, y: 48 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 48 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="relative w-full max-w-sm bg-slate-900 border border-white/15 rounded-2xl shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+              <RotateCcw className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <h3 className="text-white font-semibold text-sm">Recuperar Palavra-passe</h3>
+              <p className="text-slate-400 text-xs">Portal do Encarregado</p>
+            </div>
+          </div>
+          <button onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="px-5 py-5">
+          {!success ? (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <p className="text-slate-300 text-sm leading-relaxed">
+                Introduza o número de telemóvel associado à sua conta. O PIN será reposto
+                para o valor padrão e terá de criar um novo PIN no próximo acesso.
+              </p>
+              <div>
+                <label className="block text-blue-200 text-sm font-medium mb-2">Número de Telemóvel</label>
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
+                    <span className="text-white/60 text-sm font-medium">+244</span>
+                    <span className="w-px h-4 bg-white/25" />
+                  </div>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder="943 612 744" autoComplete="tel"
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl pl-[72px] pr-4 py-3 font-mono tracking-wide focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all" />
+                </div>
+              </div>
+              <AnimatePresence>
+                {error && (
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="bg-red-500/20 border border-red-400/30 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                    <AlertTriangle size={14} className="text-red-300 shrink-0" />
+                    <p className="text-red-200 text-sm">{error}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <button type="submit" disabled={loading}
+                className="w-full bg-amber-500 hover:bg-amber-400 disabled:bg-white/20 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+                {loading ? <RefreshCw size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                {loading ? "A repor..." : "Repor PIN"}
+              </button>
+              <button type="button" onClick={onClose}
+                className="w-full py-2.5 text-slate-400 text-sm hover:text-slate-200 transition-colors">
+                Cancelar
+              </button>
+            </form>
+          ) : (
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4 text-center">
+              <div className="w-14 h-14 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto">
+                <CheckCircle size={26} className="text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-white font-semibold text-base">PIN Reposto com Sucesso!</p>
+                <p className="text-slate-400 text-sm mt-1">Olá, <span className="text-white font-medium">{success}</span>.</p>
+              </div>
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-left space-y-2">
+                <p className="text-amber-200 text-sm font-medium flex items-center gap-2">
+                  <Phone size={14} /> Use o PIN temporário para entrar:
+                </p>
+                <p className="text-amber-100 text-3xl font-bold font-mono tracking-[0.3em] text-center py-2">1234</p>
+                <p className="text-amber-300/80 text-xs text-center">
+                  Será obrigado a criar um novo PIN seguro após o acesso.
+                </p>
+              </div>
+              <button onClick={onClose}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-semibold py-3 rounded-xl transition-colors">
+                Ir para o Login
+              </button>
+            </motion.div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) => void }) {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showRecovery, setShowRecovery] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError("");
@@ -345,6 +465,15 @@ function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) =>
               {loading ? <RefreshCw size={18} className="animate-spin"/> : <Lock size={18}/>}
               {loading ? "A verificar..." : "Entrar"}
             </button>
+
+            {/* Recover link */}
+            <div className="text-center pt-1">
+              <button type="button" onClick={() => setShowRecovery(true)}
+                className="text-xs text-blue-300/70 hover:text-amber-300 transition-colors flex items-center gap-1.5 mx-auto">
+                <HelpCircle size={12} />
+                Esqueceu a palavra-passe?
+              </button>
+            </div>
           </form>
           <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-3">
             <p className="text-blue-300/80 text-xs text-center">
@@ -353,6 +482,11 @@ function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) =>
           </div>
         </motion.div>
       </div>
+
+      {/* Recovery modal */}
+      <AnimatePresence>
+        {showRecovery && <RecuperarPinModal onClose={() => setShowRecovery(false)} />}
+      </AnimatePresence>
     </div>
   );
 }

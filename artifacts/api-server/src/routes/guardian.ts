@@ -64,6 +64,30 @@ router.post("/guardian/login", async (req, res) => {
   });
 });
 
+// POST /guardian/recuperar-pin — reset PIN to "1234" and force first_login
+router.post("/guardian/recuperar-pin", async (req, res) => {
+  const { telefone } = req.body;
+  if (!telefone) return res.status(400).json({ error: "Número de telemóvel obrigatório." });
+
+  const clean = String(telefone).replace(/\D/g, "");
+  const result = await pool.query(
+    "SELECT id, nome FROM encarregados WHERE telefone = $1",
+    [clean]
+  );
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Número não encontrado. Verifique se está registado no sistema." });
+  }
+
+  const hash = await bcrypt.hash("1234", 10);
+  await pool.query(
+    "UPDATE encarregados SET password = $1, first_login = TRUE WHERE id = $2",
+    [hash, result.rows[0].id]
+  );
+
+  return res.json({ success: true, nome: result.rows[0].nome });
+});
+
 // POST /guardian/change-password — obrigatório no primeiro login
 router.post("/guardian/change-password", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
