@@ -1584,19 +1584,27 @@ const pacItemLabel = (t: string) => ITEM_TIPOS.find(x => x.value === t)?.label ?
 const pacItemColor = (t: string) => ITEM_TIPOS.find(x => x.value === t)?.color ?? "bg-slate-50 text-slate-600 border-slate-200";
 const fmtKz = (v: number) => Number(v).toLocaleString("pt-AO") + " Kz";
 
-const BLANK_ITEM = (): { nome: string; tipo: string; valor: string } => ({ nome: "", tipo: "propina", valor: "" });
+type PacoteItemForm = { emolId: string; nome: string; tipo: string; valor: string; };
+const BLANK_ITEM = (): PacoteItemForm => ({ emolId: "outro", nome: "", tipo: "propina", valor: "" });
 
-function PacotesPanel({ schoolId, initial, onUpdated }: {
+const EMOL_TIPO_TO_ITEM: Record<string, string> = {
+  propina: "propina", transporte: "transporte", alimentacao: "alimentacao",
+  uniforme: "uniforme", extracurricular: "extracurricular", seguro: "seguro",
+};
+const emolToItemTipo = (t: string) => EMOL_TIPO_TO_ITEM[t] ?? "outro";
+
+function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
   schoolId: number;
   initial: PacoteEmolumento[];
   onUpdated: (pacotes: PacoteEmolumento[]) => void;
+  emolumentos?: Emolumento[];
 }) {
   const [pacotes, setPacotes] = useState(initial);
   const [editId, setEditId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [nome, setNome] = useState("");
   const [descricao, setDescricao] = useState("");
-  const [itens, setItens] = useState<Array<{ nome: string; tipo: string; valor: string }>>([BLANK_ITEM()]);
+  const [itens, setItens] = useState<PacoteItemForm[]>([BLANK_ITEM()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -1611,7 +1619,10 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
     setDescricao(p.descricao || "");
     setItens(
       Array.isArray(p.itens) && p.itens.length > 0
-        ? p.itens.map(i => ({ nome: i.nome, tipo: i.tipo, valor: String(i.valor) }))
+        ? p.itens.map(i => {
+            const match = emolumentos.find(e => e.nome === i.nome);
+            return { emolId: match ? String(match.id) : "outro", nome: i.nome, tipo: i.tipo, valor: String(i.valor) };
+          })
         : [BLANK_ITEM()]
     );
     setEditId(p.id); setCreating(false); setError("");
@@ -1620,7 +1631,18 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
 
   const addItem = () => setItens(prev => [...prev, BLANK_ITEM()]);
   const removeItem = (idx: number) => setItens(prev => prev.filter((_, i) => i !== idx));
-  const updateItem = (idx: number, field: keyof typeof itens[0], val: string) =>
+
+  const selectEmol = (idx: number, emolId: string) => {
+    setItens(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      if (emolId === "outro") return { ...it, emolId: "outro", nome: "", tipo: "outro", valor: "" };
+      const em = emolumentos.find(e => String(e.id) === emolId);
+      if (!em) return { ...it, emolId };
+      return { ...it, emolId, nome: em.nome, tipo: emolToItemTipo(em.tipo), valor: String(em.montante) };
+    }));
+  };
+
+  const updateItem = (idx: number, field: keyof Omit<PacoteItemForm, "emolId">, val: string) =>
     setItens(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
 
   const buildPayload = () => ({
@@ -1707,38 +1729,67 @@ function PacotesPanel({ schoolId, initial, onUpdated }: {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100/80 border-b border-slate-200">
-                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-2/5">Designação</th>
-                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-1/4">Tipo</th>
-                <th className="text-right px-3 py-2.5 text-xs font-semibold text-slate-500 w-1/4">Valor (Kz)</th>
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500">
+                  {emolumentos.length > 0 ? "Emolumento" : "Designação"}
+                </th>
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 w-[140px]">Tipo</th>
+                <th className="text-right px-3 py-2.5 text-xs font-semibold text-slate-500 w-[130px]">Valor (Kz)</th>
                 <th className="w-8"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {itens.map((it, idx) => (
-                <tr key={idx}>
-                  <td className="px-2 py-1.5">
-                    <input className={`${inputCls} text-sm py-1.5`} placeholder="ex: Propina mensal"
-                      value={it.nome} onChange={e => updateItem(idx, "nome", e.target.value)} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <select className={`${inputCls} text-sm py-1.5`}
-                      value={it.tipo} onChange={e => updateItem(idx, "tipo", e.target.value)}>
-                      {ITEM_TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input type="number" min="0" className={`${inputCls} text-sm py-1.5 text-right`} placeholder="0"
-                      value={it.valor} onChange={e => updateItem(idx, "valor", e.target.value)} />
-                  </td>
-                  <td className="px-1 py-1.5 text-center">
-                    {itens.length > 1 && (
-                      <button onClick={() => removeItem(idx)} className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {itens.map((it, idx) => {
+                const isOutro = it.emolId === "outro";
+                return (
+                  <tr key={idx} className="align-top">
+                    <td className="px-2 py-1.5 space-y-1">
+                      {emolumentos.length > 0 ? (
+                        <>
+                          <select className={`${inputCls} text-sm py-1.5`}
+                            value={it.emolId} onChange={e => selectEmol(idx, e.target.value)}>
+                            {emolumentos.map(em => (
+                              <option key={em.id} value={String(em.id)}>
+                                {em.nome} — {Number(em.montante).toLocaleString("pt-AO")} Kz
+                              </option>
+                            ))}
+                            <option value="outro">✏️ Outro / Personalizado…</option>
+                          </select>
+                          {isOutro && (
+                            <input className={`${inputCls} text-sm py-1.5`} placeholder="Nome do item"
+                              value={it.nome} onChange={e => updateItem(idx, "nome", e.target.value)} />
+                          )}
+                        </>
+                      ) : (
+                        <input className={`${inputCls} text-sm py-1.5`} placeholder="ex: Propina mensal"
+                          value={it.nome} onChange={e => updateItem(idx, "nome", e.target.value)} />
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {!isOutro && emolumentos.length > 0 ? (
+                        <span className={`inline-flex items-center text-xs border px-2 py-1 rounded-full ${pacItemColor(it.tipo)}`}>
+                          {pacItemLabel(it.tipo)}
+                        </span>
+                      ) : (
+                        <select className={`${inputCls} text-sm py-1.5`}
+                          value={it.tipo} onChange={e => updateItem(idx, "tipo", e.target.value)}>
+                          {ITEM_TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" min="0" className={`${inputCls} text-sm py-1.5 text-right`} placeholder="0"
+                        value={it.valor} onChange={e => updateItem(idx, "valor", e.target.value)} />
+                    </td>
+                    <td className="px-1 py-1.5 text-center">
+                      {itens.length > 1 && (
+                        <button onClick={() => removeItem(idx)} className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1993,6 +2044,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
             schoolId={currentSchool.id}
             initial={currentSchool.pacotes}
             onUpdated={pacotes => setCurrentSchool(s => ({ ...s, pacotes }))}
+            emolumentos={currentSchool.emolumentos}
           />
         </div>
       )}
