@@ -475,6 +475,92 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
   res.json({ inserted, skipped, errors, total: alunos.length, encarregados_criados });
 });
 
+/* ─── POST /admin/colegios/:id/alunos — create single student ─── */
+router.post("/admin/colegios/:id/alunos", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+  const row = req.body as {
+    nome: string; bilhete?: string; numero_processo?: string;
+    data_nascimento?: string; sexo?: string;
+    turma_id?: number; turma_nome?: string; turno?: string;
+    nome_encarregado?: string; telefone_encarregado?: string;
+    pacote_id?: number; ano_lectivo?: string;
+  };
+
+  if (!row.nome?.trim()) return res.status(400).json({ error: "Nome do aluno é obrigatório." });
+
+  const anoLectivo = row.ano_lectivo || "2025/2026";
+
+  try {
+    // Resolve turma
+    let turmaId: number | null = row.turma_id ?? null;
+    if (!turmaId && row.turma_nome?.trim()) {
+      const existing = await pool.query(
+        "SELECT id FROM turmas WHERE school_id=$1 AND LOWER(nome)=LOWER($2)", [schoolId, row.turma_nome.trim()]
+      );
+      if (existing.rows[0]) {
+        turmaId = existing.rows[0].id;
+      } else {
+        const nt = await pool.query(
+          "INSERT INTO turmas (school_id, nome, ano, turno) VALUES ($1,$2,$3,$4) RETURNING id",
+          [schoolId, row.turma_nome.trim(), anoLectivo, row.turno || "Manhã"]
+        );
+        turmaId = nt.rows[0].id;
+      }
+    }
+
+    // Insert student
+    const st = await pool.query(
+      `INSERT INTO students
+         (school_id, turma_id, nome, bilhete, numero_processo, data_nascimento,
+          sexo, nome_encarregado, telefone_encarregado, estado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'activo')
+       RETURNING id, nome, bilhete, numero_processo, data_nascimento, sexo,
+                 nome_encarregado, telefone_encarregado, turma_id, estado, created_at`,
+      [schoolId, turmaId, row.nome.trim(),
+       row.bilhete?.trim() || null, row.numero_processo?.trim() || null,
+       row.data_nascimento || null, row.sexo || null,
+       row.nome_encarregado?.trim() || null, row.telefone_encarregado?.trim() || null]
+    );
+    const student = st.rows[0];
+
+    // Matricula + pacote
+    if (turmaId) {
+      await pool.query(
+        `INSERT INTO matriculas (student_id, turma_id, ano_lectivo, pacote_id)
+         VALUES ($1,$2,$3,$4) ON CONFLICT (student_id, turma_id, ano_lectivo)
+         DO UPDATE SET pacote_id = EXCLUDED.pacote_id`,
+        [student.id, turmaId, anoLectivo, row.pacote_id ?? null]
+      );
+    }
+
+    // Encarregado
+    const telefoneEnc = row.telefone_encarregado?.toString().replace(/\D/g, "").trim();
+    if (telefoneEnc && row.nome_encarregado?.trim()) {
+      const existing = await pool.query("SELECT id FROM encarregados WHERE telefone=$1", [telefoneEnc]);
+      let encId: number;
+      if (existing.rows[0]) {
+        encId = existing.rows[0].id;
+      } else {
+        const bcrypt = await import("bcryptjs");
+        const hash = await bcrypt.hash("1234", 10);
+        const ne = await pool.query(
+          `INSERT INTO encarregados (nome, telefone, password, first_login) VALUES ($1,$2,$3,TRUE) RETURNING id`,
+          [row.nome_encarregado.trim(), telefoneEnc, hash]
+        );
+        encId = ne.rows[0].id;
+      }
+      await pool.query(
+        `INSERT INTO encarregado_aluno (encarregado_id, aluno_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [encId, student.id]
+      );
+    }
+
+    res.status(201).json({ ...student, turma_id: turmaId });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ─── DELETE /admin/colegios/:id ─── */
 router.delete("/admin/colegios/:id", adminAuth, async (req, res) => {
   await pool.query("DELETE FROM schools WHERE id=$1", [req.params.id]);

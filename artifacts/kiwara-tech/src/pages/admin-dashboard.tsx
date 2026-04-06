@@ -6,7 +6,7 @@ import {
   Upload, Landmark, Receipt, Users, GraduationCap, RefreshCw, CheckCircle2,
   AlertCircle, X, Download, TrendingUp, Banknote, School, FileSpreadsheet,
   Eye, EyeOff, Search, ArrowLeft, Menu, Calendar, Pencil, MoreHorizontal,
-  FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties,
+  FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties, UserPlus,
 } from "lucide-react";
 
 const API = "/api";
@@ -235,6 +235,185 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
         </div>
       </form>
     </Modal>
+  );
+}
+
+/* ─── Add Single Student Panel ─── */
+type SchoolTurma = { id: number; nome: string; turno?: string };
+
+function AddAlunoPanel({ schoolId, turmas, usaPacotes, pacotes, anoLectivo, onSuccess }: {
+  schoolId: number; turmas: SchoolTurma[]; usaPacotes: boolean;
+  pacotes: PacoteEmolumento[]; anoLectivo: string; onSuccess: () => void;
+}) {
+  const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white";
+  const labelCls = "block text-xs font-medium text-slate-600 mb-1";
+
+  const blank = () => ({
+    nome: "", bilhete: "", numero_processo: "", data_nascimento: "", sexo: "",
+    turma_id: "", turma_nova: "", turno: "Manhã",
+    nome_encarregado: "", telefone_encarregado: "", pacote_id: "",
+  });
+
+  const [form, setForm] = useState(blank());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState<string | null>(null);
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.nome.trim()) { setError("O nome do aluno é obrigatório."); return; }
+    setError(""); setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        nome: form.nome.trim(),
+        bilhete: form.bilhete.trim() || undefined,
+        numero_processo: form.numero_processo.trim() || undefined,
+        data_nascimento: form.data_nascimento || undefined,
+        sexo: form.sexo || undefined,
+        turno: form.turno,
+        nome_encarregado: form.nome_encarregado.trim() || undefined,
+        telefone_encarregado: form.telefone_encarregado.trim() || undefined,
+        pacote_id: form.pacote_id ? Number(form.pacote_id) : undefined,
+        ano_lectivo: anoLectivo,
+      };
+      if (form.turma_id) body.turma_id = Number(form.turma_id);
+      else if (form.turma_nova.trim()) body.turma_nome = form.turma_nova.trim();
+
+      const r = await api(`/admin/colegios/${schoolId}/alunos`, { method: "POST", body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao registar aluno.");
+      setSuccess(d.nome);
+      setForm(blank());
+      onSuccess();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {success && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-emerald-800">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+          Aluno <strong>{success}</strong> registado com sucesso!
+          <button type="button" onClick={() => setSuccess(null)} className="ml-auto"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0" />{error}
+        </div>
+      )}
+
+      {/* Dados Pessoais */}
+      <div>
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Dados Pessoais</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Nome completo *</label>
+            <input className={inputCls} placeholder="ex: João Manuel Silva" value={form.nome}
+              onChange={e => set("nome", e.target.value)} required />
+          </div>
+          <div>
+            <label className={labelCls}>Bilhete de Identidade</label>
+            <input className={inputCls} placeholder="ex: 005234567LA041" value={form.bilhete}
+              onChange={e => set("bilhete", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Nº de Processo</label>
+            <input className={inputCls} placeholder="ex: 2025/0001" value={form.numero_processo}
+              onChange={e => set("numero_processo", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Data de Nascimento</label>
+            <input type="date" className={inputCls} value={form.data_nascimento}
+              onChange={e => set("data_nascimento", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Sexo</label>
+            <select className={inputCls} value={form.sexo} onChange={e => set("sexo", e.target.value)}>
+              <option value="">— Seleccionar —</option>
+              <option value="M">Masculino</option>
+              <option value="F">Feminino</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Turma */}
+      <div>
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Turma</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Turma existente</label>
+            <select className={inputCls} value={form.turma_id}
+              onChange={e => { set("turma_id", e.target.value); if (e.target.value) set("turma_nova", ""); }}>
+              <option value="">— Seleccionar —</option>
+              {turmas.map(t => <option key={t.id} value={String(t.id)}>{t.nome}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Criar nova turma</label>
+            <input className={`${inputCls} ${form.turma_id ? "bg-slate-50 text-slate-400" : ""}`}
+              placeholder="ex: 9ª Classe A" value={form.turma_nova} disabled={!!form.turma_id}
+              onChange={e => set("turma_nova", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Turno</label>
+            <select className={inputCls} value={form.turno} onChange={e => set("turno", e.target.value)}>
+              <option value="Manhã">Manhã</option>
+              <option value="Tarde">Tarde</option>
+              <option value="Noite">Noite</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Encarregado */}
+      <div>
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Encarregado de Educação</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Nome do encarregado</label>
+            <input className={inputCls} placeholder="ex: Manuel José Silva" value={form.nome_encarregado}
+              onChange={e => set("nome_encarregado", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Telefone</label>
+            <input className={inputCls} placeholder="ex: 923 456 789" value={form.telefone_encarregado}
+              onChange={e => set("telefone_encarregado", e.target.value)} />
+            <p className="text-xs text-slate-400 mt-1">PIN inicial de acesso: 1234</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Pacote */}
+      {usaPacotes && pacotes.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Pacote de Emolumentos</p>
+          <select className={`${inputCls} sm:max-w-sm`} value={form.pacote_id}
+            onChange={e => set("pacote_id", e.target.value)}>
+            <option value="">— Sem pacote —</option>
+            {pacotes.map(p => (
+              <option key={p.id} value={String(p.id)}>
+                {p.nome} — {Number(p.valor).toLocaleString("pt-AO")} Kz
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="flex justify-end pt-2 border-t border-slate-100">
+        <button type="submit" disabled={saving}
+          className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+          {saving ? "A registar…" : "Registar Aluno"}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -1910,6 +2089,7 @@ function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
 /* ─── School Detail View ─── */
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
   const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban">("geral");
+  const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
 
@@ -1926,7 +2106,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
 
   const TABS = [
     { id: "geral" as const, label: "Visão Geral", icon: <Building2 className="w-4 h-4" /> },
-    { id: "alunos" as const, label: "Carregar Alunos", icon: <Upload className="w-4 h-4" /> },
+    { id: "alunos" as const, label: "Alunos", icon: <Users className="w-4 h-4" /> },
     { id: "emolumentos" as const, label: "Emolumentos", icon: <Receipt className="w-4 h-4" /> },
     ...(currentSchool.usa_pacotes ? [{ id: "pacotes" as const, label: "Pacotes", icon: <BadgePercent className="w-4 h-4" /> }] : []),
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
@@ -2021,18 +2201,55 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
         </div>
       )}
       {tab === "alunos" && (
-        <div className="bg-white border border-slate-100 rounded-2xl p-6">
-          <h3 className="font-semibold text-slate-900 mb-1">Importar base de dados de alunos</h3>
-          <p className="text-sm text-slate-500 mb-5">
-            Preencha directamente no browser ou carregue um ficheiro CSV. Turmas e encarregados são criados automaticamente.
-            {currentSchool.usa_pacotes && " Pode atribuir um pacote de emolumentos a cada aluno."}
-          </p>
-          <UploadAlunosPanel
-            schoolId={currentSchool.id}
-            anoLectivo="2025/2026"
-            usaPacotes={currentSchool.usa_pacotes}
-            pacotes={currentSchool.pacotes}
-          />
+        <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+          {/* Sub-tab bar */}
+          <div className="flex border-b border-slate-100">
+            <button
+              onClick={() => setAlunoSubTab("individual")}
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "individual" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              <UserPlus className="w-4 h-4" /> Adicionar Aluno
+            </button>
+            <button
+              onClick={() => setAlunoSubTab("massa")}
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "massa" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              <Upload className="w-4 h-4" /> Importar em Massa
+            </button>
+          </div>
+
+          <div className="p-6">
+            {alunoSubTab === "individual" && (
+              <>
+                <h3 className="font-semibold text-slate-900 mb-1">Registar novo aluno</h3>
+                <p className="text-sm text-slate-500 mb-5">
+                  Preencha os dados do aluno. Turma e encarregado são criados automaticamente se não existirem.
+                  {currentSchool.usa_pacotes && " Pode atribuir um pacote de emolumentos."}
+                </p>
+                <AddAlunoPanel
+                  schoolId={currentSchool.id}
+                  turmas={currentSchool.turmas ?? []}
+                  usaPacotes={currentSchool.usa_pacotes}
+                  pacotes={currentSchool.pacotes ?? []}
+                  anoLectivo="2025/2026"
+                  onSuccess={() => setCurrentSchool(s => ({ ...s, total_alunos: s.total_alunos + 1 }))}
+                />
+              </>
+            )}
+            {alunoSubTab === "massa" && (
+              <>
+                <h3 className="font-semibold text-slate-900 mb-1">Importar base de dados de alunos</h3>
+                <p className="text-sm text-slate-500 mb-5">
+                  Preencha directamente no browser ou carregue um ficheiro CSV. Turmas e encarregados são criados automaticamente.
+                  {currentSchool.usa_pacotes && " Pode atribuir um pacote de emolumentos a cada aluno."}
+                </p>
+                <UploadAlunosPanel
+                  schoolId={currentSchool.id}
+                  anoLectivo="2025/2026"
+                  usaPacotes={currentSchool.usa_pacotes}
+                  pacotes={currentSchool.pacotes}
+                />
+              </>
+            )}
+          </div>
         </div>
       )}
       {tab === "pacotes" && (
