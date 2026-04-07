@@ -101,13 +101,14 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-function Field({ label, children, required }: { label: string; children: React.ReactNode; required?: boolean }) {
+function Field({ label, children, required, hint }: { label: string; children: React.ReactNode; required?: boolean; hint?: string }) {
   return (
     <div>
       <label className="block text-sm font-semibold text-slate-700 mb-1.5">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
       {children}
+      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
     </div>
   );
 }
@@ -361,6 +362,170 @@ function ModalGerarPropina({ token, alunos, onClose, onCreated }: { token: strin
         <Button type="button" variant="outline" onClick={onClose} className="flex-1">Fechar</Button>
         <Button type="submit" disabled={saving} className="flex-1">
           {saving ? <><RefreshCw className="w-4 h-4 animate-spin mr-2"/>A gerar...</> : "Gerar Propinas"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/* ─── Modal: Gerar Propinas em Lote ─── */
+function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: () => void }) {
+  const anoAtual = String(new Date().getFullYear());
+  const [modo, setModo] = useState<"unico"|"intervalo">("unico");
+  const [mesInicio, setMesInicio] = useState(MESES[new Date().getMonth()]);
+  const [anoInicio, setAnoInicio] = useState(anoAtual);
+  const [mesFim, setMesFim] = useState(MESES[new Date().getMonth()]);
+  const [anoFim, setAnoFim] = useState(anoAtual);
+  const [fallback, setFallback] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<null | { total_geradas: number; total_skipped: number; total_alunos: number; periodos: number; detalhes: any[] }>(null);
+
+  const periodoPreview = (() => {
+    const mS = MESES.indexOf(mesInicio);
+    const mE = modo === "unico" ? mS : MESES.indexOf(mesFim);
+    const yS = Number(anoInicio);
+    const yE = modo === "unico" ? yS : Number(anoFim);
+    if (mS === -1 || mE === -1 || isNaN(yS) || isNaN(yE)) return 0;
+    if (yS > yE || (yS === yE && mS > mE)) return 0;
+    return (yE - yS) * 12 + (mE - mS) + 1;
+  })();
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError("");
+    setSaving(true);
+    try {
+      const body: any = {
+        mes_inicio: mesInicio, ano_inicio: anoInicio,
+        mes_fim: modo === "unico" ? mesInicio : mesFim,
+        ano_fim: modo === "unico" ? anoInicio : anoFim,
+      };
+      if (fallback && !isNaN(Number(fallback))) body.montante_fallback = Number(fallback);
+      const res = await fetch(`${API}/school/propinas/gerar-lote`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao gerar propinas.");
+      setResult(data);
+      onCreated();
+    } catch (err: any) { setError(err.message); }
+    finally { setSaving(false); }
+  };
+
+  if (result) {
+    return (
+      <div className="p-6 space-y-5">
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+          <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0"/>
+          <div>
+            <p className="font-bold text-emerald-800">Lote gerado com sucesso!</p>
+            <p className="text-sm text-emerald-600">{result.total_geradas} propina(s) criada(s) · {result.total_skipped} ignorada(s) (já existentes)</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Alunos processados", value: result.total_alunos },
+            { label: "Meses gerados", value: result.periodos },
+            { label: "Propinas criadas", value: result.total_geradas },
+          ].map(s => (
+            <div key={s.label} className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+              <p className="text-2xl font-bold text-slate-900">{s.value}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+        {result.detalhes.some((d: any) => d.reason === "sem_montante") && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <p className="text-xs font-semibold text-amber-700 mb-1">Alunos sem valor definido (ignorados):</p>
+            <ul className="text-xs text-amber-600 space-y-0.5">
+              {result.detalhes.filter((d: any) => d.reason === "sem_montante").map((d: any) => (
+                <li key={d.student_id}>• {d.nome}</li>
+              ))}
+            </ul>
+            <p className="text-xs text-amber-600 mt-1.5">Configure um pacote de propinas para estes alunos ou use o valor de fallback.</p>
+          </div>
+        )}
+        <div className="max-h-48 overflow-y-auto space-y-1.5">
+          {result.detalhes.filter((d: any) => !d.reason).map((d: any) => (
+            <div key={d.student_id} className="flex items-center justify-between text-sm py-1.5 px-3 bg-slate-50 rounded-lg">
+              <span className="font-medium text-slate-700">{d.nome}</span>
+              <div className="flex items-center gap-2">
+                {d.pacote_nome && <span className="text-xs text-slate-400">{d.pacote_nome}</span>}
+                <span className="text-xs font-semibold text-emerald-600">{d.criados} × {Number(d.montante).toLocaleString("pt-AO")} AOA</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <Button className="w-full" onClick={onClose}>Fechar</Button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="p-6 space-y-5">
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        {(["unico","intervalo"] as const).map(m => (
+          <button type="button" key={m} onClick={() => setModo(m)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${modo===m?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+            {m === "unico" ? "Período único" : "Intervalo de meses"}
+          </button>
+        ))}
+      </div>
+
+      {/* Period selection */}
+      <div className="space-y-3">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{modo === "unico" ? "Período" : "Início"}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Mês" required>
+              <select className={selectCls} value={mesInicio} onChange={e => setMesInicio(e.target.value)}>
+                {MESES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Field>
+            <Field label="Ano" required>
+              <input className={inputCls} value={anoInicio} onChange={e => setAnoInicio(e.target.value)} placeholder="2026"/>
+            </Field>
+          </div>
+        </div>
+        {modo === "intervalo" && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Fim</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Mês" required>
+                <select className={selectCls} value={mesFim} onChange={e => setMesFim(e.target.value)}>
+                  {MESES.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </Field>
+              <Field label="Ano" required>
+                <input className={inputCls} value={anoFim} onChange={e => setAnoFim(e.target.value)} placeholder="2026"/>
+              </Field>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Fallback amount */}
+      <Field label="Valor de fallback (AOA)" hint="Aplicado a alunos sem pacote de propinas definido">
+        <input className={inputCls} type="number" min="0" value={fallback}
+          onChange={e => setFallback(e.target.value)} placeholder="ex: 25000 (opcional)"/>
+      </Field>
+
+      {/* Preview */}
+      {periodoPreview > 0 && (
+        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          <Calendar className="w-4 h-4 shrink-0"/>
+          <span>Serão geradas propinas para <strong>{periodoPreview} mês{periodoPreview>1?"es":""}</strong> para todos os alunos activos.</span>
+        </div>
+      )}
+
+      <Feedback error={error} success=""/>
+      <div className="flex gap-3 pt-1">
+        <Button type="button" variant="outline" onClick={onClose} className="flex-1">Cancelar</Button>
+        <Button type="submit" disabled={saving || periodoPreview === 0} className="flex-1 gap-2">
+          {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A processar...</> : <><Users className="w-4 h-4"/>Gerar em Lote</>}
         </Button>
       </div>
     </form>
@@ -686,10 +851,10 @@ function OcorrenciasView({ token, schoolName }: { token: string | null; schoolNa
 }
 
 /* ─── Views ─── */
-function InicioView({ token, alunos, propinas, turmas, onOpenCriarTurma, onOpenAdicionarAluno, onOpenGerarPropina, onOpenGerarRef, schoolId, schoolName }: {
+function InicioView({ token, alunos, propinas, turmas, onOpenCriarTurma, onOpenAdicionarAluno, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote, schoolId, schoolName }: {
   token: string | null; alunos: Aluno[]; propinas: Propina[]; turmas: Turma[];
   onOpenCriarTurma: () => void; onOpenAdicionarAluno: () => void;
-  onOpenGerarPropina: () => void; onOpenGerarRef: () => void;
+  onOpenGerarPropina: () => void; onOpenGerarRef: () => void; onOpenGerarLote: () => void;
   schoolId: string; schoolName: string;
 }) {
   const totalDivida = alunos.reduce((s, a) => s + Number(a.divida), 0);
@@ -747,6 +912,7 @@ function InicioView({ token, alunos, propinas, turmas, onOpenCriarTurma, onOpenA
             </div>
             <div className="flex gap-2 flex-wrap">
               <Button variant="outline" size="sm" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Gerar Propina</Button>
+              <Button variant="outline" size="sm" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Lote</Button>
               <Button size="sm" className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
             </div>
           </div>
@@ -1411,9 +1577,9 @@ function ModalAjusteSchool({ propina, token, onClose, onDone }: {
   );
 }
 
-function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPropina, onOpenGerarRef }: {
+function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote }: {
   token: string | null; propinas: Propina[]; alunos: Aluno[];
-  onOpenGerarPropina: () => void; onOpenGerarRef: () => void;
+  onOpenGerarPropina: () => void; onOpenGerarRef: () => void; onOpenGerarLote: () => void;
 }) {
   const [propinas, setPropinas] = useState<Propina[]>(initialPropinas);
   const [filterStatus, setFilterStatus] = useState<"todos"|"pendente"|"vencido"|"pago">("todos");
@@ -1428,8 +1594,9 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
     <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div><h2 className="text-2xl font-bold text-slate-900">Propinas & Faturas</h2></div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Gerar Propina</Button>
+          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Lote</Button>
           <Button className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
         </div>
       </div>
@@ -1909,7 +2076,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   // Modals
-  const [modal, setModal] = useState<"turma"|"aluno"|"propina"|"referencia"|null>(null);
+  const [modal, setModal] = useState<"turma"|"aluno"|"propina"|"referencia"|"lote"|null>(null);
 
   const schoolName = session?.schoolName ?? "Colégio";
   const schoolId = session?.schoolId ?? "";
@@ -2024,7 +2191,8 @@ export default function Dashboard() {
               <motion.div key="inicio" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1">
                 <InicioView token={token} alunos={alunos} propinas={propinas} turmas={turmas} schoolId={schoolId} schoolName={schoolName}
                   onOpenCriarTurma={() => setModal("turma")} onOpenAdicionarAluno={() => setModal("aluno")}
-                  onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}/>
+                  onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}
+                  onOpenGerarLote={() => setModal("lote")}/>
               </motion.div>
             )}
             {view === "alunos" && (
@@ -2037,7 +2205,8 @@ export default function Dashboard() {
             {view === "propinas" && (
               <motion.div key="propinas" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
                 <PropinasView token={token} propinas={propinas} alunos={alunos}
-                  onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}/>
+                  onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}
+                  onOpenGerarLote={() => setModal("lote")}/>
               </motion.div>
             )}
             {view === "reconciliacao" && (
@@ -2072,6 +2241,11 @@ export default function Dashboard() {
         {modal === "referencia" && token && (
           <Modal key="m-ref" title="Gerar Referência Multicaixa" onClose={() => setModal(null)}>
             <ModalGerarReferencia token={token} propinas={propinas} alunos={alunos} onClose={() => setModal(null)} onDone={loadAll}/>
+          </Modal>
+        )}
+        {modal === "lote" && token && (
+          <Modal key="m-lote" title="Gerar Propinas em Lote" onClose={() => setModal(null)}>
+            <ModalGerarLote token={token} onClose={() => setModal(null)} onCreated={loadAll}/>
           </Modal>
         )}
       </AnimatePresence>

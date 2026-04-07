@@ -427,6 +427,107 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
   res.status(201).json({ created, total: created.length });
 });
 
+/* ─── POST /school/propinas/gerar-lote ─── */
+router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { mes_inicio, ano_inicio, mes_fim, ano_fim, montante_fallback } = req.body;
+  if (!mes_inicio || !ano_inicio) return res.status(400).json({ error: "Período inicial é obrigatório." });
+
+  // Build month range
+  const mStart = MESES.findIndex(m => m.toLowerCase() === String(mes_inicio).toLowerCase());
+  const mEnd   = MESES.findIndex(m => m.toLowerCase() === String(mes_fim || mes_inicio).toLowerCase());
+  if (mStart === -1 || mEnd === -1) return res.status(400).json({ error: "Mês inválido." });
+
+  const yStart = Number(ano_inicio);
+  const yEnd   = Number(ano_fim || ano_inicio);
+  if (isNaN(yStart) || isNaN(yEnd) || yStart > yEnd || (yStart === yEnd && mStart > mEnd)) {
+    return res.status(400).json({ error: "Intervalo de datas inválido." });
+  }
+
+  const periodos: { mes: string; ano: string }[] = [];
+  let cy = yStart, cm = mStart;
+  while (cy < yEnd || (cy === yEnd && cm <= mEnd)) {
+    periodos.push({ mes: MESES[cm], ano: String(cy) });
+    cm++;
+    if (cm >= 12) { cm = 0; cy++; }
+  }
+
+  // Fetch all active students with their active enrolment package
+  const studentsRes = await pool.query(
+    `SELECT s.id AS student_id, s.nome,
+            pe.valor AS pacote_valor,
+            pe.itens AS pacote_itens,
+            pe.nome  AS pacote_nome
+     FROM students s
+     LEFT JOIN matriculas m             ON m.student_id = s.id AND m.estado = 'activa'
+     LEFT JOIN pacotes_emolumentos pe   ON pe.id = m.pacote_id
+     WHERE s.school_id = $1 AND s.estado = 'activo'
+     ORDER BY s.nome`,
+    [school.school_id]
+  );
+
+  const students = studentsRes.rows;
+  if (!students.length) return res.status(400).json({ error: "Nenhum aluno activo encontrado." });
+
+  let totalGeradas = 0, totalSkipped = 0;
+  const detalhes: any[] = [];
+
+  for (const st of students) {
+    // Determine montante: prefer propina item in package, fallback to whole package, then request fallback
+    let montante: number = Number(montante_fallback) || 0;
+    if (st.pacote_itens) {
+      const itens: { tipo: string; valor: number }[] = typeof st.pacote_itens === "string"
+        ? JSON.parse(st.pacote_itens)
+        : st.pacote_itens;
+      const propinaItem = itens.find((i: any) => i.tipo === "propina");
+      if (propinaItem) montante = Number(propinaItem.valor);
+      else if (st.pacote_valor) montante = Number(st.pacote_valor);
+    } else if (st.pacote_valor) {
+      montante = Number(st.pacote_valor);
+    }
+
+    if (!montante) {
+      detalhes.push({ student_id: st.student_id, nome: st.nome, skipped: periodos.length, reason: "sem_montante" });
+      totalSkipped += periodos.length;
+      continue;
+    }
+
+    let criadosParaAluno = 0;
+    for (const { mes, ano } of periodos) {
+      const vencimento = lastDayOfMonth(mes, ano);
+      try {
+        const r = await pool.query(
+          `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente')
+           ON CONFLICT DO NOTHING
+           RETURNING *`,
+          [school.school_id, st.student_id, mes, ano, montante, vencimento]
+        );
+        if (r.rows[0]) {
+          const propina = r.rows[0];
+          const ref = await generateInternalReference(propina.id);
+          await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
+          criadosParaAluno++;
+          totalGeradas++;
+        } else {
+          totalSkipped++;
+        }
+      } catch { totalSkipped++; }
+    }
+    detalhes.push({ student_id: st.student_id, nome: st.nome, criados: criadosParaAluno, montante, pacote_nome: st.pacote_nome ?? null });
+  }
+
+  res.status(201).json({
+    total_geradas: totalGeradas,
+    total_skipped: totalSkipped,
+    total_alunos: students.length,
+    periodos: periodos.length,
+    detalhes,
+  });
+});
+
 router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
