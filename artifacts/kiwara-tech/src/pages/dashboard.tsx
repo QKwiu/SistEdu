@@ -35,6 +35,7 @@ interface Propina {
   mes: string; ano: string; montante: number; multa: number; status: string;
   data_vencimento: string; ref_numero?: string; ref_valor?: number;
   ref_estado?: string; ref_validade?: string; entidade?: string;
+  internal_reference?: string;
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; }
 
@@ -376,10 +377,10 @@ function ModalGerarPropina({ token, alunos, onClose, onCreated }: { token: strin
 /* ─── Modal: Gerar Propinas em Lote ─── */
 function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: () => void }) {
   const anoAtual = String(new Date().getFullYear());
-  const [modo, setModo] = useState<"unico"|"intervalo">("unico");
-  const [mesInicio, setMesInicio] = useState(MESES[new Date().getMonth()]);
+  const [modo, setModo] = useState<"unico"|"intervalo">("intervalo");
+  const [mesInicio, setMesInicio] = useState("Janeiro");
   const [anoInicio, setAnoInicio] = useState(anoAtual);
-  const [mesFim, setMesFim] = useState(MESES[new Date().getMonth()]);
+  const [mesFim, setMesFim] = useState("Dezembro");
   const [anoFim, setAnoFim] = useState(anoAtual);
   const [fallback, setFallback] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1742,7 +1743,13 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
                       : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3 h-3"/> Pendente</span>
                     }
                   </td>
-                  <td className="px-5 py-3 font-mono text-xs text-slate-500">{p.ref_numero ? `${p.entidade} / ${p.ref_numero}` : "—"}</td>
+                  <td className="px-5 py-3 text-xs">
+                    {p.ref_numero
+                      ? <span className="font-mono text-slate-700">{p.entidade} / {p.ref_numero}</span>
+                      : p.internal_reference
+                      ? <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{p.internal_reference}</span>
+                      : <span className="text-slate-300">—</span>}
+                  </td>
                   <td className="px-5 py-3 relative">
                     {p.status !== "pago" && (
                       <div className="relative">

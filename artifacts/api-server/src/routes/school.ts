@@ -407,6 +407,7 @@ router.get("/school/propinas", schoolAuth, async (req: any, res) => {
   const result = await pool.query(
     `SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, p.status,
             p.data_vencimento, p.referencia, p.pago_em, p.created_at,
+            p.internal_reference,
             s.nome AS aluno_nome,
             COALESCE(t.nome, 'Sem turma') AS turma,
             pg.entidade, pg.referencia AS ref_numero, pg.valor AS ref_valor,
