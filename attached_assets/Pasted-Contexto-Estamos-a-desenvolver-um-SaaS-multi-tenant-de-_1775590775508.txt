@@ -1,0 +1,65 @@
+Contexto:
+Estamos a desenvolver um SaaS multi-tenant de gestão escolar com dois perfis:
+1. Administração Geral
+2. Colégio (Tenant)
+
+Problema identificado:
+No perfil do Colégio, no menu "Alunos e Turmas" → aba "Adicionar Alunos" → opção "Inserção manual", o formulário de registo de aluno NÃO está consistente com o formulário existente no perfil da Administração Geral.
+
+Objetivo:
+Garantir que o formulário de inserção manual de alunos no perfil do Colégio seja EXATAMENTE igual ao da Administração Geral, tanto em UI quanto em estrutura e comportamento.
+
+Requisitos funcionais:
+
+1. Unificação do formulário:
+- O formulário utilizado no perfil do Colégio deve reutilizar o MESMO componente do formulário da Administração Geral
+- Não duplicar código
+- Garantir consistência total:
+  - Mesmos campos
+  - Mesma ordem
+  - Mesmas validações
+  - Mesma UI (inputs, espaçamento, labels, etc.)
+
+2. Refatoração (se necessário):
+- Extrair o formulário da Administração Geral para um componente reutilizável (ex: StudentForm)
+- Utilizar este componente em ambos os perfis (Admin e Colégio)
+
+3. Campo "Turma":
+- Alterar o campo "turma" para um dropdown (select)
+- O dropdown deve:
+  - Listar todas as turmas já registadas para o colégio logado
+  - Ser carregado dinamicamente via API
+  - Estar filtrado pelo `school_id` (multi-tenant)
+
+4. Comportamento do dropdown:
+- Se não existirem turmas:
+  - Mostrar mensagem: "Nenhuma turma disponível"
+  - Opcional: botão para criar nova turma
+
+5. Backend:
+- Criar endpoint para listar turmas por colégio:
+  GET /classes?school_id={currentSchoolId}
+
+- Garantir que:
+  - Apenas turmas do colégio autenticado sejam retornadas
+
+6. UX/UI:
+- Manter consistência visual total com o formulário da Administração Geral
+- Garantir responsividade
+- Mostrar estados:
+  - loading (carregando turmas)
+  - empty state (sem turmas)
+
+7. Regras técnicas:
+- Evitar duplicação de lógica (DRY)
+- Centralizar validações
+- Garantir isolamento multi-tenant
+
+8. Entregáveis:
+- Componente reutilizável do formulário
+- Atualização da tela do Colégio
+- Implementação do dropdown de turmas
+- Endpoint backend para listar turmas
+
+Objetivo final:
+Eliminar inconsistências entre perfis e garantir uma experiência uniforme, profissional e escalável no sistema.
