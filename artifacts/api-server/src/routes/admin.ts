@@ -365,6 +365,30 @@ router.post("/admin/propinas/:id/ajuste", adminAuth, async (req, res) => {
   res.json(updated.rows[0]);
 });
 
+/* ─── GET /admin/colegios/:id/alunos — list students (optionally only with fines) ─── */
+router.get("/admin/colegios/:id/alunos", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+  const somenteMultas = req.query.multas === "1";
+
+  const result = await pool.query(
+    `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.estado,
+            s.turma_id, COALESCE(t.nome, 'Sem turma') AS turma, t.turno,
+            COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido')) AS propinas_pendentes,
+            COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS divida,
+            COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS multa_total,
+            COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido') AND p.multa > 0) AS propinas_com_multa
+     FROM students s
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     LEFT JOIN propinas p ON p.student_id = s.id
+     WHERE s.school_id = $1
+     GROUP BY s.id, t.nome, t.turno
+     ${somenteMultas ? "HAVING COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) > 0" : ""}
+     ORDER BY multa_total DESC, s.nome`,
+    [schoolId]
+  );
+  res.json(result.rows);
+});
+
 /* ─── POST /admin/colegios/:id/alunos/upload ─── */
 // Accepts JSON array of student rows; creates turmas on-the-fly if needed
 router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => {

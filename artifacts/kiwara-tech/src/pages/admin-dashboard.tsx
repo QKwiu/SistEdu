@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, LayoutDashboard, Building2, LogOut, Plus, Trash2, ChevronRight,
   Upload, Landmark, Receipt, Users, GraduationCap, RefreshCw, CheckCircle2,
-  AlertCircle, X, Download, TrendingUp, Banknote, School, FileSpreadsheet,
+  AlertCircle, AlertTriangle, X, Download, TrendingUp, Banknote, School, FileSpreadsheet,
   Eye, EyeOff, Search, ArrowLeft, Menu, Calendar, Pencil, MoreHorizontal,
   FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties, UserPlus,
   ArrowLeftRight, ShieldCheck, Filter, ChevronDown,
@@ -1957,6 +1957,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
   const [commRate, setCommRate] = useState(initialRate ?? 0);
   const [savingComm, setSavingComm] = useState(false);
   const [commInput, setCommInput] = useState(String(initialRate ?? 0));
+  const [recSubTab, setRecSubTab] = useState<"faturas" | "multas">("faturas");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2008,10 +2009,84 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
 
   const stats = data?.stats;
 
+  const alunosMultas = (() => {
+    const map = new Map<string, { nome: string; turma: string; multa: number; count: number }>();
+    for (const p of (data?.propinas ?? [])) {
+      if (p.status === "pago" || Number(p.multa) <= 0) continue;
+      const key = String(p.aluno_nome);
+      const existing = map.get(key);
+      if (existing) { existing.multa += Number(p.multa); existing.count++; }
+      else map.set(key, { nome: p.aluno_nome, turma: p.turma ?? "", multa: Number(p.multa), count: 1 });
+    }
+    return Array.from(map.values()).sort((a, b) => b.multa - a.multa);
+  })();
+
   return (
     <div className="space-y-6">
+      {/* Sub-tab selector */}
+      <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        <button onClick={() => setRecSubTab("faturas")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="faturas"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+          <Receipt className="w-3.5 h-3.5"/> Faturas
+        </button>
+        <button onClick={() => setRecSubTab("multas")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="multas"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+          <AlertTriangle className="w-3.5 h-3.5 text-red-500"/> Alunos com Multas
+          {alunosMultas.length > 0 && <span className="ml-1 bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded-full font-bold">{alunosMultas.length}</span>}
+        </button>
+      </div>
+
+      {/* Alunos com Multas sub-tab */}
+      {recSubTab === "multas" && (
+        <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-500"/>
+            <h3 className="font-semibold text-slate-900 text-sm">Alunos com Multas em Aberto</h3>
+            <span className="ml-auto text-xs text-slate-400">{alunosMultas.length} aluno(s)</span>
+          </div>
+          {alunosMultas.length === 0 ? (
+            <div className="py-14 text-center text-slate-400">
+              <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-300"/>
+              <p className="font-semibold">Sem multas em aberto</p>
+              <p className="text-sm mt-0.5">Nenhum aluno tem multas por regularizar neste colégio.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Aluno</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
+                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Propinas c/ Multa</th>
+                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Multa</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {alunosMultas.map((a, i) => (
+                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-3 font-medium text-slate-900">{a.nome}</td>
+                      <td className="px-5 py-3 text-slate-500 text-xs">{a.turma}</td>
+                      <td className="px-5 py-3 text-right">
+                        <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.count}</span>
+                      </td>
+                      <td className="px-5 py-3 text-right font-bold text-red-700">{fmtCur(a.multa)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-red-50 border-t border-red-100">
+                    <td colSpan={3} className="px-5 py-3 text-sm font-semibold text-red-700">Total em multas</td>
+                    <td className="px-5 py-3 text-right font-bold text-red-800">{fmtCur(alunosMultas.reduce((s, a) => s + a.multa, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Commission config */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-5">
+      {recSubTab === "faturas" && <div className="bg-white border border-slate-100 rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <ArrowLeftRight className="w-4 h-4 text-primary"/>
           <h3 className="font-semibold text-slate-900">Configuração de Comissão (Split Payment)</h3>
@@ -2030,10 +2105,10 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
           </button>
         </div>
         <p className="text-xs text-slate-400 mt-2">Taxa actual: <strong className="text-primary">{commRate}%</strong> — aplicada automaticamente em todos os pagamentos reconciliados.</p>
-      </div>
+      </div>}
 
       {/* Stats */}
-      {stats && (
+      {recSubTab === "faturas" && stats && (
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             { label: "Pendentes",      value: stats.pendentes,       color: "text-amber-700 bg-amber-50 border-amber-200",   icon: <Clock className="w-4 h-4"/> },
@@ -2053,7 +2128,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
       )}
 
       {/* Split distribution summary */}
-      {stats && (
+      {recSubTab === "faturas" && stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -2075,7 +2150,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
+      {recSubTab === "faturas" && <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-48">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar aluno ou referência…"
@@ -2092,10 +2167,10 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
         <button onClick={load} className="p-2.5 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}/>
         </button>
-      </div>
+      </div>}
 
       {/* Table */}
-      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+      {recSubTab === "faturas" && <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -2164,7 +2239,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       {/* Reconciliation modal */}
       <AnimatePresence>
@@ -2240,10 +2315,86 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
   );
 }
 
+/* ─── Alunos com Multas Admin Component ─── */
+function AlunosComMultasAdmin({ schoolId }: { schoolId: number }) {
+  const [alunos, setAlunos] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api(`/admin/colegios/${schoolId}/alunos?multas=1`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setAlunos(Array.isArray(d) ? d : []))
+      .finally(() => setLoading(false));
+  }, [schoolId]);
+
+  if (loading) return <div className="py-12 text-center"><RefreshCw className="w-5 h-5 animate-spin text-slate-400 mx-auto"/></div>;
+
+  if (alunos.length === 0) return (
+    <div className="py-14 text-center text-slate-400">
+      <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-300"/>
+      <p className="font-semibold">Sem multas em aberto</p>
+      <p className="text-sm mt-0.5">Nenhum aluno tem multas por regularizar neste colégio.</p>
+    </div>
+  );
+
+  const totalMultas = alunos.reduce((s: number, a: any) => s + Number(a.multa_total), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-sm text-slate-500 mb-1">
+        <AlertTriangle className="w-4 h-4 text-red-500"/>
+        <span><strong className="text-red-700 font-semibold">{alunos.length}</strong> aluno(s) com multas em aberto</span>
+        <span className="ml-auto font-semibold text-red-700">Total: {fmtCur(totalMultas)}</span>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-100">
+              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Aluno</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Propinas Pendentes</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Com Multa</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Multa</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Dívida Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {alunos.map((a: any) => (
+              <tr key={a.id} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3">
+                  <p className="font-medium text-slate-900">{a.nome}</p>
+                  {a.numero_processo && <p className="text-xs font-mono text-slate-400">{a.numero_processo}</p>}
+                </td>
+                <td className="px-4 py-3 text-slate-500 text-xs">{a.turma}{a.turno ? ` · ${a.turno}` : ""}</td>
+                <td className="px-4 py-3 text-right">
+                  <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.propinas_pendentes}</span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">{a.propinas_com_multa}</span>
+                </td>
+                <td className="px-4 py-3 text-right font-bold text-red-700">{fmtCur(Number(a.multa_total))}</td>
+                <td className="px-4 py-3 text-right font-semibold text-slate-700">{fmtCur(Number(a.divida))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-red-50 border-t border-red-100">
+              <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-red-700">Total geral</td>
+              <td className="px-4 py-3 text-right font-bold text-red-800">{fmtCur(totalMultas)}</td>
+              <td className="px-4 py-3 text-right font-bold text-slate-700">{fmtCur(alunos.reduce((s: number, a: any) => s + Number(a.divida), 0))}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ─── School Detail View ─── */
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
   const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao">("geral");
-  const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa">("individual");
+  const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
 
@@ -2358,7 +2509,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
       {tab === "alunos" && (
         <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
           {/* Sub-tab bar */}
-          <div className="flex border-b border-slate-100">
+          <div className="flex flex-wrap border-b border-slate-100">
             <button
               onClick={() => setAlunoSubTab("individual")}
               className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "individual" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
@@ -2368,6 +2519,11 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
               onClick={() => setAlunoSubTab("massa")}
               className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "massa" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               <Upload className="w-4 h-4" /> Importar em Massa
+            </button>
+            <button
+              onClick={() => setAlunoSubTab("multas")}
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "multas" ? "border-red-500 text-red-600 bg-red-50" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              <AlertTriangle className="w-4 h-4" /> Com Multas
             </button>
           </div>
 
@@ -2403,6 +2559,9 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
                   pacotes={currentSchool.pacotes}
                 />
               </>
+            )}
+            {alunoSubTab === "multas" && (
+              <AlunosComMultasAdmin schoolId={currentSchool.id} />
             )}
           </div>
         </div>

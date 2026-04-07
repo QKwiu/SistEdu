@@ -107,7 +107,8 @@ router.get("/school/alunos", schoolAuth, async (req: any, res) => {
             s.data_nascimento, s.sexo, s.numero_processo, s.estado,
             s.turma_id, COALESCE(t.nome, 'Sem turma') AS turma, t.turno, s.created_at,
             COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido')) AS propinas_pendentes,
-            COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS divida
+            COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS divida,
+            COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS multa_total
      FROM students s
      LEFT JOIN turmas t ON t.id = s.turma_id
      LEFT JOIN propinas p ON p.student_id = s.id

@@ -23,6 +23,7 @@ interface Turma { id: number; nome: string; ano: string; turno: string; total_al
 interface Aluno {
   id: number; nome: string; bilhete?: string; turma_id?: number; turma: string; turno?: string;
   nome_encarregado?: string; telefone_encarregado?: string;
+  multa_total?: number;
   data_nascimento?: string; sexo?: string; numero_processo?: string; estado?: string;
   propinas_pendentes: number; divida: number;
 }
@@ -1092,7 +1093,12 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
   const [tab, setTab] = useState<"alunos"|"turmas"|"registar">("alunos");
   const [regTab, setRegTab] = useState<"manual"|"csv">("manual");
   const [search, setSearch] = useState("");
-  const filteredAlunos = alunos.filter(a => a.nome.toLowerCase().includes(search.toLowerCase()) || a.turma.toLowerCase().includes(search.toLowerCase()));
+  const [soMultas, setSoMultas] = useState(false);
+
+  const alunosComMulta = alunos.filter(a => Number(a.multa_total) > 0);
+  const filteredAlunos = alunos
+    .filter(a => !soMultas || Number(a.multa_total) > 0)
+    .filter(a => a.nome.toLowerCase().includes(search.toLowerCase()) || a.turma.toLowerCase().includes(search.toLowerCase()));
   const filteredTurmas = turmas.filter(t => t.nome.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -1106,13 +1112,22 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
           </div>
         )}
       </div>
-      <div className="flex gap-1 mb-5 bg-slate-100 p-1 rounded-xl w-fit">
-        {(["alunos","turmas","registar"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab===t?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-            {t === "alunos" ? `Alunos (${alunos.length})` : t === "turmas" ? `Turmas (${turmas.length})` : "Adicionar Alunos"}
+      <div className="flex flex-wrap gap-2 mb-5 items-center">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+          {(["alunos","turmas","registar"] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); setSoMultas(false); }}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab===t && !soMultas ?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+              {t === "alunos" ? `Alunos (${alunos.length})` : t === "turmas" ? `Turmas (${turmas.length})` : "Adicionar Alunos"}
+            </button>
+          ))}
+        </div>
+        {alunosComMulta.length > 0 && (
+          <button onClick={() => { setTab("alunos"); setSoMultas(s => !s); }}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${soMultas ? "bg-red-600 text-white border-red-600" : "bg-white text-red-600 border-red-200 hover:bg-red-50"}`}>
+            <AlertTriangle className="w-3.5 h-3.5"/>
+            Com Multas ({alunosComMulta.length})
           </button>
-        ))}
+        )}
       </div>
       {tab !== "registar" && (
         <div className="relative mb-5">
@@ -1178,9 +1193,16 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
                         </span>
                       </td>
                       <td className="px-5 py-3">
-                        {Number(a.propinas_pendentes) > 0
-                          ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.propinas_pendentes} pendente(s)</span>
-                          : <span className="text-xs text-emerald-600">Em dia</span>}
+                        <div className="flex flex-col gap-1">
+                          {Number(a.propinas_pendentes) > 0
+                            ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-fit">{a.propinas_pendentes} pendente(s)</span>
+                            : <span className="text-xs text-emerald-600">Em dia</span>}
+                          {Number(a.multa_total) > 0 && (
+                            <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full w-fit flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3"/>Multa: {fmt(Number(a.multa_total))} Kz
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-3">
                         <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
@@ -1517,6 +1539,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [recResult, setRecResult] = useState<any>(null);
   const [recError, setRecError] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [recSubTab, setRecSubTab] = useState<"faturas" | "multas">("faturas");
 
   const authHeader = (): HeadersInit => token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -1570,22 +1593,95 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     return                       <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-700 rounded-full border border-amber-200">Pendente</span>;
   };
 
+  const alunosMultas = (() => {
+    const map = new Map<string, { nome: string; turma: string; multa: number; count: number }>();
+    for (const p of propinas) {
+      if (p.status === "pago" || Number(p.multa) <= 0) continue;
+      const key = String(p.aluno_nome);
+      const existing = map.get(key);
+      if (existing) { existing.multa += Number(p.multa); existing.count++; }
+      else map.set(key, { nome: p.aluno_nome, turma: p.turma ?? "", multa: Number(p.multa), count: 1 });
+    }
+    return Array.from(map.values()).sort((a, b) => b.multa - a.multa);
+  })();
+
   return (
     <motion.div key="reconciliacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
       className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
 
-      {/* Page title */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-primary"/> Reconciliação Financeira
-        </h2>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Consulte o estado de reconciliação das faturas, referências internas e distribuição de receitas.
-        </p>
+      {/* Page title + sub-tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex-1">
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-primary"/> Reconciliação Financeira
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Consulte o estado de reconciliação das faturas, referências internas e distribuição de receitas.
+          </p>
+        </div>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 self-start sm:self-auto">
+          <button onClick={() => setRecSubTab("faturas")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="faturas"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+            <Receipt className="w-3.5 h-3.5"/> Faturas
+          </button>
+          <button onClick={() => setRecSubTab("multas")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="multas"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+            <AlertTriangle className="w-3.5 h-3.5 text-red-500"/> Alunos com Multas
+            {alunosMultas.length > 0 && <span className="ml-1 bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded-full font-bold">{alunosMultas.length}</span>}
+          </button>
+        </div>
       </div>
 
+      {recSubTab === "multas" && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-500"/>
+            <h3 className="font-semibold text-slate-900 text-sm">Alunos com Multas em Aberto</h3>
+            <span className="ml-auto text-xs text-slate-400">{alunosMultas.length} aluno(s)</span>
+          </div>
+          {alunosMultas.length === 0 ? (
+            <div className="py-14 text-center text-slate-400">
+              <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-300"/>
+              <p className="font-semibold">Sem multas em aberto</p>
+              <p className="text-sm">Nenhum aluno tem multas por regularizar.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Aluno</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
+                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Propinas c/ Multa</th>
+                    <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Multa</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {alunosMultas.map((a, i) => (
+                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-3 font-medium text-slate-900">{a.nome}</td>
+                      <td className="px-5 py-3 text-slate-500 text-xs">{a.turma}</td>
+                      <td className="px-5 py-3 text-right">
+                        <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.count}</span>
+                      </td>
+                      <td className="px-5 py-3 text-right font-bold text-red-700">{fmt(a.multa)} Kz</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-red-50 border-t border-red-100">
+                    <td colSpan={3} className="px-5 py-3 text-sm font-semibold text-red-700">Total em multas</td>
+                    <td className="px-5 py-3 text-right font-bold text-red-800">{fmt(alunosMultas.reduce((s, a) => s + a.multa, 0))} Kz</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stats cards */}
-      {stats && (
+      {recSubTab === "faturas" && stats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: "Faturas Pendentes", value: stats.pendentes, icon: <Clock className="w-5 h-5"/>, color: "text-amber-600 bg-amber-50 border-amber-200" },
@@ -1605,7 +1701,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
       )}
 
       {/* Split summary */}
-      {stats && (
+      {recSubTab === "faturas" && stats && (
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <ArrowLeftRight className="w-4 h-4 text-primary"/>
@@ -1634,7 +1730,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
       )}
 
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3">
+      {recSubTab === "faturas" && <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-48">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -1652,10 +1748,9 @@ function ReconciliacaoView({ token }: { token: string | null }) {
         <button onClick={load} className="p-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}/>
         </button>
-      </div>
+      </div>}
 
-      {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      {recSubTab === "faturas" && <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -1725,7 +1820,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       {/* Reconciliation modal */}
       <AnimatePresence>
