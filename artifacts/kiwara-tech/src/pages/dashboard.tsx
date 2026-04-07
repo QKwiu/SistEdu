@@ -1336,7 +1336,7 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
   onDeleteAluno: (id: number) => void; onDeleteTurma: (id: number) => void;
   onRefresh: () => void;
 }) {
-  const [tab, setTab] = useState<"alunos"|"turmas"|"registar">("alunos");
+  const [tab, setTab] = useState<"alunos"|"turmas">("alunos");
   const [regTab, setRegTab] = useState<"manual"|"csv">("manual");
   const [search, setSearch] = useState("");
   const [soMultas, setSoMultas] = useState(false);
@@ -1367,19 +1367,16 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
     <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div><h2 className="text-2xl font-bold text-slate-900">Alunos & Turmas</h2></div>
-        {tab !== "registar" && (
-          <div className="flex gap-2">
-            <Button variant="outline" className="bg-white gap-2" onClick={onOpenCriarTurma}><School className="w-4 h-4"/> Criar Turma</Button>
-            <Button className="gap-2" onClick={onOpenAdicionarAluno}><Plus className="w-4 h-4"/> Adicionar Aluno</Button>
-          </div>
-        )}
+        <Button variant="outline" className="bg-white gap-2" onClick={onOpenCriarTurma}><School className="w-4 h-4"/> Criar Turma</Button>
       </div>
+
+      {/* ── Tab bar ── */}
       <div className="flex flex-wrap gap-2 mb-5 items-center">
         <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-          {(["alunos","turmas","registar"] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); setSoMultas(false); }}
+          {(["alunos","turmas"] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); setSoMultas(false); setSearch(""); }}
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab===t && !soMultas ?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-              {t === "alunos" ? `Alunos (${alunos.length})` : t === "turmas" ? `Turmas (${turmas.length})` : "Adicionar Alunos"}
+              {t === "alunos" ? `Alunos (${alunos.length})` : `Turmas (${turmas.length})`}
             </button>
           ))}
         </div>
@@ -1391,179 +1388,199 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
           </button>
         )}
       </div>
-      {tab !== "registar" && (
-        <div className="relative mb-5">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={tab==="alunos"?"Pesquisar aluno...":"Pesquisar turma..."}
-            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
-        </div>
+
+      {/* ── Turmas tab ── */}
+      {tab === "turmas" && (
+        <>
+          <div className="relative mb-5">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar turma..."
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+          </div>
+          {filteredTurmas.length === 0 ? (
+            <Card className="p-12 text-center"><School className="w-12 h-12 text-slate-200 mx-auto mb-3"/><p className="font-semibold text-slate-500">Sem turmas encontradas</p><Button className="mt-4" onClick={onOpenCriarTurma}><Plus className="w-4 h-4 mr-2"/> Criar Turma</Button></Card>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredTurmas.map(t => (
+                <Card key={t.id} className="p-5 flex flex-col gap-3 hover:border-slate-300 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-primary/8 flex items-center justify-center"><School className="w-5 h-5 text-primary"/></div>
+                    <button onClick={() => { if(confirm(`Eliminar turma ${t.nome}?`)) onDeleteTurma(t.id); }}
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4"/></button>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900">{t.nome}</h4>
+                    <p className="text-sm text-slate-500">{t.turno} · {t.ano}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500 border-t border-slate-100 pt-3">
+                    <Users className="w-3.5 h-3.5"/>
+                    <span>{t.total_alunos} aluno(s)</span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {tab === "alunos" ? (
-        filteredAlunos.length === 0 ? (
-          <Card className="p-12 text-center"><Users className="w-12 h-12 text-slate-200 mx-auto mb-3"/><p className="font-semibold text-slate-500">Sem alunos encontrados</p><Button className="mt-4" onClick={onOpenAdicionarAluno}><Plus className="w-4 h-4 mr-2"/> Adicionar Aluno</Button></Card>
-        ) : (
-          <Card className="p-0 overflow-hidden">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
-                <tr>
-                  <th className="px-5 py-3">Nome</th>
-                  <th className="px-5 py-3">Processo / BI</th>
-                  <th className="px-5 py-3">Turma</th>
-                  <th className="px-5 py-3">Nascimento</th>
-                  <th className="px-5 py-3">Estado</th>
-                  <th className="px-5 py-3">Pacote de Propinas</th>
-                  <th className="px-5 py-3">Propinas</th>
-                  <th className="px-5 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {filteredAlunos.map(a => {
-                  const estadoCls: Record<string,string> = {
-                    activo:"text-emerald-700 bg-emerald-50 border-emerald-200",
-                    inactivo:"text-slate-600 bg-slate-100 border-slate-200",
-                    transferido:"text-blue-700 bg-blue-50 border-blue-200",
-                    concluido:"text-violet-700 bg-violet-50 border-violet-200",
-                  };
-                  const estadoLabel: Record<string,string> = {
-                    activo:"Activo", inactivo:"Inactivo", transferido:"Transferido", concluido:"Concluído",
-                  };
-                  const sexoLabel: Record<string,string> = { M:"♂", F:"♀" };
-                  const isSaving = assigningPacote === a.id;
-                  return (
-                    <tr key={a.id} className="hover:bg-slate-50/50">
-                      <td className="px-5 py-3">
-                        <div className="font-medium text-slate-900">{a.nome}</div>
-                        <div className="text-xs text-slate-400">{a.nome_encarregado ? `Enc: ${a.nome_encarregado}` : ""}</div>
-                      </td>
-                      <td className="px-5 py-3">
-                        {a.numero_processo && <div className="font-mono text-xs text-slate-600">{a.numero_processo}</div>}
-                        {a.bilhete && <div className="font-mono text-xs text-slate-400">{a.bilhete}</div>}
-                        {!a.numero_processo && !a.bilhete && <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="text-slate-700">{a.turma}</div>
-                        {a.turno && <div className="text-xs text-slate-400">{a.turno}</div>}
-                      </td>
-                      <td className="px-5 py-3 text-xs text-slate-500">
-                        {a.data_nascimento
-                          ? new Date(a.data_nascimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"short", year:"numeric" })
-                          : "—"}
-                        {a.sexo && <span className="ml-1.5 text-slate-400">{sexoLabel[a.sexo] ?? ""}</span>}
-                      </td>
-                      <td className="px-5 py-3">
-                        <span className={`text-xs font-semibold border px-2 py-0.5 rounded-full ${estadoCls[a.estado ?? "activo"] ?? estadoCls.activo}`}>
-                          {estadoLabel[a.estado ?? "activo"] ?? a.estado}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 min-w-[180px]">
-                        {pacotes.length === 0 ? (
-                          <span className="text-xs text-slate-400 italic">Sem pacotes definidos</span>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={a.pacote_id ?? ""}
-                              disabled={isSaving}
-                              onChange={e => handleAssignPacote(a.id, e.target.value ? Number(e.target.value) : null)}
-                              className={`text-xs border rounded-lg px-2 py-1 pr-6 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
-                                a.pacote_id
-                                  ? "border-emerald-300 text-emerald-800 bg-emerald-50"
-                                  : "border-amber-300 text-amber-700 bg-amber-50"
-                              } ${isSaving ? "opacity-50 cursor-wait" : "cursor-pointer hover:border-slate-400"}`}
-                            >
-                              <option value="">— sem pacote —</option>
-                              {pacotes.filter(p => p.activo).map(p => (
-                                <option key={p.id} value={p.id}>{p.nome}</option>
-                              ))}
-                            </select>
-                            {isSaving && <RefreshCw className="w-3 h-3 animate-spin text-primary shrink-0"/>}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex flex-col gap-1">
-                          {Number(a.propinas_pendentes) > 0
-                            ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-fit">{a.propinas_pendentes} pendente(s)</span>
-                            : <span className="text-xs text-emerald-600">Em dia</span>}
-                          {Number(a.multa_total) > 0 && (
-                            <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full w-fit flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3"/>Multa: {fmt(Number(a.multa_total))} Kz
-                            </span>
+      {/* ── Alunos tab: list + registration form ── */}
+      {tab === "alunos" && (
+        <div className="space-y-6">
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar aluno ou turma..."
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+          </div>
+
+          {/* Student list */}
+          {filteredAlunos.length === 0 ? (
+            <Card className="p-10 text-center">
+              <Users className="w-12 h-12 text-slate-200 mx-auto mb-3"/>
+              <p className="font-semibold text-slate-500">Sem alunos encontrados</p>
+              <p className="text-sm text-slate-400 mt-1">Registe o primeiro aluno usando o formulário abaixo.</p>
+            </Card>
+          ) : (
+            <Card className="p-0 overflow-hidden overflow-x-auto">
+              <table className="w-full text-left text-sm min-w-[800px]">
+                <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
+                  <tr>
+                    <th className="px-5 py-3">Nome</th>
+                    <th className="px-5 py-3">Processo / BI</th>
+                    <th className="px-5 py-3">Turma</th>
+                    <th className="px-5 py-3">Nascimento</th>
+                    <th className="px-5 py-3">Estado</th>
+                    <th className="px-5 py-3">Pacote de Propinas</th>
+                    <th className="px-5 py-3">Propinas</th>
+                    <th className="px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredAlunos.map(a => {
+                    const estadoCls: Record<string,string> = {
+                      activo:"text-emerald-700 bg-emerald-50 border-emerald-200",
+                      inactivo:"text-slate-600 bg-slate-100 border-slate-200",
+                      transferido:"text-blue-700 bg-blue-50 border-blue-200",
+                      concluido:"text-violet-700 bg-violet-50 border-violet-200",
+                    };
+                    const estadoLabel: Record<string,string> = {
+                      activo:"Activo", inactivo:"Inactivo", transferido:"Transferido", concluido:"Concluído",
+                    };
+                    const sexoLabel: Record<string,string> = { M:"♂", F:"♀" };
+                    const isSaving = assigningPacote === a.id;
+                    return (
+                      <tr key={a.id} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-3">
+                          <div className="font-medium text-slate-900">{a.nome}</div>
+                          <div className="text-xs text-slate-400">{a.nome_encarregado ? `Enc: ${a.nome_encarregado}` : ""}</div>
+                        </td>
+                        <td className="px-5 py-3">
+                          {a.numero_processo && <div className="font-mono text-xs text-slate-600">{a.numero_processo}</div>}
+                          {a.bilhete && <div className="font-mono text-xs text-slate-400">{a.bilhete}</div>}
+                          {!a.numero_processo && !a.bilhete && <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="text-slate-700">{a.turma}</div>
+                          {a.turno && <div className="text-xs text-slate-400">{a.turno}</div>}
+                        </td>
+                        <td className="px-5 py-3 text-xs text-slate-500">
+                          {a.data_nascimento
+                            ? new Date(a.data_nascimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"short", year:"numeric" })
+                            : "—"}
+                          {a.sexo && <span className="ml-1.5 text-slate-400">{sexoLabel[a.sexo] ?? ""}</span>}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className={`text-xs font-semibold border px-2 py-0.5 rounded-full ${estadoCls[a.estado ?? "activo"] ?? estadoCls.activo}`}>
+                            {estadoLabel[a.estado ?? "activo"] ?? a.estado}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 min-w-[180px]">
+                          {pacotes.length === 0 ? (
+                            <span className="text-xs text-slate-400 italic">Sem pacotes</span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={a.pacote_id ?? ""}
+                                disabled={isSaving}
+                                onChange={e => handleAssignPacote(a.id, e.target.value ? Number(e.target.value) : null)}
+                                className={`text-xs border rounded-lg px-2 py-1 pr-6 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                                  a.pacote_id
+                                    ? "border-emerald-300 text-emerald-800 bg-emerald-50"
+                                    : "border-amber-300 text-amber-700 bg-amber-50"
+                                } ${isSaving ? "opacity-50 cursor-wait" : "cursor-pointer hover:border-slate-400"}`}
+                              >
+                                <option value="">— sem pacote —</option>
+                                {pacotes.filter(p => p.activo).map(p => (
+                                  <option key={p.id} value={p.id}>{p.nome}</option>
+                                ))}
+                              </select>
+                              {isSaving && <RefreshCw className="w-3 h-3 animate-spin text-primary shrink-0"/>}
+                            </div>
                           )}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
-                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
-                          <Trash2 className="w-4 h-4"/>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </Card>
-        )
-      ) : (
-        filteredTurmas.length === 0 ? (
-          <Card className="p-12 text-center"><School className="w-12 h-12 text-slate-200 mx-auto mb-3"/><p className="font-semibold text-slate-500">Sem turmas encontradas</p><Button className="mt-4" onClick={onOpenCriarTurma}><Plus className="w-4 h-4 mr-2"/> Criar Turma</Button></Card>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredTurmas.map(t => (
-              <Card key={t.id} className="p-5 flex flex-col gap-3 hover:border-slate-300 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="w-10 h-10 rounded-xl bg-primary/8 flex items-center justify-center"><School className="w-5 h-5 text-primary"/></div>
-                  <button onClick={() => { if(confirm(`Eliminar turma ${t.nome}?`)) onDeleteTurma(t.id); }}
-                    className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4"/></button>
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-900">{t.nome}</h4>
-                  <p className="text-sm text-slate-500">{t.turno} · {t.ano}</p>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-500 border-t border-slate-100 pt-3">
-                  <Users className="w-3.5 h-3.5"/>
-                  <span>{t.total_alunos} aluno(s)</span>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )
-      )}
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="flex flex-col gap-1">
+                            {Number(a.propinas_pendentes) > 0
+                              ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-fit">{a.propinas_pendentes} pendente(s)</span>
+                              : <span className="text-xs text-emerald-600">Em dia</span>}
+                            {Number(a.multa_total) > 0 && (
+                              <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full w-fit flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3"/>Multa: {fmt(Number(a.multa_total))} Kz
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3">
+                          <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
+                            <Trash2 className="w-4 h-4"/>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Card>
+          )}
 
-      {/* ── Adicionar Alunos tab ── */}
-      {tab === "registar" && (
-        <div className="max-w-3xl">
-          <div className="flex gap-1 mb-6 bg-slate-100 p-1 rounded-xl w-fit">
-            <button onClick={() => setRegTab("manual")}
-              className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${regTab==="manual"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-              <UserPlus className="w-4 h-4"/> Adicionar manualmente
-            </button>
-            <button onClick={() => setRegTab("csv")}
-              className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${regTab==="csv"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-              <FileSpreadsheet className="w-4 h-4"/> Importar via CSV
-            </button>
+          {/* ── Registration form section ── */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-px flex-1 bg-slate-200"/>
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Registar Novo Aluno</span>
+              <div className="h-px flex-1 bg-slate-200"/>
+            </div>
+            <div className="flex gap-1 mb-5 bg-slate-100 p-1 rounded-xl w-fit">
+              <button onClick={() => setRegTab("manual")}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${regTab==="manual"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+                <UserPlus className="w-4 h-4"/> Adicionar manualmente
+              </button>
+              <button onClick={() => setRegTab("csv")}
+                className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${regTab==="csv"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+                <FileSpreadsheet className="w-4 h-4"/> Importar via CSV
+              </button>
+            </div>
+            <Card className="p-6">
+              {regTab === "manual" ? (
+                <>
+                  <div className="mb-5">
+                    <h3 className="font-bold text-slate-900 text-lg">Registar Aluno</h3>
+                    <p className="text-sm text-slate-500 mt-0.5">Preencha os dados abaixo para registar um novo aluno neste colégio.</p>
+                  </div>
+                  <SchoolAddAlunoPanel token={token} turmas={turmas} onSuccess={onRefresh} onCreateTurma={onOpenCriarTurma} />
+                </>
+              ) : (
+                <>
+                  <div className="mb-5">
+                    <h3 className="font-bold text-slate-900 text-lg">Importação em Massa</h3>
+                    <p className="text-sm text-slate-500 mt-0.5">Preencha directamente no browser ou carregue um ficheiro CSV. Turmas e encarregados são criados automaticamente.</p>
+                  </div>
+                  <SchoolUploadAlunosPanel token={token} onSuccess={onRefresh} />
+                </>
+              )}
+            </Card>
           </div>
-
-          <Card className="p-6">
-            {regTab === "manual" ? (
-              <>
-                <div className="mb-5">
-                  <h3 className="font-bold text-slate-900 text-lg">Registar Aluno</h3>
-                  <p className="text-sm text-slate-500 mt-0.5">Preencha os dados abaixo para registar um novo aluno neste colégio.</p>
-                </div>
-                <SchoolAddAlunoPanel token={token} turmas={turmas} onSuccess={onRefresh} onCreateTurma={onOpenCriarTurma} />
-              </>
-            ) : (
-              <>
-                <div className="mb-5">
-                  <h3 className="font-bold text-slate-900 text-lg">Importação em Massa</h3>
-                  <p className="text-sm text-slate-500 mt-0.5">Preencha directamente no browser ou carregue um ficheiro CSV. Turmas e encarregados são criados automaticamente.</p>
-                </div>
-                <SchoolUploadAlunosPanel token={token} onSuccess={onRefresh} />
-              </>
-            )}
-          </Card>
         </div>
       )}
     </div>
@@ -1700,13 +1717,16 @@ function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
   );
 }
 
-function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote }: {
-  token: string | null; propinas: Propina[]; alunos: Aluno[];
+function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote }: {
+  token: string | null; propinas: Propina[]; alunos: Aluno[]; turmas: Turma[];
   onOpenGerarPropina: () => void; onOpenGerarRef: () => void; onOpenGerarLote: () => void;
 }) {
   const [propinas, setPropinas] = useState<Propina[]>(initialPropinas);
   const [filterStatus, setFilterStatus] = useState<"todos"|"pendente"|"vencido"|"pago">("todos");
   const [filterAluno, setFilterAluno] = useState("");
+  const [filterTurma, setFilterTurma] = useState("");
+  const [filterMes, setFilterMes] = useState("");
+  const [filterAno, setFilterAno] = useState("");
   const [ajuste, setAjuste] = useState<Propina | null>(null);
   const [ajusteInitialTipo, setAjusteInitialTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">("perdao");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
@@ -1766,7 +1786,13 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
 
   const filtered = propinas
     .filter(p => filterStatus === "todos" || p.status === filterStatus)
-    .filter(p => !filterAluno || String(p.student_id) === filterAluno);
+    .filter(p => !filterAluno || String(p.student_id) === filterAluno)
+    .filter(p => !filterTurma || p.turma === filterTurma)
+    .filter(p => !filterMes || p.mes.toLowerCase() === filterMes.toLowerCase())
+    .filter(p => !filterAno || String(p.ano) === filterAno);
+
+  const hasActiveFilters = !!(filterAluno || filterTurma || filterMes || filterAno);
+  const clearFilters = () => { setFilterAluno(""); setFilterTurma(""); setFilterMes(""); setFilterAno(""); };
 
   return (
     <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
@@ -1778,18 +1804,49 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
           <Button className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
         </div>
       </div>
-      <div className="flex flex-wrap gap-3 mb-5">
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-          {[{k:"todos",l:"Todas"},{k:"pendente",l:"Pendentes"},{k:"vencido",l:"Vencidas"},{k:"pago",l:"Pagas"}].map(({k,l}) => (
-            <button key={k} onClick={() => setFilterStatus(k as any)}
-              className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${filterStatus===k?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>{l}</button>
-          ))}
+      <div className="space-y-3 mb-5">
+        {/* Status tabs */}
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+            {[{k:"todos",l:"Todas"},{k:"pendente",l:"Pendentes"},{k:"vencido",l:"Vencidas"},{k:"pago",l:"Pagas"}].map(({k,l}) => (
+              <button key={k} onClick={() => setFilterStatus(k as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${filterStatus===k?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>{l}</button>
+            ))}
+          </div>
+          {hasActiveFilters && (
+            <button onClick={clearFilters}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+              <X className="w-3 h-3"/> Limpar filtros
+            </button>
+          )}
         </div>
-        <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-          value={filterAluno} onChange={e => setFilterAluno(e.target.value)}>
-          <option value="">Todos os alunos</option>
-          {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
-        </select>
+        {/* Detail filters */}
+        <div className="flex flex-wrap gap-2">
+          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[160px]"
+            value={filterAluno} onChange={e => setFilterAluno(e.target.value)}>
+            <option value="">Todos os alunos</option>
+            {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+          </select>
+          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[140px]"
+            value={filterTurma} onChange={e => setFilterTurma(e.target.value)}>
+            <option value="">Todas as turmas</option>
+            {turmas.map(t => <option key={t.id} value={t.nome}>{t.nome}</option>)}
+          </select>
+          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[130px]"
+            value={filterMes} onChange={e => setFilterMes(e.target.value)}>
+            <option value="">Todos os meses</option>
+            {MESES.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input type="number" placeholder="Ano (ex: 2026)" min="2020" max="2099"
+            value={filterAno} onChange={e => setFilterAno(e.target.value)}
+            className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-36"/>
+        </div>
+        {/* Active filter summary */}
+        {hasActiveFilters && (
+          <p className="text-xs text-slate-500">
+            A mostrar <span className="font-semibold text-slate-700">{filtered.length}</span> de <span className="font-semibold text-slate-700">{propinas.length}</span> propinas
+          </p>
+        )}
       </div>
       {filtered.length === 0 ? (
         <Card className="p-12 text-center"><Banknote className="w-12 h-12 text-slate-200 mx-auto mb-3"/><p className="font-semibold text-slate-500">Sem propinas nesta categoria</p><Button className="mt-4" onClick={onOpenGerarPropina}><Plus className="w-4 h-4 mr-2"/> Gerar Propina</Button></Card>
@@ -2612,7 +2669,7 @@ export default function Dashboard() {
             )}
             {view === "propinas" && (
               <motion.div key="propinas" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
-                <PropinasView token={token} propinas={propinas} alunos={alunos}
+                <PropinasView token={token} propinas={propinas} alunos={alunos} turmas={turmas}
                   onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}
                   onOpenGerarLote={() => setModal("lote")}/>
               </motion.div>
