@@ -1,0 +1,67 @@
+Contexto:
+Estamos a desenvolver um SaaS multi-tenant de gestão escolar. O sistema possui dois perfis principais:
+1. Administração Central
+2. Colégio (Tenant)
+
+Objetivo:
+Replicar e adaptar o formulário de registo de alunos existente no perfil de Administração Central para o perfil do Colégio, mantendo consistência de dados e separação de responsabilidades.
+
+Requisitos funcionais:
+
+1. Formulário existente (Administração Central):
+- Existe um formulário para registo de alunos com duas opções:
+  a) Inserção manual
+  b) Importação via ficheiro CSV
+- Este formulário já possui uma estrutura definida de campos (ex: nome, data de nascimento, classe, etc.)
+
+2. Replicação no perfil do Colégio:
+- No perfil do Colégio, no menu: "Alunos e Turmas"
+- Manter a funcionalidade atual de:
+  - Criação e gestão de turmas (NÃO alterar)
+
+3. Nova estrutura no perfil do Colégio:
+- Criar uma nova aba/separador chamada:
+  "Adicionar Alunos" ou "Registo de Alunos"
+
+- Dentro desta aba:
+  Replicar EXATAMENTE a mesma estrutura do formulário da Administração Central:
+    - Mesmos campos
+    - Mesma validação
+    - Mesma lógica de importação CSV
+    - Mesma experiência de utilização (UI/UX semelhante)
+
+4. Regras importantes:
+- O formulário no Colégio deve estar associado ao `tenant_id` da escola
+- Todos os alunos criados devem pertencer automaticamente ao colégio logado
+- Garantir isolamento de dados entre colégios (multi-tenant)
+
+5. Importação via CSV:
+- Reutilizar a mesma lógica já existente
+- Validar:
+  - Estrutura do ficheiro
+  - Dados obrigatórios
+- Mostrar erros de importação de forma clara
+
+6. UX/UI:
+- Separar claramente:
+  Aba 1: "Turmas"
+  Aba 2: "Adicionar Alunos"
+
+- Dentro de "Adicionar Alunos":
+  - Botão: "Adicionar manualmente"
+  - Botão: "Importar via CSV"
+
+7. Backend:
+- Reutilizar os mesmos models/tabelas de alunos
+- Garantir que:
+  - school_id (ou tenant_id) é sempre atribuído automaticamente
+- Reutilizar serviços existentes sempre que possível (DRY principle)
+
+8. Entregáveis esperados:
+- Componentes frontend (React)
+- Rotas/API necessárias
+- Reutilização do serviço de importação CSV
+- Validações consistentes com o Admin
+
+Objetivo final:
+Garantir consistência entre Administração Central e Colégios, evitando duplicação de lógica, mas permitindo autonomia operacional aos colégios.
