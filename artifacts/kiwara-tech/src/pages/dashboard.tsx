@@ -1559,11 +1559,12 @@ interface PropAjusteS {
   nova_data_vencimento: string | null; motivo: string; created_by: string; created_at: string;
 }
 
-function ModalAjusteSchool({ propina, token, onClose, onDone }: {
+function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
   propina: Propina; token: string | null; onClose: () => void; onDone: (updated: Propina) => void;
+  initialTipo?: "perdao"|"ajuste_valor"|"reagendamento"|"justificacao";
 }) {
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-  const [tipo, setTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">("perdao");
+  const [tipo, setTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">(initialTipo ?? "perdao");
   const [motivo, setMotivo] = useState("");
   const [multaNova, setMultaNova] = useState(String(propina.multa));
   const [valorNovo, setValorNovo] = useState(String(propina.montante));
@@ -1682,7 +1683,62 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
   const [filterStatus, setFilterStatus] = useState<"todos"|"pendente"|"vencido"|"pago">("todos");
   const [filterAluno, setFilterAluno] = useState("");
   const [ajuste, setAjuste] = useState<Propina | null>(null);
+  const [ajusteInitialTipo, setAjusteInitialTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">("perdao");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
+  /* Baixa Manual state */
+  const [bmPropina, setBmPropina] = useState<Propina | null>(null);
+  const [bmValor, setBmValor] = useState("");
+  const [bmMetodo, setBmMetodo] = useState("Numerário");
+  const [bmData, setBmData] = useState("");
+  const [bmObs, setBmObs] = useState("");
+  const [bmFile, setBmFile] = useState<File | null>(null);
+  const [bmSaving, setBmSaving] = useState(false);
+  const [bmResult, setBmResult] = useState<any>(null);
+  const [bmError, setBmError] = useState("");
+
+  const openBaixa = (p: Propina) => {
+    setBmPropina(p);
+    setBmValor(String(Math.round(Number(p.montante) + Number(p.multa))));
+    setBmData(new Date().toISOString().slice(0, 10));
+    setBmMetodo("Numerário"); setBmObs(""); setBmFile(null); setBmResult(null); setBmError("");
+  };
+
+  const handleBaixaManual = async () => {
+    if (!bmPropina || !token) return;
+    if (!bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    if (!bmValor || Number(bmValor) <= 0) { setBmError("Introduza o valor pago."); return; }
+    if (!bmData) { setBmError("Introduza a data de recebimento."); return; }
+    setBmSaving(true); setBmError(""); setBmResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("propina_id", String(bmPropina.id));
+      fd.append("valor_pago", bmValor);
+      fd.append("metodo", bmMetodo);
+      fd.append("data_recebimento", bmData);
+      fd.append("observacoes", bmObs);
+      fd.append("comprovante", bmFile);
+      const r = await fetch(`${API}/school/reconciliacao/baixa-manual`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const d = await r.json();
+      if (!r.ok) { setBmError(d.error ?? "Erro ao registar pagamento."); return; }
+      setBmResult(d);
+      setPropinas(prev => prev.map(p => p.id === bmPropina.id
+        ? { ...p, status: d.status, multa: p.multa, montante: p.montante }
+        : p
+      ));
+    } catch { setBmError("Erro de ligação."); }
+    finally { setBmSaving(false); }
+  };
+
+  const openAjuste = (p: Propina, t: "perdao"|"ajuste_valor"|"reagendamento"|"justificacao") => {
+    setAjusteInitialTipo(t);
+    setAjuste(p);
+    setOpenMenu(null);
+  };
+
   const filtered = propinas
     .filter(p => filterStatus === "todos" || p.status === filterStatus)
     .filter(p => !filterAluno || String(p.student_id) === filterAluno);
@@ -1750,26 +1806,39 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
                       ? <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{p.internal_reference}</span>
                       : <span className="text-slate-300">—</span>}
                   </td>
-                  <td className="px-5 py-3 relative">
+                  <td className="px-5 py-3">
                     {p.status !== "pago" && (
-                      <div className="relative">
-                        <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                          <MoreHorizontal className="w-4 h-4"/>
+                      <div className="flex items-center gap-1 justify-end">
+                        {/* Baixa Manual quick button */}
+                        <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
+                          <FileCheck className="w-3 h-3"/> Baixa Manual
                         </button>
-                        <AnimatePresence>
-                          {openMenu === p.id && (
-                            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                              className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-52">
-                              {(["perdao","ajuste_valor","reagendamento","justificacao"] as const).map(t => (
-                                <button key={t} onClick={() => { setAjuste(p); setOpenMenu(null); }}
-                                  className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
-                                  {AJUSTE_TIPO_LABELS[t]}
-                                </button>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                        {/* Aplicar Multa quick button */}
+                        <button onClick={() => openAjuste(p, "ajuste_valor")}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors whitespace-nowrap">
+                          <AlertTriangle className="w-3 h-3"/> Multa
+                        </button>
+                        {/* More actions menu */}
+                        <div className="relative">
+                          <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
+                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                            <MoreHorizontal className="w-4 h-4"/>
+                          </button>
+                          <AnimatePresence>
+                            {openMenu === p.id && (
+                              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                                className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-52">
+                                {(["perdao","reagendamento","justificacao"] as const).map(t => (
+                                  <button key={t} onClick={() => openAjuste(p, t)}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
+                                    {AJUSTE_TIPO_LABELS[t]}
+                                  </button>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
                       </div>
                     )}
                   </td>
@@ -1783,12 +1852,96 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
       {ajuste && (
         <ModalAjusteSchool
           propina={ajuste} token={token}
+          initialTipo={ajusteInitialTipo}
           onClose={() => setAjuste(null)}
           onDone={updated => {
             setPropinas(prev => prev.map(pp => pp.id === updated.id ? updated : pp));
             setAjuste(null);
           }}
         />
+      )}
+
+      {/* Baixa Manual Modal (inline in PropinasView) */}
+      {bmPropina && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-start justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-900">Baixa Manual de Pagamento</h3>
+                <p className="text-sm text-slate-500 mt-0.5">{bmPropina.aluno_nome} · {bmPropina.mes} {bmPropina.ano}</p>
+              </div>
+              <button onClick={() => setBmPropina(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {bmResult ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto mb-2"/>
+                  <p className="font-semibold text-emerald-800">Pagamento registado com sucesso!</p>
+                  <p className="text-sm text-emerald-600 mt-1">Estado actualizado para <strong>{bmResult.status}</strong></p>
+                  <button onClick={() => setBmPropina(null)}
+                    className="mt-4 px-5 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
+                    Fechar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-3 gap-3 text-center text-sm">
+                    <div><p className="text-xs text-slate-400 mb-1">Propina</p><p className="font-semibold">{fmt(bmPropina.montante)} Kz</p></div>
+                    <div><p className="text-xs text-slate-400 mb-1">Multa</p><p className={`font-semibold ${bmPropina.multa > 0 ? "text-red-600" : "text-slate-800"}`}>{fmt(bmPropina.multa)} Kz</p></div>
+                    <div><p className="text-xs text-slate-400 mb-1">Total</p><p className="font-bold text-primary">{fmt(Number(bmPropina.montante)+Number(bmPropina.multa))} Kz</p></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Valor Pago (AOA) *</label>
+                      <input type="number" min="0" step="0.01"
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        value={bmValor} onChange={e => setBmValor(e.target.value)} placeholder="0.00"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Método *</label>
+                      <select className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        value={bmMetodo} onChange={e => setBmMetodo(e.target.value)}>
+                        {["Numerário","Transferência Bancária","Multicaixa Express","Cheque","Outro"].map(m => <option key={m}>{m}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Data de Recebimento *</label>
+                    <input type="date"
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      value={bmData} onChange={e => setBmData(e.target.value)}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Comprovante de Pagamento *</label>
+                    <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-5 cursor-pointer transition-colors ${bmFile ? "border-emerald-400 bg-emerald-50" : "border-slate-200 hover:border-primary/40 bg-slate-50"}`}>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => setBmFile(e.target.files?.[0] ?? null)}/>
+                      {bmFile ? <><FileCheck className="w-6 h-6 text-emerald-600"/><span className="text-xs text-emerald-700 font-semibold">{bmFile.name}</span></> : <><Upload className="w-6 h-6 text-slate-300"/><span className="text-xs text-slate-500">Clique para carregar ficheiro (PDF, imagem)</span></>}
+                    </label>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Observações</label>
+                    <textarea rows={2}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                      placeholder="Notas adicionais sobre o pagamento..."
+                      value={bmObs} onChange={e => setBmObs(e.target.value)}/>
+                  </div>
+                  {Number(bmValor) > 0 && Number(bmValor) < (Number(bmPropina.montante) + Number(bmPropina.multa)) && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-amber-700 text-xs">
+                      <AlertTriangle className="w-4 h-4 shrink-0"/>
+                      <span>O valor inserido ({fmt(Number(bmValor))} Kz) é inferior ao total ({fmt(Number(bmPropina.montante)+Number(bmPropina.multa))} Kz). Será registado como pagamento parcial.</span>
+                    </div>
+                  )}
+                  {bmError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2 text-sm">{bmError}</div>}
+                  <button onClick={handleBaixaManual} disabled={bmSaving}
+                    className="w-full px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                    {bmSaving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A registar...</> : <><FileCheck className="w-4 h-4"/>Confirmar Baixa Manual</>}
+                  </button>
+                </>
+              )}
+            </div>
+          </motion.div>
+        </div>
       )}
     </div>
   );
