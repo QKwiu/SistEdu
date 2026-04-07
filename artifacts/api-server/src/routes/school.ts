@@ -542,7 +542,7 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
       const r = await pool.query(
         `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status)
          VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente')
-         ON CONFLICT DO NOTHING
+         ON CONFLICT (student_id, mes, ano) DO NOTHING
          RETURNING *`,
         [school.school_id, student_id, mes, String(ano), montante, vencimento]
       );
@@ -632,7 +632,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
         const r = await pool.query(
           `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status)
            VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente')
-           ON CONFLICT DO NOTHING
+           ON CONFLICT (student_id, mes, ano) DO NOTHING
            RETURNING *`,
           [school.school_id, st.student_id, mes, ano, montante, vencimento]
         );
