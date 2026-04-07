@@ -1,8 +1,32 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 const router = Router();
+
+/* ─── Multer setup for comprovante uploads ─── */
+const uploadsDir = path.join(process.cwd(), "uploads", "comprovantes");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const comprovanteStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const unique = `comp-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`;
+    cb(null, unique);
+  },
+});
+const comprovanteUpload = multer({
+  storage: comprovanteStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+  },
+});
 
 /* ─── DB migration (run once at startup) ─── */
 export async function runReconciliationMigration() {
@@ -23,6 +47,33 @@ export async function runReconciliationMigration() {
       destino       TEXT    NOT NULL CHECK (destino IN ('school','platform')),
       valor         NUMERIC(12,2) NOT NULL,
       tipo          TEXT    NOT NULL DEFAULT 'propina',
+      created_at    TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  /* Manual payment audit columns */
+  await pool.query(`
+    ALTER TABLE propinas
+      ADD COLUMN IF NOT EXISTS baixa_manual        BOOLEAN   DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS baixa_manual_por    TEXT,
+      ADD COLUMN IF NOT EXISTS baixa_manual_em     TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS baixa_manual_obs    TEXT,
+      ADD COLUMN IF NOT EXISTS comprovante_url     TEXT,
+      ADD COLUMN IF NOT EXISTS data_recebimento    DATE;
+  `);
+  /* Manual payment & webhook conflict audit log */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS manual_payment_logs (
+      id            SERIAL PRIMARY KEY,
+      propina_id    INTEGER REFERENCES propinas(id) ON DELETE SET NULL,
+      tipo          TEXT NOT NULL CHECK (tipo IN ('baixa_manual','webhook_ignorado','webhook_processado')),
+      admin_user    TEXT,
+      valor         NUMERIC(12,2),
+      metodo        TEXT,
+      data_recebimento DATE,
+      observacoes   TEXT,
+      comprovante_url TEXT,
+      payment_ref   TEXT,
+      metadata      JSONB DEFAULT '{}',
       created_at    TIMESTAMP DEFAULT NOW()
     )
   `);
@@ -87,7 +138,8 @@ async function adminAuth(req: any, res: any, next: any) {
 async function getSchoolFromToken(token: string) {
   const res = await pool.query(
     `SELECT sc.id AS school_id, sc.name AS school_name, sc.school_id AS school_code,
-            COALESCE(sc.commission_rate, 0) AS commission_rate
+            COALESCE(sc.commission_rate, 0) AS commission_rate,
+            sc.email AS admin_email
      FROM sessions s JOIN schools sc ON sc.id = s.school_id
      WHERE s.token = $1 AND s.expires_at > NOW()`,
     [token]
@@ -121,6 +173,8 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
       p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, p.status,
       p.internal_reference, p.data_vencimento, p.pago_em, p.created_at,
       p.partially_paid_amount,
+      p.baixa_manual, p.baixa_manual_por, p.baixa_manual_em, p.baixa_manual_obs,
+      p.comprovante_url, p.data_recebimento,
       s.nome AS aluno_nome,
       COALESCE(t.nome, 'Sem turma') AS turma,
       pg.referencia AS ref_multicaixa, pg.entidade, pg.valor AS ref_valor,
@@ -157,6 +211,93 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
 
   res.json({ propinas: r.rows, stats: stats.rows[0], commission_rate: school.commission_rate });
 });
+
+/* ─── POST /school/reconciliacao/baixa-manual — manual payment by school admin ─── */
+router.post(
+  "/school/reconciliacao/baixa-manual",
+  schoolAuth,
+  comprovanteUpload.single("comprovante"),
+  async (req: any, res) => {
+    const school = await getSchoolFromToken(req.schoolToken);
+    if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+    const { propina_id, valor_pago, metodo, data_recebimento, observacoes } = req.body;
+
+    if (!propina_id) return res.status(400).json({ error: "ID da propina obrigatório." });
+    if (!valor_pago || Number(valor_pago) <= 0) return res.status(400).json({ error: "Valor pago deve ser maior que zero." });
+    if (!req.file) return res.status(400).json({ error: "Comprovante de pagamento obrigatório (PDF ou imagem)." });
+    if (!data_recebimento) return res.status(400).json({ error: "Data de recebimento obrigatória." });
+
+    const pRow = await pool.query(
+      `SELECT p.*, sc.commission_rate, sc.id AS school_db_id
+       FROM propinas p JOIN schools sc ON sc.id = p.school_id
+       WHERE p.id = $1 AND p.school_id = $2`,
+      [propina_id, school.school_id]
+    );
+
+    if (!pRow.rows.length) return res.status(404).json({ error: "Fatura não encontrada ou não pertence a este colégio." });
+
+    const p = pRow.rows[0];
+
+    if (p.status === "pago") {
+      /* If already manually paid, block. If auto-paid (no baixa_manual flag), also block */
+      const reason = p.baixa_manual ? "Fatura já registada com baixa manual." : "Fatura já marcada como paga pelo sistema.";
+      return res.status(409).json({ error: reason });
+    }
+
+    const paid = Number(valor_pago);
+    const total = Number(p.montante) + Number(p.multa);
+    const newStatus = paid >= total ? "pago" : "pendente";
+    const comprovanteUrl = `/api/uploads/comprovantes/${req.file.filename}`;
+
+    /* Update propina with manual payment metadata */
+    await pool.query(`
+      UPDATE propinas
+      SET status = $1,
+          pago_em = NOW(),
+          partially_paid_amount = CASE WHEN $1 = 'pago' THEN 0 ELSE $2 END,
+          baixa_manual = TRUE,
+          baixa_manual_por = $3,
+          baixa_manual_em = NOW(),
+          baixa_manual_obs = $4,
+          comprovante_url = $5,
+          data_recebimento = $6
+      WHERE id = $7
+    `, [newStatus, paid < total ? paid : 0, school.admin_email, observacoes ?? null, comprovanteUrl, data_recebimento, p.id]);
+
+    /* Update pagamentos reference state */
+    await pool.query("UPDATE pagamentos SET estado='PAGO' WHERE propina_id=$1", [p.id]);
+
+    /* Calculate and save payment splits */
+    const commissionRate = Number(p.commission_rate ?? 0);
+    const comissaoPlataforma = paid * (commissionRate / 100);
+    const valorEscola = paid - comissaoPlataforma;
+    const payRef = `MAN-${Date.now()}-${randomBytes(3).toString("hex").toUpperCase()}`;
+
+    await pool.query("DELETE FROM payment_splits WHERE propina_id=$1", [p.id]);
+    await pool.query(`
+      INSERT INTO payment_splits (propina_id, payment_ref, destino, valor, tipo)
+      VALUES ($1,$2,'school',$3,'propina'), ($1,$2,'platform',$4,'comissao')
+    `, [p.id, payRef, valorEscola, comissaoPlataforma]);
+
+    /* Audit log */
+    await pool.query(`
+      INSERT INTO manual_payment_logs (propina_id, tipo, admin_user, valor, metodo, data_recebimento, observacoes, comprovante_url, payment_ref)
+      VALUES ($1,'baixa_manual',$2,$3,$4,$5,$6,$7,$8)
+    `, [p.id, school.admin_email, paid, metodo ?? "Manual", data_recebimento, observacoes ?? null, comprovanteUrl, payRef]);
+
+    res.json({
+      ok: true,
+      payment_ref: payRef,
+      status: newStatus,
+      valor_pago: paid,
+      total_fatura: total,
+      comprovante_url: comprovanteUrl,
+      baixa_manual_por: school.admin_email,
+      split: { escola: valorEscola, plataforma: comissaoPlataforma, comissao_rate: commissionRate },
+    });
+  }
+);
 
 /* ─── GET /admin/colegios/:id/reconciliacao ─── */
 router.get("/admin/colegios/:id/reconciliacao", adminAuth, async (req, res) => {
@@ -309,6 +450,26 @@ router.post("/admin/reconciliacao/reconciliar", adminAuth, async (req, res) => {
   const total = Number(p.montante) + Number(p.multa);
 
   if (p.status === "pago") {
+    /* If already manually reconciled, log the webhook event and ignore the status update */
+    if (p.baixa_manual) {
+      await pool.query(`
+        INSERT INTO manual_payment_logs (propina_id, tipo, admin_user, valor, metodo, payment_ref, metadata)
+        VALUES ($1, 'webhook_ignorado', 'gateway_webhook', $2, $3,
+                $4, $5::jsonb)
+      `, [
+        p.id,
+        Number(valor_pago),
+        metodo ?? "gateway",
+        `WHK-${Date.now()}`,
+        JSON.stringify({ internal_reference, reason: "Fatura já baixada manualmente", baixa_manual_por: p.baixa_manual_por }),
+      ]);
+      return res.json({
+        ok: true,
+        ignored: true,
+        reason: "Fatura já registada como paga manualmente. Evento de gateway registado no log de auditoria.",
+        internal_reference,
+      });
+    }
     return res.status(400).json({ error: "Esta fatura já foi paga." });
   }
 

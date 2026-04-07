@@ -9,6 +9,7 @@ import {
   ChevronDown, User, School, CreditCard, MoreHorizontal, History,
   UserPlus, FileSpreadsheet, Download, Upload,
   ArrowLeftRight, ShieldCheck, Receipt, Landmark, Filter,
+  Paperclip, FileCheck, CalendarDays, MessageSquare, ExternalLink, BadgeCheck,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -45,6 +46,8 @@ interface RecPropina {
   internal_reference?: string; data_vencimento: string; pago_em?: string;
   total_fatura: number; split_escola: number; split_plataforma: number;
   ref_multicaixa?: string; entidade?: string;
+  baixa_manual?: boolean; baixa_manual_por?: string; baixa_manual_em?: string;
+  baixa_manual_obs?: string; comprovante_url?: string; data_recebimento?: string;
 }
 interface RecStats {
   pendentes: string; vencidas: string; pagas: string;
@@ -1793,11 +1796,14 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [reconciling, setReconciling] = useState(false);
-  const [recModal, setRecModal] = useState<{ ref: string; total: number } | null>(null);
-  const [recValor, setRecValor] = useState("");
-  const [recMetodo, setRecMetodo] = useState("EMIS");
-  const [recResult, setRecResult] = useState<any>(null);
-  const [recError, setRecError] = useState("");
+  const [baixaModal, setBaixaModal] = useState<RecPropina | null>(null);
+  const [bmValor, setBmValor] = useState("");
+  const [bmMetodo, setBmMetodo] = useState("Numerário");
+  const [bmData, setBmData] = useState("");
+  const [bmObs, setBmObs] = useState("");
+  const [bmFile, setBmFile] = useState<File | null>(null);
+  const [bmResult, setBmResult] = useState<any>(null);
+  const [bmError, setBmError] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas">("faturas");
 
@@ -1820,24 +1826,30 @@ function ReconciliacaoView({ token }: { token: string | null }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleReconciliar = async () => {
-    if (!recModal || !recValor) return;
-    setReconciling(true); setRecError(""); setRecResult(null);
+  const handleBaixaManual = async () => {
+    if (!baixaModal) return;
+    if (!bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    if (!bmValor || Number(bmValor) <= 0) { setBmError("Introduza o valor pago."); return; }
+    if (!bmData) { setBmError("Introduza a data de recebimento."); return; }
+    setReconciling(true); setBmError(""); setBmResult(null);
     try {
-      const r = await fetch(`${API}/admin/reconciliacao/reconciliar`, {
+      const fd = new FormData();
+      fd.append("propina_id", String(baixaModal.id));
+      fd.append("valor_pago", bmValor);
+      fd.append("metodo", bmMetodo);
+      fd.append("data_recebimento", bmData);
+      fd.append("observacoes", bmObs);
+      fd.append("comprovante", bmFile);
+      const r = await fetch(`${API}/school/reconciliacao/baixa-manual`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({
-          internal_reference: recModal.ref,
-          valor_pago: Number(recValor.replace(/\D/g, "")),
-          metodo: recMetodo,
-        }),
+        headers: authHeader() as any,
+        body: fd,
       });
       const d = await r.json();
-      if (!r.ok) { setRecError(d.error ?? "Erro na reconciliação."); return; }
-      setRecResult(d);
+      if (!r.ok) { setBmError(d.error ?? "Erro ao registar pagamento."); return; }
+      setBmResult(d);
       load();
-    } catch { setRecError("Erro de ligação."); }
+    } catch { setBmError("Erro de ligação."); }
     finally { setReconciling(false); }
   };
 
@@ -2049,11 +2061,22 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                     <td className="px-4 py-3 text-center">{statusBadge(p.status)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        {p.status !== "pago" && p.internal_reference && (
-                          <button onClick={() => { setRecModal({ ref: p.internal_reference!, total: p.total_fatura }); setRecValor(String(Math.round(p.total_fatura))); setRecResult(null); setRecError(""); }}
-                            className="px-2.5 py-1.5 text-xs font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap">
-                            Reconciliar
+                        {p.status !== "pago" && (
+                          <button onClick={() => {
+                            setBaixaModal(p);
+                            setBmValor(String(Math.round(p.total_fatura)));
+                            setBmData(new Date().toISOString().slice(0,10));
+                            setBmMetodo("Numerário");
+                            setBmObs(""); setBmFile(null); setBmResult(null); setBmError("");
+                          }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
+                            <FileCheck className="w-3 h-3"/> Baixa Manual
                           </button>
+                        )}
+                        {p.baixa_manual && (
+                          <span className="flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-blue-50 text-blue-700 rounded-lg border border-blue-200">
+                            <BadgeCheck className="w-3 h-3"/> Manual
+                          </span>
                         )}
                         <button onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
                           className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
@@ -2072,6 +2095,26 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                           {p.pago_em && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Data Pagamento</p><p className="font-semibold text-emerald-700 mt-0.5">{fmtDate(p.pago_em)}</p></div>}
                           {p.ref_multicaixa && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Ref. Multicaixa</p><p className="font-mono font-semibold text-slate-800 mt-0.5">{p.entidade} / {p.ref_multicaixa}</p></div>}
                         </div>
+                        {p.baixa_manual && (
+                          <div className="mt-4 border-t border-blue-100 pt-4">
+                            <p className="text-xs font-bold text-blue-700 uppercase tracking-wide flex items-center gap-1 mb-3">
+                              <BadgeCheck className="w-3.5 h-3.5"/> Baixa Manual — Detalhes
+                            </p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                              {p.baixa_manual_por && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Registado por</p><p className="font-semibold text-slate-800 mt-0.5">{p.baixa_manual_por}</p></div>}
+                              {p.baixa_manual_em && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Registado em</p><p className="font-semibold text-slate-800 mt-0.5">{fmtDate(p.baixa_manual_em)}</p></div>}
+                              {p.data_recebimento && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Data Recebimento</p><p className="font-semibold text-emerald-700 mt-0.5">{fmtDate(p.data_recebimento)}</p></div>}
+                              {p.baixa_manual_obs && <div className="col-span-2"><p className="text-slate-400 uppercase font-semibold tracking-wide">Observações</p><p className="text-slate-700 mt-0.5 italic">{p.baixa_manual_obs}</p></div>}
+                            </div>
+                            {p.comprovante_url && (
+                              <a href={p.comprovante_url} target="_blank" rel="noopener noreferrer"
+                                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg transition-colors">
+                                <Paperclip className="w-3.5 h-3.5"/> Ver Comprovante
+                                <ExternalLink className="w-3 h-3 ml-0.5"/>
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -2082,70 +2125,159 @@ function ReconciliacaoView({ token }: { token: string | null }) {
         </div>
       </div>}
 
-      {/* Reconciliation modal */}
+      {/* Baixa Manual modal */}
       <AnimatePresence>
-        {recModal && (
-          <motion.div key="rec-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
-            onClick={e => { if (e.target === e.currentTarget) { setRecModal(null); setRecResult(null); } }}>
+        {baixaModal && (
+          <motion.div key="bm-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+            onClick={e => { if (e.target === e.currentTarget && !reconciling) { setBaixaModal(null); setBmResult(null); } }}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+
+              {/* Header */}
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-5 h-5"/>
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <FileCheck className="w-5 h-5"/>
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-900">Reconciliar Pagamento</h3>
-                  <p className="text-xs text-slate-500 font-mono mt-0.5">{recModal.ref}</p>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-slate-900">Baixa Manual de Propina</h3>
+                  <p className="text-xs text-slate-500 mt-0.5 truncate">{baixaModal.aluno_nome} — {baixaModal.mes}/{baixaModal.ano}</p>
                 </div>
-                <button onClick={() => { setRecModal(null); setRecResult(null); }} className="ml-auto text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+                {!reconciling && <button onClick={() => { setBaixaModal(null); setBmResult(null); }} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>}
               </div>
 
-              {recResult ? (
+              {bmResult ? (
                 <div className="space-y-4">
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <p className="text-emerald-800 font-semibold flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/> Reconciliação efectuada com sucesso</p>
-                    <p className="text-xs text-emerald-700 mt-2">Ref. interna: <span className="font-mono">{recResult.payment_ref}</span></p>
+                    <p className="text-emerald-800 font-semibold flex items-center gap-2 mb-1">
+                      <CheckCircle2 className="w-4 h-4"/> Baixa manual registada com sucesso
+                    </p>
+                    <p className="text-xs text-emerald-700">Ref. pagamento: <span className="font-mono font-bold">{bmResult.payment_ref}</span></p>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
-                      <p className="text-blue-600 font-semibold uppercase tracking-wide mb-1">Colégio</p>
-                      <p className="text-blue-900 font-bold text-lg">{fmt(recResult.split?.escola ?? 0)}</p>
+                      <p className="text-blue-600 font-semibold uppercase tracking-wide mb-1">Receita Colégio</p>
+                      <p className="text-blue-900 font-bold text-lg">{fmt(bmResult.split?.escola ?? 0)}</p>
                     </div>
                     <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
-                      <p className="text-violet-600 font-semibold uppercase tracking-wide mb-1">Plataforma</p>
-                      <p className="text-violet-900 font-bold text-lg">{fmt(recResult.split?.plataforma ?? 0)}</p>
+                      <p className="text-violet-600 font-semibold uppercase tracking-wide mb-1">Comissão ({bmResult.split?.comissao_rate ?? 0}%)</p>
+                      <p className="text-violet-900 font-bold text-lg">{fmt(bmResult.split?.plataforma ?? 0)}</p>
                     </div>
                   </div>
-                  <Button onClick={() => { setRecModal(null); setRecResult(null); }} className="w-full">Fechar</Button>
+                  {bmResult.comprovante_url && (
+                    <a href={bmResult.comprovante_url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 transition-colors">
+                      <Paperclip className="w-4 h-4"/> Ver comprovante enviado
+                      <ExternalLink className="w-3.5 h-3.5 ml-auto"/>
+                    </a>
+                  )}
+                  <Button onClick={() => { setBaixaModal(null); setBmResult(null); }} className="w-full">Fechar</Button>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Total da fatura</p>
-                    <p className="text-2xl font-bold text-slate-900">{fmt(recModal.total)}</p>
+                  {/* Invoice summary */}
+                  <div className="bg-slate-50 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-slate-500 uppercase font-semibold tracking-wide">Total da fatura</p>
+                      <p className="text-2xl font-bold text-slate-900 mt-0.5">{fmt(baixaModal.total_fatura)}</p>
+                      {Number(baixaModal.multa) > 0 && (
+                        <p className="text-xs text-red-600 mt-0.5">Inclui multa de {fmt(baixaModal.multa)}</p>
+                      )}
+                    </div>
+                    {baixaModal.internal_reference && (
+                      <span className="font-mono text-xs bg-white border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg">{baixaModal.internal_reference}</span>
+                    )}
                   </div>
+
+                  {/* Value received */}
                   <div>
-                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Método de pagamento</label>
-                    <select value={recMetodo} onChange={e => setRecMetodo(e.target.value)}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                    <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
+                      <Banknote className="w-3.5 h-3.5"/> Valor recebido (AOA) <span className="text-red-500">*</span>
+                    </label>
+                    <input type="number" value={bmValor} onChange={e => setBmValor(e.target.value)} min={1}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
+                  </div>
+
+                  {/* Payment method */}
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
+                      <CreditCard className="w-3.5 h-3.5"/> Método de pagamento
+                    </label>
+                    <select value={bmMetodo} onChange={e => setBmMetodo(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40">
+                      <option>Numerário</option>
+                      <option>Transferência</option>
                       <option>EMIS</option>
                       <option>Appy Pay</option>
-                      <option>Transferência</option>
-                      <option>Numerário</option>
+                      <option>Cheque</option>
+                      <option>Outro</option>
                     </select>
                   </div>
+
+                  {/* Receipt date */}
                   <div>
-                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Valor recebido (AOA)</label>
-                    <input type="number" value={recValor} onChange={e => setRecValor(e.target.value)} min={1}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                    <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
+                      <CalendarDays className="w-3.5 h-3.5"/> Data de recebimento <span className="text-red-500">*</span>
+                    </label>
+                    <input type="date" value={bmData} onChange={e => setBmData(e.target.value)}
+                      max={new Date().toISOString().slice(0,10)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
                   </div>
-                  {recError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{recError}</p>}
-                  <div className="flex gap-3 pt-2">
-                    <Button variant="ghost" onClick={() => setRecModal(null)} className="flex-1">Cancelar</Button>
-                    <Button onClick={handleReconciliar} disabled={reconciling} className="flex-1 gap-2">
-                      {reconciling ? <RefreshCw className="w-4 h-4 animate-spin"/> : <ShieldCheck className="w-4 h-4"/>}
-                      {reconciling ? "A processar…" : "Confirmar"}
+
+                  {/* Comprovante upload */}
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
+                      <Paperclip className="w-3.5 h-3.5"/> Comprovante de pagamento <span className="text-red-500">*</span>
+                    </label>
+                    <label className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${bmFile ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/50"}`}>
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) setBmFile(f); }}/>
+                      {bmFile ? (
+                        <>
+                          <FileCheck className="w-4 h-4 text-emerald-600 shrink-0"/>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-emerald-800 truncate">{bmFile.name}</p>
+                            <p className="text-xs text-emerald-600">{(bmFile.size / 1024).toFixed(0)} KB</p>
+                          </div>
+                          <button type="button" onClick={e => { e.preventDefault(); setBmFile(null); }}
+                            className="text-emerald-500 hover:text-red-500"><X className="w-3.5 h-3.5"/></button>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 text-slate-400 shrink-0"/>
+                          <div>
+                            <p className="text-xs font-medium text-slate-600">Clique para seleccionar ficheiro</p>
+                            <p className="text-xs text-slate-400">PDF, JPG, PNG — até 5 MB</p>
+                          </div>
+                        </>
+                      )}
+                    </label>
+                  </div>
+
+                  {/* Observations */}
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
+                      <MessageSquare className="w-3.5 h-3.5"/> Observações (opcional)
+                    </label>
+                    <textarea value={bmObs} onChange={e => setBmObs(e.target.value)} rows={2}
+                      placeholder="Ex: Pago pelo encarregado no dia …"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
+                  </div>
+
+                  {bmValor && Number(bmValor) > 0 && Number(bmValor) < baixaModal.total_fatura && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0"/>
+                      Valor inferior ao total da fatura ({fmt(baixaModal.total_fatura)}). A propina ficará como <strong>pendente</strong>.
+                    </p>
+                  )}
+
+                  {bmError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{bmError}</p>}
+
+                  <div className="flex gap-3 pt-1">
+                    <Button variant="ghost" onClick={() => setBaixaModal(null)} className="flex-1" disabled={reconciling}>Cancelar</Button>
+                    <Button onClick={handleBaixaManual} disabled={reconciling} className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
+                      {reconciling ? <RefreshCw className="w-4 h-4 animate-spin"/> : <FileCheck className="w-4 h-4"/>}
+                      {reconciling ? "A registar…" : "Registar Baixa"}
                     </Button>
                   </div>
                 </div>
