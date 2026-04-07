@@ -538,15 +538,30 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
   onClose: () => void; onDone: () => void;
 }) {
   const [filterAluno, setFilterAluno] = useState("");
+  const [filterMes, setFilterMes] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [result, setResult] = useState<GeneratedRef | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const pending = propinas.filter(p => p.status === "pendente");
-  const filtered = filterAluno ? pending.filter(p => String(p.student_id) === filterAluno) : pending;
+  const pending = propinas.filter(p => p.status === "pendente" || p.status === "vencido");
+
+  // Distinct months present in pending propinas (sorted by year+month index)
+  const availableMeses = Array.from(
+    new Map(pending.map(p => [`${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}`, `${p.mes} ${p.ano}`])).entries()
+  ).sort((a, b) => a[0].localeCompare(b[0])).map(e => ({ key: e[0], label: e[1] }));
+
+  const filtered = pending
+    .filter(p => !filterAluno || String(p.student_id) === filterAluno)
+    .filter(p => !filterMes || `${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}` === filterMes);
+
   const toggleId = (id: number) => setSelectedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const selectAll = () => setSelectedIds(new Set(filtered.map(p => p.id)));
+  const clearAll  = () => setSelectedIds(new Set());
+  const allSelected = filtered.length > 0 && filtered.every(p => selectedIds.has(p.id));
+
   const selectedTotal = [...selectedIds].reduce((sum, id) => {
     const p = pending.find(x => x.id === id);
     return sum + (p ? Number(p.montante) + Number(p.multa) : 0);
@@ -604,14 +619,27 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
 
   return (
     <div className="p-6 space-y-4">
-      <Field label="Filtrar por aluno">
-        <select className={selectCls} value={filterAluno} onChange={e => { setFilterAluno(e.target.value); setSelectedIds(new Set()); }}>
-          <option value="">Todos os alunos</option>
-          {alunos.filter(a => pending.some(p => p.student_id === a.id)).map(a => (
-            <option key={a.id} value={a.id}>{a.nome}</option>
-          ))}
-        </select>
-      </Field>
+      {/* Filters */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Filtrar por aluno">
+          <select className={selectCls} value={filterAluno}
+            onChange={e => { setFilterAluno(e.target.value); setSelectedIds(new Set()); }}>
+            <option value="">Todos os alunos</option>
+            {alunos.filter(a => pending.some(p => p.student_id === a.id)).map(a => (
+              <option key={a.id} value={a.id}>{a.nome}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Filtrar por mês">
+          <select className={selectCls} value={filterMes}
+            onChange={e => { setFilterMes(e.target.value); setSelectedIds(new Set()); }}>
+            <option value="">Todos os meses</option>
+            {availableMeses.map(m => (
+              <option key={m.key} value={m.key}>{m.label}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
 
       {pending.length === 0 ? (
         <div className="py-8 text-center">
@@ -619,24 +647,45 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
           <p className="text-slate-500 font-medium">Sem propinas pendentes</p>
         </div>
       ) : (
-        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-          {filtered.map(p => {
-            const sel = selectedIds.has(p.id);
-            return (
-              <button type="button" key={p.id} onClick={() => toggleId(p.id)}
-                className={`w-full text-left rounded-xl border p-3 flex items-center gap-3 transition-all ${sel ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300 bg-white"}`}>
-                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${sel ? "bg-primary border-primary" : "border-slate-300"}`}>
-                  {sel && <CheckCircle2 className="w-3 h-3 text-white"/>}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-slate-900 truncate">{p.aluno_nome}</p>
-                  <p className="text-xs text-slate-500">{p.mes} {p.ano} — {p.turma}</p>
-                </div>
-                <span className="text-sm font-bold text-slate-900 shrink-0">{fmt(Number(p.montante) + Number(p.multa))}</span>
+        <>
+          {/* Select all / clear bar */}
+          <div className="flex items-center justify-between py-1">
+            <p className="text-xs text-slate-500">{filtered.length} propina(s) visível(eis)</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={allSelected ? clearAll : selectAll}
+                className="text-xs font-semibold text-primary hover:underline">
+                {allSelected ? "Desseleccionar todos" : "Seleccionar todos"}
               </button>
-            );
-          })}
-        </div>
+              {selectedIds.size > 0 && !allSelected && (
+                <button type="button" onClick={clearAll} className="text-xs text-slate-400 hover:text-slate-600">Limpar</button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            {filtered.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">Nenhuma propina corresponde aos filtros.</p>
+            ) : filtered.map(p => {
+              const sel = selectedIds.has(p.id);
+              return (
+                <button type="button" key={p.id} onClick={() => toggleId(p.id)}
+                  className={`w-full text-left rounded-xl border p-3 flex items-center gap-3 transition-all ${sel ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300 bg-white"}`}>
+                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${sel ? "bg-primary border-primary" : "border-slate-300"}`}>
+                    {sel && <CheckCircle2 className="w-3 h-3 text-white"/>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{p.aluno_nome}</p>
+                    <p className="text-xs text-slate-500">{p.mes} {p.ano} — {p.turma}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-bold text-slate-900 block">{fmt(Number(p.montante) + Number(p.multa))}</span>
+                    {p.status === "vencido" && <span className="text-xs text-red-500 font-medium">Vencida</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {selectedIds.size > 0 && (
@@ -645,7 +694,7 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
             <p className="text-white font-bold text-lg">{fmt(selectedTotal)}</p>
             <p className="text-slate-400 text-xs">{selectedIds.size} propina(s) seleccionada(s)</p>
           </div>
-          <button onClick={() => setSelectedIds(new Set())} className="text-slate-400 hover:text-white p-1"><X className="w-4 h-4"/></button>
+          <button onClick={clearAll} className="text-slate-400 hover:text-white p-1"><X className="w-4 h-4"/></button>
         </div>
       )}
 
