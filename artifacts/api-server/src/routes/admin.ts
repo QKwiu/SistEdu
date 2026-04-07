@@ -376,17 +376,50 @@ router.get("/admin/colegios/:id/alunos", adminAuth, async (req, res) => {
             COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido')) AS propinas_pendentes,
             COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS divida,
             COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS multa_total,
-            COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido') AND p.multa > 0) AS propinas_com_multa
+            COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido') AND p.multa > 0) AS propinas_com_multa,
+            m.pacote_id,
+            pe.nome AS pacote_nome,
+            pe.valor AS pacote_valor
      FROM students s
      LEFT JOIN turmas t ON t.id = s.turma_id
      LEFT JOIN propinas p ON p.student_id = s.id
+     LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
+     LEFT JOIN pacotes_emolumentos pe ON pe.id = m.pacote_id
      WHERE s.school_id = $1
-     GROUP BY s.id, t.nome, t.turno
+     GROUP BY s.id, t.nome, t.turno, m.pacote_id, pe.nome, pe.valor
      ${somenteMultas ? "HAVING COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) > 0" : ""}
      ORDER BY multa_total DESC, s.nome`,
     [schoolId]
   );
   res.json(result.rows);
+});
+
+/* ─── PUT /admin/colegios/:schoolId/alunos/:studentId/pacote ─── */
+router.put("/admin/colegios/:schoolId/alunos/:studentId/pacote", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.schoolId);
+  const studentId = Number(req.params.studentId);
+  const { pacote_id } = req.body;
+
+  const check = await pool.query(
+    "SELECT id FROM students WHERE id=$1 AND school_id=$2", [studentId, schoolId]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+
+  if (pacote_id !== null && pacote_id !== undefined) {
+    const pkCheck = await pool.query(
+      "SELECT id FROM pacotes_emolumentos WHERE id=$1 AND school_id=$2", [pacote_id, schoolId]
+    );
+    if (!pkCheck.rows.length) return res.status(404).json({ error: "Pacote não encontrado." });
+  }
+
+  await pool.query(
+    `INSERT INTO matriculas (student_id, turma_id, ano_lectivo, pacote_id)
+     SELECT $1, s.turma_id, '2025/2026', $2 FROM students s WHERE s.id=$1
+     ON CONFLICT (student_id, turma_id, ano_lectivo)
+     DO UPDATE SET pacote_id = EXCLUDED.pacote_id`,
+    [studentId, pacote_id ?? null]
+  );
+  res.json({ ok: true });
 });
 
 /* ─── POST /admin/colegios/:id/alunos/upload ─── */

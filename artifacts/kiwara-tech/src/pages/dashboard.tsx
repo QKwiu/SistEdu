@@ -20,12 +20,14 @@ const TURNOS = ["Manhã","Tarde","Noite"];
 
 /* ─── Interfaces ─── */
 interface Turma { id: number; nome: string; ano: string; turno: string; total_alunos: number; }
+interface Pacote { id: number; nome: string; valor: number; activo: boolean; }
 interface Aluno {
   id: number; nome: string; bilhete?: string; turma_id?: number; turma: string; turno?: string;
   nome_encarregado?: string; telefone_encarregado?: string;
   multa_total?: number;
   data_nascimento?: string; sexo?: string; numero_processo?: string; estado?: string;
   propinas_pendentes: number; divida: number;
+  pacote_id?: number | null; pacote_nome?: string | null; pacote_valor?: number | null;
 }
 interface Propina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -1299,8 +1301,8 @@ function SchoolUploadAlunosPanel({ token, onSuccess }: {
   );
 }
 
-function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTurma, onDeleteAluno, onDeleteTurma, onRefresh }: {
-  token: string | null; alunos: Aluno[]; turmas: Turma[];
+function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOpenCriarTurma, onDeleteAluno, onDeleteTurma, onRefresh }: {
+  token: string | null; alunos: Aluno[]; turmas: Turma[]; pacotes: Pacote[];
   onOpenAdicionarAluno: () => void; onOpenCriarTurma: () => void;
   onDeleteAluno: (id: number) => void; onDeleteTurma: (id: number) => void;
   onRefresh: () => void;
@@ -1309,6 +1311,22 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
   const [regTab, setRegTab] = useState<"manual"|"csv">("manual");
   const [search, setSearch] = useState("");
   const [soMultas, setSoMultas] = useState(false);
+  const [assigningPacote, setAssigningPacote] = useState<number | null>(null);
+
+  const handleAssignPacote = async (alunoId: number, pacoteId: number | null) => {
+    if (!token) return;
+    setAssigningPacote(alunoId);
+    try {
+      await fetch(`${API}/school/alunos/${alunoId}/pacote`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ pacote_id: pacoteId }),
+      });
+      await onRefresh();
+    } finally {
+      setAssigningPacote(null);
+    }
+  };
 
   const alunosComMulta = alunos.filter(a => Number(a.multa_total) > 0);
   const filteredAlunos = alunos
@@ -1365,6 +1383,7 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
                   <th className="px-5 py-3">Turma</th>
                   <th className="px-5 py-3">Nascimento</th>
                   <th className="px-5 py-3">Estado</th>
+                  <th className="px-5 py-3">Pacote de Propinas</th>
                   <th className="px-5 py-3">Propinas</th>
                   <th className="px-5 py-3"></th>
                 </tr>
@@ -1381,6 +1400,7 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
                     activo:"Activo", inactivo:"Inactivo", transferido:"Transferido", concluido:"Concluído",
                   };
                   const sexoLabel: Record<string,string> = { M:"♂", F:"♀" };
+                  const isSaving = assigningPacote === a.id;
                   return (
                     <tr key={a.id} className="hover:bg-slate-50/50">
                       <td className="px-5 py-3">
@@ -1406,6 +1426,30 @@ function AlunosView({ token, alunos, turmas, onOpenAdicionarAluno, onOpenCriarTu
                         <span className={`text-xs font-semibold border px-2 py-0.5 rounded-full ${estadoCls[a.estado ?? "activo"] ?? estadoCls.activo}`}>
                           {estadoLabel[a.estado ?? "activo"] ?? a.estado}
                         </span>
+                      </td>
+                      <td className="px-5 py-3 min-w-[180px]">
+                        {pacotes.length === 0 ? (
+                          <span className="text-xs text-slate-400 italic">Sem pacotes definidos</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={a.pacote_id ?? ""}
+                              disabled={isSaving}
+                              onChange={e => handleAssignPacote(a.id, e.target.value ? Number(e.target.value) : null)}
+                              className={`text-xs border rounded-lg px-2 py-1 pr-6 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                                a.pacote_id
+                                  ? "border-emerald-300 text-emerald-800 bg-emerald-50"
+                                  : "border-amber-300 text-amber-700 bg-amber-50"
+                              } ${isSaving ? "opacity-50 cursor-wait" : "cursor-pointer hover:border-slate-400"}`}
+                            >
+                              <option value="">— sem pacote —</option>
+                              {pacotes.filter(p => p.activo).map(p => (
+                                <option key={p.id} value={p.id}>{p.nome}</option>
+                              ))}
+                            </select>
+                            {isSaving && <RefreshCw className="w-3 h-3 animate-spin text-primary shrink-0"/>}
+                          </div>
+                        )}
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex flex-col gap-1">
@@ -2122,6 +2166,7 @@ export default function Dashboard() {
   const [turmas, setTurmas] = useState<Turma[]>([]);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [propinas, setPropinas] = useState<Propina[]>([]);
+  const [pacotes, setPacotes] = useState<Pacote[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Modals
@@ -2139,14 +2184,16 @@ export default function Dashboard() {
     if (!token) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [tRes, aRes, pRes] = await Promise.all([
+      const [tRes, aRes, pRes, pkRes] = await Promise.all([
         fetch(`${API}/school/turmas`, { headers }),
         fetch(`${API}/school/alunos`, { headers }),
         fetch(`${API}/school/propinas`, { headers }),
+        fetch(`${API}/school/pacotes`, { headers }),
       ]);
       if (tRes.ok) setTurmas(await tRes.json());
       if (aRes.ok) setAlunos(await aRes.json());
       if (pRes.ok) setPropinas(await pRes.json());
+      if (pkRes.ok) setPacotes(await pkRes.json());
     } catch {}
     setLoading(false);
   }, [token]);
@@ -2246,7 +2293,7 @@ export default function Dashboard() {
             )}
             {view === "alunos" && (
               <motion.div key="alunos" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
-                <AlunosView token={token} alunos={alunos} turmas={turmas}
+                <AlunosView token={token} alunos={alunos} turmas={turmas} pacotes={pacotes}
                   onOpenAdicionarAluno={() => setModal("aluno")} onOpenCriarTurma={() => setModal("turma")}
                   onDeleteAluno={handleDeleteAluno} onDeleteTurma={handleDeleteTurma} onRefresh={loadAll}/>
               </motion.div>

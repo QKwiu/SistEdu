@@ -97,6 +97,17 @@ router.delete("/school/turmas/:id", schoolAuth, async (req: any, res) => {
   res.status(204).end();
 });
 
+/* ─── GET /school/pacotes ─── */
+router.get("/school/pacotes", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    "SELECT id, nome, valor, descricao, itens, activo FROM pacotes_emolumentos WHERE school_id=$1 ORDER BY nome",
+    [school.school_id]
+  );
+  res.json(r.rows);
+});
+
 /* ─── Alunos ─── */
 router.get("/school/alunos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
@@ -108,16 +119,53 @@ router.get("/school/alunos", schoolAuth, async (req: any, res) => {
             s.turma_id, COALESCE(t.nome, 'Sem turma') AS turma, t.turno, s.created_at,
             COUNT(p.id) FILTER (WHERE p.status IN ('pendente','vencido')) AS propinas_pendentes,
             COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS divida,
-            COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS multa_total
+            COALESCE(SUM(p.multa) FILTER (WHERE p.status IN ('pendente','vencido')), 0) AS multa_total,
+            m.pacote_id,
+            pe.nome AS pacote_nome,
+            pe.valor AS pacote_valor
      FROM students s
      LEFT JOIN turmas t ON t.id = s.turma_id
      LEFT JOIN propinas p ON p.student_id = s.id
+     LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
+     LEFT JOIN pacotes_emolumentos pe ON pe.id = m.pacote_id
      WHERE s.school_id = $1
-     GROUP BY s.id, t.nome, t.turno
+     GROUP BY s.id, t.nome, t.turno, m.pacote_id, pe.nome, pe.valor
      ORDER BY s.nome`,
     [school.school_id]
   );
   res.json(result.rows);
+});
+
+/* ─── PUT /school/alunos/:id/pacote ─── */
+router.put("/school/alunos/:id/pacote", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const studentId = Number(req.params.id);
+  const { pacote_id } = req.body; // null to remove package
+
+  const check = await pool.query(
+    "SELECT id FROM students WHERE id=$1 AND school_id=$2", [studentId, school.school_id]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+
+  if (pacote_id !== null && pacote_id !== undefined) {
+    const pkCheck = await pool.query(
+      "SELECT id FROM pacotes_emolumentos WHERE id=$1 AND school_id=$2", [pacote_id, school.school_id]
+    );
+    if (!pkCheck.rows.length) return res.status(404).json({ error: "Pacote não encontrado." });
+  }
+
+  // Upsert into matriculas
+  await pool.query(
+    `INSERT INTO matriculas (student_id, turma_id, ano_lectivo, pacote_id)
+     SELECT $1, s.turma_id, '2025/2026', $2 FROM students s WHERE s.id=$1
+     ON CONFLICT (student_id, turma_id, ano_lectivo)
+     DO UPDATE SET pacote_id = EXCLUDED.pacote_id`,
+    [studentId, pacote_id ?? null]
+  );
+
+  res.json({ ok: true });
 });
 
 /* ─── POST /school/alunos — create single student (multipart + files) ─── */

@@ -2392,9 +2392,149 @@ function AlunosComMultasAdmin({ schoolId }: { schoolId: number }) {
 }
 
 /* ─── School Detail View ─── */
+/* ─── AlunosListAdminPanel: Lista de alunos com atribuição de pacote inline ─── */
+function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes: PacoteEmolumento[] }) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const headers = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : {};
+
+  interface AdminAluno {
+    id: number; nome: string; bilhete?: string; numero_processo?: string; estado?: string;
+    turma: string; turno?: string; propinas_pendentes: number; divida: number; multa_total: number;
+    pacote_id?: number | null; pacote_nome?: string | null; pacote_valor?: number | null;
+  }
+
+  const [alunos, setAlunos] = useState<AdminAluno[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/admin/colegios/${schoolId}/alunos`, { headers });
+      if (r.ok) setAlunos(await r.json());
+    } finally { setLoading(false); }
+  }, [schoolId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAssign = async (studentId: number, pacoteId: number | null) => {
+    setSaving(studentId); setError(null);
+    try {
+      const r = await fetch(`${API}/admin/colegios/${schoolId}/alunos/${studentId}/pacote`, {
+        method: "PUT", headers,
+        body: JSON.stringify({ pacote_id: pacoteId }),
+      });
+      if (!r.ok) { const d = await r.json(); setError(d.error ?? "Erro ao atribuir pacote."); return; }
+      setAlunos(prev => prev.map(a => a.id === studentId
+        ? { ...a, pacote_id: pacoteId, pacote_nome: pacotes.find(p => p.id === pacoteId)?.nome ?? null }
+        : a));
+    } finally { setSaving(null); }
+  };
+
+  const filtered = alunos.filter(a =>
+    a.nome.toLowerCase().includes(search.toLowerCase()) ||
+    a.turma.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const semPacote = alunos.filter(a => !a.pacote_id).length;
+
+  if (loading) return <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>;
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-slate-900">Lista de Alunos</h3>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Atribua ou altere o pacote de propinas de cada aluno. {semPacote > 0 && (
+              <span className="text-amber-600 font-medium">{semPacote} aluno(s) sem pacote atribuído.</span>
+            )}
+          </p>
+        </div>
+        <button onClick={load} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-3 py-1.5 bg-white">
+          <RefreshCw className="w-3.5 h-3.5"/> Actualizar
+        </button>
+      </div>
+
+      {error && <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</div>}
+
+      <div className="relative mb-4">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar aluno ou turma..."
+          className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-10 text-slate-400"><Users className="w-10 h-10 mx-auto mb-2 opacity-40"/><p>Sem alunos encontrados</p></div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
+              <tr>
+                <th className="px-4 py-3">Aluno</th>
+                <th className="px-4 py-3">Turma</th>
+                <th className="px-4 py-3">Propinas</th>
+                <th className="px-4 py-3 min-w-[200px]">Pacote de Propinas</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {filtered.map(a => {
+                const isSaving = saving === a.id;
+                return (
+                  <tr key={a.id} className="hover:bg-slate-50/50">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-slate-900">{a.nome}</div>
+                      {a.numero_processo && <div className="text-xs text-slate-400 font-mono">{a.numero_processo}</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-slate-700">{a.turma}</div>
+                      {a.turno && <div className="text-xs text-slate-400">{a.turno}</div>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {Number(a.propinas_pendentes) > 0
+                        ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">{a.propinas_pendentes} pendente(s)</span>
+                        : <span className="text-xs text-emerald-600">Em dia</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {pacotes.length === 0 ? (
+                        <span className="text-xs text-slate-400 italic">Nenhum pacote configurado</span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={a.pacote_id ?? ""}
+                            disabled={isSaving}
+                            onChange={e => handleAssign(a.id, e.target.value ? Number(e.target.value) : null)}
+                            className={`text-xs border rounded-lg px-2.5 py-1.5 pr-7 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                              a.pacote_id
+                                ? "border-emerald-300 text-emerald-800 bg-emerald-50"
+                                : "border-amber-300 text-amber-700 bg-amber-50"
+                            } ${isSaving ? "opacity-50 cursor-wait" : "cursor-pointer hover:border-slate-400 bg-white"}`}
+                          >
+                            <option value="">— sem pacote —</option>
+                            {pacotes.filter(p => p.activo).map(p => (
+                              <option key={p.id} value={p.id}>{p.nome} ({fmt(p.valor)} Kz)</option>
+                            ))}
+                          </select>
+                          {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary shrink-0"/>}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
   const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao">("geral");
-  const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas">("individual");
+  const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
 
@@ -2509,25 +2649,36 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
       {tab === "alunos" && (
         <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
           {/* Sub-tab bar */}
-          <div className="flex flex-wrap border-b border-slate-100">
+          <div className="flex flex-wrap border-b border-slate-100 overflow-x-auto">
+            <button
+              onClick={() => setAlunoSubTab("lista")}
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${alunoSubTab === "lista" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              <Users className="w-4 h-4" /> Lista de Alunos
+            </button>
             <button
               onClick={() => setAlunoSubTab("individual")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "individual" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${alunoSubTab === "individual" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               <UserPlus className="w-4 h-4" /> Adicionar Aluno
             </button>
             <button
               onClick={() => setAlunoSubTab("massa")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "massa" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${alunoSubTab === "massa" ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               <Upload className="w-4 h-4" /> Importar em Massa
             </button>
             <button
               onClick={() => setAlunoSubTab("multas")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${alunoSubTab === "multas" ? "border-red-500 text-red-600 bg-red-50" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${alunoSubTab === "multas" ? "border-red-500 text-red-600 bg-red-50" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               <AlertTriangle className="w-4 h-4" /> Com Multas
             </button>
           </div>
 
           <div className="p-6">
+            {alunoSubTab === "lista" && (
+              <AlunosListAdminPanel
+                schoolId={currentSchool.id}
+                pacotes={currentSchool.pacotes ?? []}
+              />
+            )}
             {alunoSubTab === "individual" && (
               <>
                 <h3 className="font-semibold text-slate-900 mb-1">Registar novo aluno</h3>
