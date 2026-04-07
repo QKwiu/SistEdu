@@ -8,6 +8,7 @@ import {
   AlertTriangle, RefreshCw, Trash2, Calendar, BookOpen, X,
   ChevronDown, User, School, CreditCard, MoreHorizontal, History,
   UserPlus, FileSpreadsheet, Download, Upload,
+  ArrowLeftRight, ShieldCheck, Receipt, Landmark, Filter,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -33,7 +34,19 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao";
+
+interface RecPropina {
+  id: number; student_id: number; aluno_nome: string; turma: string;
+  mes: string; ano: string; montante: number; multa: number; status: string;
+  internal_reference?: string; data_vencimento: string; pago_em?: string;
+  total_fatura: number; split_escola: number; split_plataforma: number;
+  ref_multicaixa?: string; entidade?: string;
+}
+interface RecStats {
+  pendentes: string; vencidas: string; pagas: string;
+  divida_total: string; receita_total: string; receita_escola: string; comissao_plataforma: string;
+}
 
 /* ─── Helpers ─── */
 function fmt(val: number | string) {
@@ -1489,7 +1502,307 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
   );
 }
 
-/* ─── Main Dashboard ─── */
+/* ─── Reconciliação View (School) ─── */
+function ReconciliacaoView({ token }: { token: string | null }) {
+  const [propinas, setPropinas] = useState<RecPropina[]>([]);
+  const [stats, setStats] = useState<RecStats | null>(null);
+  const [commissionRate, setCommissionRate] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [search, setSearch] = useState("");
+  const [reconciling, setReconciling] = useState(false);
+  const [recModal, setRecModal] = useState<{ ref: string; total: number } | null>(null);
+  const [recValor, setRecValor] = useState("");
+  const [recMetodo, setRecMetodo] = useState("EMIS");
+  const [recResult, setRecResult] = useState<any>(null);
+  const [recError, setRecError] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const authHeader = (): HeadersInit => token ? { Authorization: `Bearer ${token}` } : {};
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const qs = filterStatus ? `?status=${filterStatus}` : "";
+      const r = await fetch(`${API}/school/reconciliacao${qs}`, { headers: authHeader() });
+      if (r.ok) {
+        const d = await r.json();
+        setPropinas(d.propinas ?? []);
+        setStats(d.stats ?? null);
+        setCommissionRate(Number(d.commission_rate ?? 0));
+      }
+    } finally { setLoading(false); }
+  }, [token, filterStatus]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleReconciliar = async () => {
+    if (!recModal || !recValor) return;
+    setReconciling(true); setRecError(""); setRecResult(null);
+    try {
+      const r = await fetch(`${API}/admin/reconciliacao/reconciliar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          internal_reference: recModal.ref,
+          valor_pago: Number(recValor.replace(/\D/g, "")),
+          metodo: recMetodo,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setRecError(d.error ?? "Erro na reconciliação."); return; }
+      setRecResult(d);
+      load();
+    } catch { setRecError("Erro de ligação."); }
+    finally { setReconciling(false); }
+  };
+
+  const filtered = propinas.filter(p => {
+    if (search && !p.aluno_nome.toLowerCase().includes(search.toLowerCase()) &&
+        !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const statusBadge = (s: string) => {
+    if (s === "pago")     return <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">Paga</span>;
+    if (s === "vencido")  return <span className="px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 rounded-full border border-red-200">Vencida</span>;
+    return                       <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-700 rounded-full border border-amber-200">Pendente</span>;
+  };
+
+  return (
+    <motion.div key="reconciliacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+      className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
+
+      {/* Page title */}
+      <div>
+        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-primary"/> Reconciliação Financeira
+        </h2>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Consulte o estado de reconciliação das faturas, referências internas e distribuição de receitas.
+        </p>
+      </div>
+
+      {/* Stats cards */}
+      {stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: "Faturas Pendentes", value: stats.pendentes, icon: <Clock className="w-5 h-5"/>, color: "text-amber-600 bg-amber-50 border-amber-200" },
+            { label: "Faturas Vencidas",  value: stats.vencidas,  icon: <AlertCircle className="w-5 h-5"/>, color: "text-red-600 bg-red-50 border-red-200" },
+            { label: "Faturas Pagas",     value: stats.pagas,     icon: <CheckCircle2 className="w-5 h-5"/>, color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
+            { label: "Receita Total",     value: fmt(stats.receita_total), icon: <Banknote className="w-5 h-5"/>, color: "text-primary bg-primary/5 border-primary/20" },
+          ].map(c => (
+            <div key={c.label} className={`border rounded-xl p-4 flex items-center gap-3 ${c.color}`}>
+              <div className="shrink-0">{c.icon}</div>
+              <div>
+                <p className="text-xs font-medium opacity-70">{c.label}</p>
+                <p className="text-lg font-bold">{c.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Split summary */}
+      {stats && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <ArrowLeftRight className="w-4 h-4 text-primary"/>
+            <h3 className="font-semibold text-slate-900 text-sm">Distribuição de Receitas (Split Payment)</h3>
+            <span className="ml-auto text-xs text-slate-400">Taxa de comissão: {commissionRate}%</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Landmark className="w-4 h-4 text-blue-600"/>
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Conta do Colégio</p>
+              </div>
+              <p className="text-2xl font-bold text-blue-800">{fmt(stats.receita_escola)}</p>
+              <p className="text-xs text-blue-600 mt-1">Receita líquida após comissão</p>
+            </div>
+            <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Receipt className="w-4 h-4 text-violet-600"/>
+                <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide">Comissão Plataforma</p>
+              </div>
+              <p className="text-2xl font-bold text-violet-800">{fmt(stats.comissao_plataforma)}</p>
+              <p className="text-xs text-violet-600 mt-1">Kiwara Tech ({commissionRate}%)</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-48">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Pesquisar aluno ou referência…"
+            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white"/>
+        </div>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+          {(["", "pendente", "vencido", "pago"] as const).map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filterStatus===s?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+              {s === "" ? "Todas" : s === "pendente" ? "Pendentes" : s === "vencido" ? "Vencidas" : "Pagas"}
+            </button>
+          ))}
+        </div>
+        <button onClick={load} className="p-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}/>
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Aluno</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Referência Interna</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Período</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Fatura</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Split Escola</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Comissão</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} className="py-12 text-center text-slate-400"><RefreshCw className="w-5 h-5 animate-spin inline"/></td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={8} className="py-12 text-center text-slate-400 text-sm">Nenhum registo encontrado.</td></tr>
+              ) : filtered.map(p => (
+                <>
+                  <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-900">{p.aluno_nome}</p>
+                      <p className="text-xs text-slate-400">{p.turma}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.internal_reference ? (
+                        <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-1 rounded-lg">{p.internal_reference}</span>
+                      ) : <span className="text-slate-400 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{p.mes}/{p.ano}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(p.total_fatura)}</td>
+                    <td className="px-4 py-3 text-right text-blue-700 font-medium">{p.status==="pago"?fmt(p.split_escola):"—"}</td>
+                    <td className="px-4 py-3 text-right text-violet-700 font-medium">{p.status==="pago"?fmt(p.split_plataforma):"—"}</td>
+                    <td className="px-4 py-3 text-center">{statusBadge(p.status)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        {p.status !== "pago" && p.internal_reference && (
+                          <button onClick={() => { setRecModal({ ref: p.internal_reference!, total: p.total_fatura }); setRecValor(String(Math.round(p.total_fatura))); setRecResult(null); setRecError(""); }}
+                            className="px-2.5 py-1.5 text-xs font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap">
+                            Reconciliar
+                          </button>
+                        )}
+                        <button onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
+                          <ChevronDown className={`w-4 h-4 transition-transform ${expandedId===p.id?"rotate-180":""}`}/>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {expandedId === p.id && (
+                    <tr key={`${p.id}-detail`} className="bg-slate-50/80 border-b border-slate-100">
+                      <td colSpan={8} className="px-6 py-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                          <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Montante base</p><p className="font-semibold text-slate-800 mt-0.5">{fmt(p.montante)}</p></div>
+                          <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Multa</p><p className="font-semibold text-red-700 mt-0.5">{fmt(p.multa)}</p></div>
+                          <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Vencimento</p><p className="font-semibold text-slate-800 mt-0.5">{fmtDate(p.data_vencimento)}</p></div>
+                          {p.pago_em && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Data Pagamento</p><p className="font-semibold text-emerald-700 mt-0.5">{fmtDate(p.pago_em)}</p></div>}
+                          {p.ref_multicaixa && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Ref. Multicaixa</p><p className="font-mono font-semibold text-slate-800 mt-0.5">{p.entidade} / {p.ref_multicaixa}</p></div>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Reconciliation modal */}
+      <AnimatePresence>
+        {recModal && (
+          <motion.div key="rec-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+            onClick={e => { if (e.target === e.currentTarget) { setRecModal(null); setRecResult(null); } }}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5"/>
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">Reconciliar Pagamento</h3>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">{recModal.ref}</p>
+                </div>
+                <button onClick={() => { setRecModal(null); setRecResult(null); }} className="ml-auto text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              </div>
+
+              {recResult ? (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <p className="text-emerald-800 font-semibold flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/> Reconciliação efectuada com sucesso</p>
+                    <p className="text-xs text-emerald-700 mt-2">Ref. interna: <span className="font-mono">{recResult.payment_ref}</span></p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                      <p className="text-blue-600 font-semibold uppercase tracking-wide mb-1">Colégio</p>
+                      <p className="text-blue-900 font-bold text-lg">{fmt(recResult.split?.escola ?? 0)}</p>
+                    </div>
+                    <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
+                      <p className="text-violet-600 font-semibold uppercase tracking-wide mb-1">Plataforma</p>
+                      <p className="text-violet-900 font-bold text-lg">{fmt(recResult.split?.plataforma ?? 0)}</p>
+                    </div>
+                  </div>
+                  <Button onClick={() => { setRecModal(null); setRecResult(null); }} className="w-full">Fechar</Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Total da fatura</p>
+                    <p className="text-2xl font-bold text-slate-900">{fmt(recModal.total)}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Método de pagamento</label>
+                    <select value={recMetodo} onChange={e => setRecMetodo(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                      <option>EMIS</option>
+                      <option>Appy Pay</option>
+                      <option>Transferência</option>
+                      <option>Numerário</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Valor recebido (AOA)</label>
+                    <input type="number" value={recValor} onChange={e => setRecValor(e.target.value)} min={1}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                  </div>
+                  {recError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{recError}</p>}
+                  <div className="flex gap-3 pt-2">
+                    <Button variant="ghost" onClick={() => setRecModal(null)} className="flex-1">Cancelar</Button>
+                    <Button onClick={handleReconciliar} disabled={reconciling} className="flex-1 gap-2">
+                      {reconciling ? <RefreshCw className="w-4 h-4 animate-spin"/> : <ShieldCheck className="w-4 h-4"/>}
+                      {reconciling ? "A processar…" : "Confirmar"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -1546,6 +1859,7 @@ export default function Dashboard() {
     { key: "inicio", icon: <LayoutDashboard className="w-5 h-5"/>, label: "Início" },
     { key: "alunos", icon: <Users className="w-5 h-5"/>, label: "Alunos & Turmas" },
     { key: "propinas", icon: <FileText className="w-5 h-5"/>, label: "Propinas & Faturas" },
+    { key: "reconciliacao", icon: <ShieldCheck className="w-5 h-5"/>, label: "Reconciliação" },
     { key: "ocorrencias", icon: <AlertTriangle className="w-5 h-5"/>, label: "Ocorrências" },
   ];
 
@@ -1630,6 +1944,9 @@ export default function Dashboard() {
                 <PropinasView token={token} propinas={propinas} alunos={alunos}
                   onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}/>
               </motion.div>
+            )}
+            {view === "reconciliacao" && (
+              <ReconciliacaoView key="reconciliacao" token={token}/>
             )}
             {view === "ocorrencias" && (
               <motion.div key="ocorrencias" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col">

@@ -7,6 +7,7 @@ import {
   AlertCircle, X, Download, TrendingUp, Banknote, School, FileSpreadsheet,
   Eye, EyeOff, Search, ArrowLeft, Menu, Calendar, Pencil, MoreHorizontal,
   FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties, UserPlus,
+  ArrowLeftRight, ShieldCheck, Filter, ChevronDown,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -41,6 +42,7 @@ interface Colegio {
   id: number; school_id: string; name: string; nif?: string; phone?: string;
   email: string; iban?: string; created_at: string;
   total_alunos: number; total_turmas: number; usa_pacotes: boolean;
+  commission_rate?: number;
 }
 interface PacoteItem { nome: string; tipo: string; valor: number; }
 interface PacoteEmolumento {
@@ -1939,9 +1941,308 @@ function PacotesPanel({ schoolId, initial, onUpdated, emolumentos = [] }: {
   );
 }
 
+/* ─── Reconciliação Admin Panel ─── */
+function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { schoolId: number; commissionRate?: number }) {
+  const [data, setData] = useState<{ propinas: any[]; stats: any; school: any } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [reconciling, setReconciling] = useState(false);
+  const [recModal, setRecModal] = useState<{ ref: string; total: number } | null>(null);
+  const [recValor, setRecValor] = useState("");
+  const [recMetodo, setRecMetodo] = useState("EMIS");
+  const [recResult, setRecResult] = useState<any>(null);
+  const [recError, setRecError] = useState("");
+  const [commRate, setCommRate] = useState(initialRate ?? 0);
+  const [savingComm, setSavingComm] = useState(false);
+  const [commInput, setCommInput] = useState(String(initialRate ?? 0));
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = filterStatus ? `?status=${filterStatus}` : "";
+      const r = await api(`/admin/colegios/${schoolId}/reconciliacao${qs}`);
+      if (r.ok) { const d = await r.json(); setData(d); setCommRate(Number(d.school?.commission_rate ?? 0)); setCommInput(String(Number(d.school?.commission_rate ?? 0))); }
+    } finally { setLoading(false); }
+  }, [schoolId, filterStatus]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveComm = async () => {
+    setSavingComm(true);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/comissao`, {
+        method: "PUT",
+        body: JSON.stringify({ commission_rate: Number(commInput) }),
+      });
+      if (r.ok) { const d = await r.json(); setCommRate(d.commission_rate); }
+    } finally { setSavingComm(false); }
+  };
+
+  const handleReconciliar = async () => {
+    if (!recModal || !recValor) return;
+    setReconciling(true); setRecError(""); setRecResult(null);
+    try {
+      const r = await api("/admin/reconciliacao/reconciliar", {
+        method: "POST",
+        body: JSON.stringify({ internal_reference: recModal.ref, valor_pago: Number(recValor), metodo: recMetodo }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setRecError(d.error ?? "Erro."); return; }
+      setRecResult(d); load();
+    } finally { setReconciling(false); }
+  };
+
+  const filtered = (data?.propinas ?? []).filter((p: any) => {
+    if (search && !p.aluno_nome?.toLowerCase().includes(search.toLowerCase()) &&
+        !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const statusBadge = (s: string) => {
+    if (s === "pago")    return <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">Paga</span>;
+    if (s === "vencido") return <span className="px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 rounded-full border border-red-200">Vencida</span>;
+    return                      <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-700 rounded-full border border-amber-200">Pendente</span>;
+  };
+
+  const stats = data?.stats;
+
+  return (
+    <div className="space-y-6">
+      {/* Commission config */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <ArrowLeftRight className="w-4 h-4 text-primary"/>
+          <h3 className="font-semibold text-slate-900">Configuração de Comissão (Split Payment)</h3>
+        </div>
+        <div className="flex items-end gap-3 flex-wrap">
+          <div className="flex-1 min-w-40">
+            <label className="text-xs font-semibold text-slate-500 mb-1 block">Taxa de comissão da plataforma (%)</label>
+            <input type="number" min={0} max={100} step={0.5} value={commInput}
+              onChange={e => setCommInput(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+          </div>
+          <button onClick={saveComm} disabled={savingComm}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap">
+            {savingComm ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4"/>}
+            Guardar
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">Taxa actual: <strong className="text-primary">{commRate}%</strong> — aplicada automaticamente em todos os pagamentos reconciliados.</p>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+          {[
+            { label: "Pendentes",      value: stats.pendentes,       color: "text-amber-700 bg-amber-50 border-amber-200",   icon: <Clock className="w-4 h-4"/> },
+            { label: "Vencidas",       value: stats.vencidas,        color: "text-red-700 bg-red-50 border-red-200",         icon: <AlertCircle className="w-4 h-4"/> },
+            { label: "Pagas",          value: stats.pagas,           color: "text-emerald-700 bg-emerald-50 border-emerald-200", icon: <CheckCircle2 className="w-4 h-4"/> },
+            { label: "Receita Total",  value: fmtCur(stats.receita_total), color: "text-primary bg-primary/5 border-primary/20", icon: <Banknote className="w-4 h-4"/> },
+          ].map(c => (
+            <div key={c.label} className={`border rounded-xl p-4 flex items-center gap-3 ${c.color}`}>
+              {c.icon}
+              <div>
+                <p className="text-xs font-medium opacity-70">{c.label}</p>
+                <p className="text-base font-bold">{c.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Split distribution summary */}
+      {stats && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Landmark className="w-4 h-4 text-blue-600"/>
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Receita do Colégio</p>
+            </div>
+            <p className="text-2xl font-bold text-blue-800">{fmtCur(stats.receita_escola)}</p>
+            <p className="text-xs text-blue-600 mt-0.5">Após dedução de comissão</p>
+          </div>
+          <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Receipt className="w-4 h-4 text-violet-600"/>
+              <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide">Comissão Kiwara</p>
+            </div>
+            <p className="text-2xl font-bold text-violet-800">{fmtCur(stats.comissao_plataforma)}</p>
+            <p className="text-xs text-violet-600 mt-0.5">Taxa: {commRate}%</p>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-48">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar aluno ou referência…"
+            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"/>
+        </div>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+          {(["", "pendente", "vencido", "pago"] as const).map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filterStatus===s?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+              {s === "" ? "Todas" : s === "pendente" ? "Pendentes" : s === "vencido" ? "Vencidas" : "Pagas"}
+            </button>
+          ))}
+        </div>
+        <button onClick={load} className="p-2.5 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}/>
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Aluno</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Referência Interna</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Período</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Split Escola</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Comissão</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
+                <th className="px-4 py-3"/>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} className="py-10 text-center text-slate-400"><RefreshCw className="w-5 h-5 animate-spin inline"/></td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={8} className="py-10 text-center text-slate-400 text-sm">Sem registos.</td></tr>
+              ) : filtered.map((p: any) => (
+                <>
+                  <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-900">{p.aluno_nome}</p>
+                      <p className="text-xs text-slate-400">{p.turma}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.internal_reference
+                        ? <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-1 rounded-lg">{p.internal_reference}</span>
+                        : <span className="text-slate-400 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{p.mes}/{p.ano}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmtCur(p.total_fatura)}</td>
+                    <td className="px-4 py-3 text-right text-blue-700 font-medium">{p.status==="pago"?fmtCur(p.split_escola):"—"}</td>
+                    <td className="px-4 py-3 text-right text-violet-700 font-medium">{p.status==="pago"?fmtCur(p.split_plataforma):"—"}</td>
+                    <td className="px-4 py-3 text-center">{statusBadge(p.status)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        {p.status !== "pago" && p.internal_reference && (
+                          <button onClick={() => { setRecModal({ ref: p.internal_reference, total: p.total_fatura }); setRecValor(String(Math.round(p.total_fatura))); setRecResult(null); setRecError(""); }}
+                            className="px-2.5 py-1.5 text-xs font-semibold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap">
+                            Reconciliar
+                          </button>
+                        )}
+                        <button onClick={() => setExpandedId(expandedId===p.id?null:p.id)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
+                          <ChevronDown className={`w-4 h-4 transition-transform ${expandedId===p.id?"rotate-180":""}`}/>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {expandedId === p.id && (
+                    <tr key={`${p.id}-d`} className="bg-slate-50 border-b border-slate-100">
+                      <td colSpan={8} className="px-6 py-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                          <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Montante</p><p className="font-semibold mt-0.5">{fmtCur(p.montante)}</p></div>
+                          <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Multa</p><p className="font-semibold text-red-700 mt-0.5">{fmtCur(p.multa)}</p></div>
+                          <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Vencimento</p><p className="font-semibold mt-0.5">{p.data_vencimento ? new Date(p.data_vencimento).toLocaleDateString("pt-AO") : "—"}</p></div>
+                          {p.pago_em && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Pago em</p><p className="font-semibold text-emerald-700 mt-0.5">{new Date(p.pago_em).toLocaleDateString("pt-AO")}</p></div>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Reconciliation modal */}
+      <AnimatePresence>
+        {recModal && (
+          <motion.div key="rec-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+            onClick={e => { if (e.target===e.currentTarget) { setRecModal(null); setRecResult(null); } }}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  <ShieldCheck className="w-5 h-5"/>
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900">Reconciliar Pagamento</h3>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">{recModal.ref}</p>
+                </div>
+                <button onClick={() => { setRecModal(null); setRecResult(null); }} className="ml-auto text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              </div>
+              {recResult ? (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <p className="text-emerald-800 font-semibold flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/> Reconciliação efectuada!</p>
+                    <p className="text-xs text-emerald-700 mt-1">Ref: <span className="font-mono">{recResult.payment_ref}</span></p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                      <p className="text-blue-600 font-semibold uppercase mb-1">Colégio</p>
+                      <p className="text-blue-900 font-bold text-lg">{fmtCur(recResult.split?.escola ?? 0)}</p>
+                    </div>
+                    <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
+                      <p className="text-violet-600 font-semibold uppercase mb-1">Plataforma</p>
+                      <p className="text-violet-900 font-bold text-lg">{fmtCur(recResult.split?.plataforma ?? 0)}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setRecModal(null); setRecResult(null); }}
+                    className="w-full py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">Fechar</button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Total da fatura</p>
+                    <p className="text-2xl font-bold text-slate-900">{fmtCur(recModal.total)}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Método</label>
+                    <select value={recMetodo} onChange={e => setRecMetodo(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                      <option>EMIS</option><option>Appy Pay</option><option>Transferência</option><option>Numerário</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Valor recebido (AOA)</label>
+                    <input type="number" value={recValor} onChange={e => setRecValor(e.target.value)} min={1}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                  </div>
+                  {recError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{recError}</p>}
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setRecModal(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">Cancelar</button>
+                    <button onClick={handleReconciliar} disabled={reconciling}
+                      className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                      {reconciling ? <RefreshCw className="w-4 h-4 animate-spin"/> : <ShieldCheck className="w-4 h-4"/>}
+                      {reconciling ? "A processar…" : "Confirmar"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 /* ─── School Detail View ─── */
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -1963,6 +2264,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "emolumentos" as const, label: "Emolumentos", icon: <Receipt className="w-4 h-4" /> },
     ...(currentSchool.usa_pacotes ? [{ id: "pacotes" as const, label: "Pacotes", icon: <BadgePercent className="w-4 h-4" /> }] : []),
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
+    { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
   ];
 
@@ -2137,6 +2439,18 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
             Consulte e ajuste propinas de todos os alunos. Use as acções (⋯) para perdão, ajuste de valor, reagendamento ou registo de justificação.
           </p>
           <PropinasAdminPanel schoolId={currentSchool.id} />
+        </div>
+      )}
+      {tab === "reconciliacao" && (
+        <div className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldCheck className="w-5 h-5 text-primary"/>
+            <h3 className="font-semibold text-slate-900">Reconciliação Financeira</h3>
+          </div>
+          <p className="text-sm text-slate-500 mb-6">
+            Consulte referências internas, reconcilie pagamentos recebidos e acompanhe a distribuição de receitas entre colégio e plataforma.
+          </p>
+          <ReconciliacaoAdminPanel schoolId={currentSchool.id} commissionRate={currentSchool.commission_rate} />
         </div>
       )}
       {tab === "iban" && (

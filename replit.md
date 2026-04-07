@@ -28,6 +28,7 @@ Every package extends a shared `tsconfig.base.json` with `composite: true`. The 
 -   **Students**: CRUD operations for students (name, ID, class, DOB, gender, process number, status). Individual student profiles.
 -   **Classes**: Create and manage classes by grade and shift. Associate students with classes.
 -   **Tuition Fees**: View all tuition fees. Filters: All / Pending / Overdue / Paid. Columns: Fee + Penalty + Total. Adjustments via modal.
+-   **Reconciliação Financeira**: View internal references (format `SCH-CODE-studentId-YYYY-MM-DD-guardianId-propinaId`), reconciliation stats, split payment distribution (school vs platform), and process payments manually (EMIS, Appy Pay, Transferência, Numerário).
 -   **Tuition Fee Adjustments**: Modal for adjustments: penalty forgiveness, value adjustment, rescheduling due date, justification. History of adjustments.
 -   **Incidents**: Register disciplinary or academic incidents per student (type, description, date).
 -   **Announcements**: Create and publish announcements visible to guardians.

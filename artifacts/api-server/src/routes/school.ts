@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
+import { generateInternalReference } from "./reconciliation";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -413,7 +414,12 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
          RETURNING *`,
         [school.school_id, student_id, mes, String(ano), montante, vencimento]
       );
-      if (r.rows[0]) created.push(r.rows[0]);
+      if (r.rows[0]) {
+        const propina = r.rows[0];
+        const ref = await generateInternalReference(propina.id);
+        await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
+        created.push({ ...propina, internal_reference: ref });
+      }
     } catch {}
   }
 

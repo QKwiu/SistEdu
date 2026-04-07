@@ -1,0 +1,171 @@
+Contexto:
+Estamos a desenvolver um SaaS multi-tenant de gestão escolar com módulo financeiro completo, incluindo:
+- Propinas
+- Emolumentos
+- Multas
+- Faturas
+- Pagamentos
+- Reconciliação automática
+- Split payment entre contas (colégio e plataforma)
+
+Objetivo:
+Atualizar a lógica de geração de referências internas para melhorar:
+
+1. Reconciliação automática de pagamentos
+2. Gestão de split payment, permitindo distribuir automaticamente os valores pagos entre múltiplas contas, tais como:
+   - Conta do colégio (valor da propina/emolumento)
+   - Conta da plataforma (comissão da plataforma)
+
+----------------------------------------
+
+Nova regra de geração de referência:
+
+A referência deve ser gerada automaticamente com base nos seguintes elementos:
+- ID do Aluno
+- Mês de referência da propina (YYYY-MM)
+- Dia (data de criação da fatura)
+- ID do Encarregado
+- ID do Emolumento
+
+Formato:
+{student_id}-{YYYY-MM}-{DD}-{guardian_id}-{fee_id}
+
+Exemplo:
+1023-2026-03-15-45-1
+
+Opcional (recomendado para multi-tenant):
+{school_code}-{student_id}-{YYYY-MM}-{DD}-{guardian_id}-{fee_id}
+
+Exemplo:
+SCH001-1023-2026-03-15-45-1
+
+----------------------------------------
+
+Regras de negócio:
+
+1. Multas:
+- Manter a lógica atual de aplicação de multas:
+  - Aplicação automática após data de vencimento
+  - Configurável por escola (percentagem ou valor fixo)
+- A multa deve ser associada à fatura original (invoice)
+- A multa NÃO deve gerar uma nova referência
+- A multa deve ser incorporada no valor total da fatura
+
+----------------------------------------
+
+2. Split Payment (entre contas financeiras):
+
+O sistema deve permitir que um pagamento seja automaticamente dividido entre diferentes contas:
+
+Exemplo:
+Pagamento total: 55.000
+
+Distribuição:
+- 50.000 → Conta do colégio (propina)
+- 5.000 → Conta da plataforma (comissão)
+
+Requisitos:
+- Definir regras de comissão por escola ou global
+- Calcular automaticamente a divisão no momento do pagamento
+- Suportar:
+  - Percentagem (ex: 10%)
+  - Valor fixo
+
+----------------------------------------
+
+3. Estrutura de split (nível técnico):
+
+Criar entidade de distribuição financeira:
+
+Tabela: payment_splits
+- id
+- payment_id
+- destino (school | platform)
+- conta_destino_id
+- valor
+- tipo (propina, multa, comissão)
+
+----------------------------------------
+
+4. Reconciliação automática:
+
+A referência gerada deve permitir:
+
+- Identificar unicamente a fatura
+- Conciliar automaticamente pagamentos recebidos via:
+  - EMIS
+  - Appy Pay
+  - Transferência
+
+Fluxo:
+Pagamento recebido → referência → localizar invoice → validar valor → aplicar pagamento → executar split → atualizar status
+
+----------------------------------------
+
+5. Estados da fatura:
+
+- pending
+- partially_paid
+- paid
+- overdue
+
+----------------------------------------
+
+6. Backend:
+
+Função principal:
+generateInternalReference(studentId, referenceMonth, day, guardianId, feeId, schoolCode?)
+
+Serviços adicionais:
+- applyFineToInvoice(invoiceId)
+- processPaymentSplit(paymentId)
+- reconcilePayment(reference, amount)
+
+----------------------------------------
+
+7. Base de dados:
+
+Tabela invoices:
+- internal_reference
+- total_amount
+- fine_amount
+- status
+- school_id
+
+Tabela payments:
+- reference_recebida
+- valor_pago
+
+Tabela payment_splits:
+- payment_id
+- destino (school/platform)
+- valor
+- conta_destino_id
+
+----------------------------------------
+
+8. Regras críticas:
+
+- A referência é única e imutável
+- A multa não altera a referência
+- O split payment deve ser automático após confirmação do pagamento
+- Garantir isolamento por school_id (multi-tenant)
+
+----------------------------------------
+
+9. Entregáveis:
+
+- Função de geração de referência atualizada
+- Implementação de split payment entre contas
+- Atualização da lógica de reconciliação automática
+- Modelos de base de dados atualizados
+- Serviços backend para cálculo e distribuição de valores
+
+----------------------------------------
+
+Objetivo final:
+Criar um sistema financeiro robusto que permita:
+- Reconciliação automática precisa
+- Distribuição inteligente de receitas (colégio + plataforma)
+- Gestão integrada de propinas, multas e comissões
+- Preparação para integração com sistemas de pagamento como EMIS e Appy Pay
