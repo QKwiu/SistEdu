@@ -37,7 +37,7 @@ interface Propina {
   ref_estado?: string; ref_validade?: string; entidade?: string;
   internal_reference?: string;
 }
-interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; }
+interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
 type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao";
 
@@ -600,11 +600,28 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
           <p className="font-bold text-emerald-900 text-lg mb-1">Referência Gerada</p>
           <p className="text-emerald-700 text-sm">Referência Multicaixa válida até {fmtDate(result.validade)}</p>
         </div>
+        {/* Breakdown: base + multa + total */}
+        {(result.total_multa !== undefined && result.total_multa > 0) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm space-y-1">
+            <div className="flex justify-between text-slate-600">
+              <span>Propinas (base)</span>
+              <span className="font-semibold">{fmt(result.total_base ?? 0)} Kz</span>
+            </div>
+            <div className="flex justify-between text-red-600">
+              <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5"/>Multa por atraso aplicada</span>
+              <span className="font-semibold">+ {fmt(result.total_multa)} Kz</span>
+            </div>
+            <div className="flex justify-between text-slate-900 font-bold border-t border-amber-200 pt-1 mt-1">
+              <span>Total da Referência</span>
+              <span>{fmt(result.valor)} Kz</span>
+            </div>
+          </div>
+        )}
         <div className="space-y-3">
           {[
             { label: "Entidade", value: result.entidade },
             { label: "Referência", value: result.referencia },
-            { label: "Valor Total", value: fmt(result.valor) },
+            { label: "Valor Total", value: fmt(result.valor) + " Kz" },
             { label: "Válida até", value: fmtDate(result.validade) },
           ].map(row => (
             <div key={row.label} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
@@ -701,6 +718,14 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
             <p className="text-slate-400 text-xs">{selectedIds.size} propina(s) seleccionada(s)</p>
           </div>
           <button onClick={clearAll} className="text-slate-400 hover:text-white p-1"><X className="w-4 h-4"/></button>
+        </div>
+      )}
+
+      {/* Automatic fine notice */}
+      {[...selectedIds].some(id => pending.find(p => p.id === id)?.status === "vencido") && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-start gap-2 text-amber-800 text-xs">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600"/>
+          <span>As propinas vencidas incluídas terão a multa por atraso calculada automaticamente com base nas regras configuradas e incorporada no total da referência.</span>
         </div>
       )}
 
@@ -1547,7 +1572,7 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
 
 const AJUSTE_TIPO_LABELS: Record<string, string> = {
   perdao: "❌ Perdão de multa",
-  ajuste_valor: "✏️ Ajuste de valor",
+  ajuste_valor: "✏️ Correcção de valor",
   reagendamento: "📅 Reagendamento",
   justificacao: "📊 Justificação",
 };
@@ -1814,11 +1839,6 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
                           className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
                           <FileCheck className="w-3 h-3"/> Baixa Manual
                         </button>
-                        {/* Aplicar Multa quick button */}
-                        <button onClick={() => openAjuste(p, "ajuste_valor")}
-                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors whitespace-nowrap">
-                          <AlertTriangle className="w-3 h-3"/> Multa
-                        </button>
                         {/* More actions menu */}
                         <div className="relative">
                           <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
@@ -1828,8 +1848,8 @@ function PropinasView({ token, propinas: initialPropinas, alunos, onOpenGerarPro
                           <AnimatePresence>
                             {openMenu === p.id && (
                               <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                                className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-52">
-                                {(["perdao","reagendamento","justificacao"] as const).map(t => (
+                                className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-56">
+                                {(["perdao","ajuste_valor","reagendamento","justificacao"] as const).map(t => (
                                   <button key={t} onClick={() => openAjuste(p, t)}
                                     className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
                                     {AJUSTE_TIPO_LABELS[t]}

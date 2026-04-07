@@ -32,6 +32,85 @@ const alunoUpload = upload.fields([
 
 const router = Router();
 
+/* ─────────────────────────────────────────────
+   Fine computation helper
+   ─────────────────────────────────────────────
+   Calculates and persists the automatic fine
+   for overdue propinas based on the school's
+   configured multa_regra.
+
+   Rules:
+   - Uses multa_regras.aplica_automatico flag
+   - For propinas from PREVIOUS months: always
+     applies the fine (they are fully overdue)
+   - For propinas from the CURRENT month: only
+     applies if today's day > dia_limite
+   - Marks all overdue pendente propinas as
+     status='vencido'
+   ───────────────────────────────────────────── */
+async function applyFinesForSchool(schoolId: number): Promise<void> {
+  const now = new Date();
+  const today = now.getDate();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth(); // 0-indexed
+
+  const overdueRes = await pool.query(
+    `SELECT p.id, p.montante, p.multa, p.data_vencimento
+     FROM propinas p
+     WHERE p.school_id = $1 AND p.status = 'pendente' AND p.data_vencimento < NOW()`,
+    [schoolId]
+  );
+
+  if (!overdueRes.rows.length) return;
+
+  const regraRes = await pool.query(
+    "SELECT * FROM multa_regras WHERE school_id = $1", [schoolId]
+  );
+  const regra = regraRes.rows[0] ?? null;
+
+  for (const p of overdueRes.rows) {
+    const venc = new Date(p.data_vencimento);
+    const isPreviousMonth =
+      venc.getFullYear() < thisYear ||
+      (venc.getFullYear() === thisYear && venc.getMonth() < thisMonth);
+
+    let multa = Number(p.multa);
+
+    if (regra && regra.aplica_automatico) {
+      const modelo = Number(regra.modelo ?? 1);
+      if (modelo === 1) {
+        if (isPreviousMonth || today > Number(regra.dia_limite)) {
+          multa = Number(p.montante) * (Number(regra.percentagem) / 100);
+        }
+      } else if (modelo === 2) {
+        const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
+        if (isPreviousMonth && brackets.length > 0) {
+          multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
+        } else {
+          for (const b of brackets) {
+            if (today >= Number(b.dia_inicio) && today <= Number(b.dia_fim)) {
+              multa = Number(p.montante) * (Number(b.percentagem) / 100);
+              break;
+            }
+          }
+          if (multa === Number(p.multa) && brackets.length > 0 && today > Number(brackets[brackets.length - 1].dia_fim)) {
+            multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
+          }
+        }
+      } else if (modelo === 3) {
+        if (isPreviousMonth || today > Number(regra.dia_limite)) {
+          multa = Number(regra.valor_fixo);
+        }
+      }
+    }
+
+    await pool.query(
+      "UPDATE propinas SET status = 'vencido', multa = $1 WHERE id = $2",
+      [multa, p.id]
+    );
+  }
+}
+
 /* ─── Auth helpers ─── */
 async function getSchoolFromToken(token: string) {
   const res = await pool.query(
@@ -399,6 +478,9 @@ router.get("/school/propinas", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
+  /* Auto-apply fines for overdue propinas before returning */
+  await applyFinesForSchool(school.school_id);
+
   const { student_id } = req.query;
   const extra = student_id ? "AND p.student_id = $2" : "";
   const params: any[] = [school.school_id];
@@ -597,14 +679,27 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
   const alreadyPaid = pRes.rows.filter(p => p.status === "pago");
   if (alreadyPaid.length) return res.status(400).json({ error: "Uma ou mais propinas já estão pagas." });
 
-  const total = pRes.rows.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
-  const latestMes = pRes.rows[pRes.rows.length - 1];
+  /* Apply fines before computing reference total */
+  await applyFinesForSchool(school.school_id);
+
+  /* Re-fetch propinas with fresh multa values */
+  const freshRes = await pool.query(
+    `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
+     FROM propinas p
+     JOIN students s ON s.id = p.student_id
+     WHERE p.id = ANY($1) AND s.school_id = $2`,
+    [propina_ids, school.school_id]
+  );
+  const freshPropinas = freshRes.rows;
+
+  const total = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
+  const latestMes = freshPropinas[freshPropinas.length - 1];
   const validade = lastDayOfMonth(latestMes.mes, latestMes.ano);
   const referencia = generateRef();
   const entidade = "00112";
 
   // Insert reference for each propina (upsert)
-  for (const p of pRes.rows) {
+  for (const p of freshPropinas) {
     await pool.query(
       `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
        VALUES ($1, $2, $3, $4, 'PENDENTE', $5)
@@ -614,12 +709,17 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
     );
   }
 
+  const totalMulta = freshPropinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
+  const totalBase  = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante), 0);
+
   res.json({
     entidade,
     referencia,
     valor: total,
+    total_base: totalBase,
+    total_multa: totalMulta,
     validade: validade.toISOString(),
-    propinas: pRes.rows,
+    propinas: freshPropinas,
   });
 });
 

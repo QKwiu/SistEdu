@@ -164,7 +164,7 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
 
   // Auto-update vencido status and apply multa based on school rule
   const overdueRes = await pool.query(
-    `SELECT p.id, p.montante, p.multa, p.school_id
+    `SELECT p.id, p.montante, p.multa, p.school_id, p.data_vencimento
      FROM propinas p
      WHERE p.student_id=$1 AND p.status='pendente' AND p.data_vencimento < NOW()`,
     [id]
@@ -177,34 +177,44 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
       "SELECT * FROM multa_regras WHERE school_id=$1", [schoolId]
     );
     const regra = regraRes.rows[0] ?? null;
-    const today = new Date();
-    const diaAtual = today.getDate();
+    const now = new Date();
+    const today = now.getDate();
+    const thisYear = now.getFullYear();
+    const thisMonth = now.getMonth();
 
     for (const p of overdueRes.rows) {
+      const venc = new Date(p.data_vencimento);
+      const isPreviousMonth =
+        venc.getFullYear() < thisYear ||
+        (venc.getFullYear() === thisYear && venc.getMonth() < thisMonth);
+
       let multa = Number(p.multa);
-      if (multa === 0 && regra && regra.aplica_automatico) {
+      if (regra && regra.aplica_automatico) {
         const modelo = Number(regra.modelo ?? 1);
         if (modelo === 1) {
-          if (diaAtual > Number(regra.dia_limite)) {
+          if (isPreviousMonth || today > Number(regra.dia_limite)) {
             multa = Number(p.montante) * (Number(regra.percentagem) / 100);
           }
         } else if (modelo === 2) {
           const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
-          for (const b of brackets) {
-            if (diaAtual >= Number(b.dia_inicio) && diaAtual <= Number(b.dia_fim)) {
-              multa = Number(p.montante) * (Number(b.percentagem) / 100);
-              break;
+          if (isPreviousMonth && brackets.length > 0) {
+            multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
+          } else {
+            for (const b of brackets) {
+              if (today >= Number(b.dia_inicio) && today <= Number(b.dia_fim)) {
+                multa = Number(p.montante) * (Number(b.percentagem) / 100);
+                break;
+              }
+            }
+            if (multa === Number(p.multa) && brackets.length > 0 && today > Number(brackets[brackets.length - 1].dia_fim)) {
+              multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
             }
           }
-          if (multa === 0 && brackets.length > 0 && diaAtual > Number(brackets[brackets.length - 1].dia_fim)) {
-            multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
-          }
         } else if (modelo === 3) {
-          if (diaAtual > Number(regra.dia_limite)) {
+          if (isPreviousMonth || today > Number(regra.dia_limite)) {
             multa = Number(regra.valor_fixo);
           }
         }
-        if (multa === 0) multa = 0;
       }
       await pool.query(
         "UPDATE propinas SET status='vencido', multa=$1 WHERE id=$2",
@@ -212,7 +222,7 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
       );
     }
   } else {
-    // Still mark as vencido even if no rule
+    // Mark remaining overdue pendente as vencido even without fine rule
     await pool.query(
       "UPDATE propinas SET status='vencido' WHERE student_id=$1 AND status='pendente' AND data_vencimento < NOW()",
       [id]
