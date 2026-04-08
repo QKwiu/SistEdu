@@ -174,6 +174,56 @@ router.get("/school/sms/alunos", schoolAuth, async (req: any, res) => {
   res.json(r.rows);
 });
 
+/* GET /school/sms/encarregados — list registered guardians in this school */
+router.get("/school/sms/encarregados", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  /* Encarregados registados (com conta no portal) ligados a alunos deste colégio */
+  const registados = await pool.query(
+    `SELECT DISTINCT ON (e.id)
+            e.id, e.nome, e.telefone, e.email,
+            array_agg(DISTINCT s.nome) FILTER (WHERE s.nome IS NOT NULL) AS alunos
+     FROM encarregados e
+     JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+     JOIN students s ON s.id = ea.aluno_id
+     WHERE s.school_id = $1 AND s.estado = 'activo'
+     GROUP BY e.id, e.nome, e.telefone, e.email
+     ORDER BY e.id, e.nome`,
+    [school.school_id]
+  );
+
+  /* Encarregados não-registados (apenas telefone no estudante) */
+  const naoRegistados = await pool.query(
+    `SELECT DISTINCT ON (s.telefone_encarregado)
+            NULL::integer AS id,
+            s.nome_encarregado AS nome,
+            s.telefone_encarregado AS telefone,
+            NULL AS email,
+            array_agg(DISTINCT s.nome) AS alunos
+     FROM students s
+     WHERE s.school_id = $1
+       AND s.estado = 'activo'
+       AND s.telefone_encarregado IS NOT NULL
+       AND s.telefone_encarregado != ''
+       AND s.telefone_encarregado NOT IN (
+           SELECT e.telefone FROM encarregados e
+           JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+           JOIN students st ON st.id = ea.aluno_id
+           WHERE st.school_id = $1
+       )
+     GROUP BY s.telefone_encarregado, s.nome_encarregado
+     ORDER BY s.telefone_encarregado, s.nome_encarregado`,
+    [school.school_id]
+  );
+
+  res.json({
+    registados: registados.rows,
+    nao_registados: naoRegistados.rows,
+    total: registados.rows.length + naoRegistados.rows.length,
+  });
+});
+
 /* ════════════════════════════════════
    ADMIN ENDPOINTS
 ════════════════════════════════════ */

@@ -2784,7 +2784,7 @@ const DEFAULT_TEMPLATES: Record<SmsEventKey, string> = {
   multa_aplicada: "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes} do aluno {nome_aluno}.",
 };
 
-function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
+function ComunicacaoView({ token }: { token: string }) {
   const [settings, setSettings] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -2802,12 +2802,15 @@ function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
   const [templates, setTemplates] = useState<Record<string, string>>({ ...DEFAULT_TEMPLATES });
   const [editingTemplate, setEditingTemplate] = useState<SmsEventKey | null>(null);
 
-  // Manual send
+  // Encarregados for manual send
+  const [encarregados, setEncarregados] = useState<{ registados: any[]; nao_registados: any[] }>({ registados: [], nao_registados: [] });
+  const [encLoading, setEncLoading] = useState(false);
+  const [encSearch, setEncSearch] = useState("");
+  const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
   const [sendMsg, setSendMsg] = useState("");
-  const [selectedAlunos, setSelectedAlunos] = useState<number[]>([]);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null);
-  const [selectAll, setSelectAll] = useState(false);
 
   // Logs
   const [logs, setLogs] = useState<any[]>([]);
@@ -2816,8 +2819,10 @@ function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
   const [logsLoading, setLogsLoading] = useState(false);
   const [stats, setStats] = useState<any>(null);
 
+  const authH = { Authorization: `Bearer ${token}` };
+
   useEffect(() => {
-    fetch(`${API}/school/settings`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API}/school/settings`, { headers: authH })
       .then(r => r.json())
       .then(data => {
         setSettings(data);
@@ -2835,18 +2840,27 @@ function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
 
   useEffect(() => {
     if (activeTab === "logs") fetchLogs(1);
+    if (activeTab === "enviar") fetchEncarregados();
   }, [activeTab]);
 
   const fetchStats = () => {
-    fetch(`${API}/school/sms/stats`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API}/school/sms/stats`, { headers: authH })
       .then(r => r.ok ? r.json() : null)
       .then(d => d && setStats(d));
+  };
+
+  const fetchEncarregados = () => {
+    setEncLoading(true);
+    fetch(`${API}/school/sms/encarregados`, { headers: authH })
+      .then(r => r.ok ? r.json() : { registados: [], nao_registados: [] })
+      .then(d => setEncarregados(d))
+      .finally(() => setEncLoading(false));
   };
 
   const fetchLogs = (page: number) => {
     setLogsLoading(true);
     setLogsPage(page);
-    fetch(`${API}/school/sms/logs?page=${page}&limit=20`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API}/school/sms/logs?page=${page}&limit=20`, { headers: authH })
       .then(r => r.json())
       .then(d => { setLogs(d.logs ?? []); setLogsTotal(d.total ?? 0); })
       .finally(() => setLogsLoading(false));
@@ -2870,7 +2884,7 @@ function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
     };
     await fetch(`${API}/school/settings`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...authH },
       body: JSON.stringify(patch),
     });
     setSettings(patch);
@@ -2879,30 +2893,51 @@ function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
     setTimeout(() => setSaved(false), 2500);
   };
 
+  // All encarregados (registados + não-registados) merged for UI
+  const allEncs = [
+    ...encarregados.registados.map(e => ({ ...e, tipo: "registado" as const })),
+    ...encarregados.nao_registados.map(e => ({ ...e, tipo: "nao_registado" as const })),
+  ].filter(e => e.telefone);
+
+  const filteredEncs = encSearch.trim()
+    ? allEncs.filter(e =>
+        e.nome?.toLowerCase().includes(encSearch.toLowerCase()) ||
+        e.telefone?.includes(encSearch) ||
+        e.alunos?.some((a: string) => a.toLowerCase().includes(encSearch.toLowerCase()))
+      )
+    : allEncs;
+
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked);
-    if (checked) setSelectedAlunos(alunos.map(a => a.id));
-    else setSelectedAlunos([]);
+    if (checked) setSelectedPhones(filteredEncs.map(e => e.telefone));
+    else setSelectedPhones([]);
+  };
+
+  const togglePhone = (phone: string) => {
+    setSelectedPhones(prev =>
+      prev.includes(phone) ? prev.filter(p => p !== phone) : [...prev, phone]
+    );
+    setSelectAll(false);
   };
 
   const handleSend = async () => {
-    if (!sendMsg.trim() || !selectedAlunos.length) return;
+    if (!sendMsg.trim() || !selectedPhones.length) return;
     setSending(true);
     setSendResult(null);
-    const recipients = alunos
-      .filter(a => selectedAlunos.includes(a.id) && a.telefone_encarregado)
-      .map(a => ({ phone: a.telefone_encarregado, name: a.nome_encarregado ?? a.nome }));
+    const recipients = allEncs
+      .filter(e => selectedPhones.includes(e.telefone))
+      .map(e => ({ phone: e.telefone, name: e.nome ?? "" }));
 
     const r = await fetch(`${API}/school/sms/send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...authH },
       body: JSON.stringify({ mensagem: sendMsg, recipients }),
     });
     const d = await r.json();
     setSendResult(d);
     setSending(false);
     setSendMsg("");
-    setSelectedAlunos([]);
+    setSelectedPhones([]);
     setSelectAll(false);
     fetchStats();
   };
@@ -3060,54 +3095,101 @@ function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
       {/* Send SMS Tab */}
       {activeTab === "enviar" && (
         <div className="space-y-5">
+          {/* Message Composer */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900">Mensagem</h3>
             <textarea value={sendMsg} onChange={e => setSendMsg(e.target.value)} rows={4}
-              placeholder="Escreva a mensagem que será enviada a todos os encarregados seleccionados..."
+              placeholder="Escreva a mensagem que será enviada aos encarregados seleccionados..."
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
             <div className="flex items-center justify-between text-xs text-slate-500">
               <span>{sendMsg.length} caracteres</span>
-              <span>{Math.ceil(sendMsg.length / 160)} SMS</span>
+              <span>{Math.ceil(Math.max(1, sendMsg.length) / 160)} SMS</span>
             </div>
           </div>
 
+          {/* Recipients — Encarregados */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Destinatários</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-slate-900">Destinatários — Encarregados</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {encarregados.registados.length} registados no portal · {encarregados.nao_registados.length} sem conta portal
+                </p>
+              </div>
               <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} className="rounded"/>
-                Seleccionar todos ({alunos.filter(a => a.telefone_encarregado).length} com telefone)
+                <input type="checkbox" checked={selectAll}
+                  onChange={e => handleSelectAll(e.target.checked)} className="rounded"/>
+                Seleccionar todos ({filteredEncs.length})
               </label>
             </div>
-            <div className="max-h-64 overflow-y-auto space-y-1">
-              {alunos.map(a => (
-                <label key={a.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selectedAlunos.includes(a.id) ? "bg-primary/5 border border-primary/20" : "hover:bg-slate-50"}`}>
-                  <input type="checkbox" checked={selectedAlunos.includes(a.id)}
-                    onChange={e => setSelectedAlunos(prev => e.target.checked ? [...prev, a.id] : prev.filter(id => id !== a.id))}
-                    className="rounded text-primary"/>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{a.nome}</p>
-                    <p className="text-xs text-slate-500 truncate">{a.nome_encarregado ?? "—"} · {a.telefone_encarregado ?? <span className="text-red-400">Sem telefone</span>}</p>
-                  </div>
-                </label>
-              ))}
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+              <input value={encSearch} onChange={e => setEncSearch(e.target.value)}
+                placeholder="Pesquisar por nome, telefone ou aluno..."
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
             </div>
+
+            {encLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="w-5 h-5 animate-spin text-primary"/>
+              </div>
+            ) : filteredEncs.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <Users className="w-8 h-8 mx-auto mb-2 opacity-30"/>
+                <p className="text-sm">Nenhum encarregado encontrado.</p>
+                <p className="text-xs mt-1">Certifique-se que os alunos têm encarregados associados.</p>
+              </div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto space-y-1 rounded-lg border border-slate-100">
+                {filteredEncs.map((enc, i) => {
+                  const isSelected = selectedPhones.includes(enc.telefone);
+                  return (
+                    <label key={`${enc.telefone}-${i}`}
+                      className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${isSelected ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                      <input type="checkbox" checked={isSelected}
+                        onChange={() => togglePhone(enc.telefone)}
+                        className="rounded text-primary"/>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-slate-800 truncate">{enc.nome ?? "Sem nome"}</p>
+                          {enc.tipo === "registado" && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap">Portal</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-slate-500">{enc.telefone}</span>
+                          {enc.alunos?.length > 0 && (
+                            <span className="text-xs text-slate-400 truncate">· {(enc.alunos as string[]).join(", ")}</span>
+                          )}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedPhones.length > 0 && (
+              <p className="text-xs text-primary font-medium">{selectedPhones.length} encarregado(s) seleccionado(s)</p>
+            )}
           </div>
 
           {sendResult && (
             <div className={`rounded-xl p-4 flex items-center gap-3 ${sendResult.failed > 0 ? "bg-yellow-50 border border-yellow-200" : "bg-emerald-50 border border-emerald-200"}`}>
               <CheckCircle2 className={`w-5 h-5 ${sendResult.failed > 0 ? "text-yellow-600" : "text-emerald-600"}`}/>
               <p className="text-sm font-medium">
-                {sendResult.sent} enviado(s) · {sendResult.failed} falha(s)
+                {sendResult.sent} enviado(s) com sucesso · {sendResult.failed} falha(s)
               </p>
             </div>
           )}
 
           <div className="flex justify-end">
-            <button onClick={handleSend} disabled={sending || !sendMsg.trim() || !selectedAlunos.length}
+            <button onClick={handleSend} disabled={sending || !sendMsg.trim() || !selectedPhones.length}
               className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
               {sending ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
-              {sending ? "A enviar..." : `Enviar para ${selectedAlunos.length} aluno(s)`}
+              {sending ? "A enviar..." : `Enviar para ${selectedPhones.length} encarregado(s)`}
             </button>
           </div>
         </div>
@@ -3329,7 +3411,7 @@ export default function Dashboard() {
             )}
             {view === "comunicacao" && (
               <motion.div key="comunicacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
-                <ComunicacaoView token={token} alunos={alunos}/>
+                <ComunicacaoView token={token}/>
               </motion.div>
             )}
           </AnimatePresence>
