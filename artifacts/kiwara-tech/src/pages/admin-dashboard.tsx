@@ -96,7 +96,7 @@ function Field({ label, children, required }: { label: string; children: React.R
   );
 }
 
-function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+function Modal({ title, onClose, children, wide, xl }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; xl?: boolean }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <motion.div
@@ -104,13 +104,13 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 8 }}
         transition={{ duration: 0.18 }}
-        className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? "max-w-2xl" : "max-w-lg"} max-h-[90vh] overflow-y-auto`}
+        className={`bg-white rounded-2xl shadow-2xl w-full ${xl ? "max-w-4xl" : wide ? "max-w-2xl" : "max-w-lg"} max-h-[90vh] flex flex-col`}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 rounded-t-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0 bg-white rounded-t-2xl">
           <h3 className="font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
         </div>
-        {children}
+        <div className="overflow-y-auto flex-1">{children}</div>
       </motion.div>
     </div>
   );
@@ -158,20 +158,80 @@ function StatsView({ stats }: { stats: Stats | null }) {
 }
 
 /* ─── Create School Modal ─── */
+const INIT_SETTINGS = {
+  financeiro: {
+    propinas: { frequencia: "mensal", vencimento_dia: 15, permite_pagamento_parcial: false, valor_padrao: 0 },
+    multas: { tipo: "percentagem", valor: 5, tolerancia_dias: 5, progressiva: false, limite_percentagem: 20, aplica_automatico: true },
+    emolumentos: { obrigatorios: false, tipos: ["Seguro Escolar", "Exame", "Material Didático"] },
+    split_payment: { activo: false, comissao_percentagem: 0, conta_destino_escola: "", conta_destino_plataforma: "" },
+  },
+  pagamento: {
+    middleware_url: "", middleware_api_key: "", referencia_prefixo: "",
+    reconciliacao_tolerancia_percentagem: 1, reconciliacao_automatica: true,
+    metodos_aceites: ["MCX_EXPRESS", "MULTICAIXA", "NUMERARIO", "TRANSFERENCIA"],
+  },
+  academico: {
+    limite_alunos_por_turma: 40, permite_matricula_online: false,
+    nomenclatura_turma: "Turma", anos_lectivos: ["2025/2026", "2026/2027"],
+  },
+  encarregados: {
+    maximo_por_aluno: 2, comunicacao_activa: true,
+    campos_obrigatorios: ["nome", "telefone", "bi"], permite_portal_encarregado: true,
+  },
+  comunicacao: {
+    sms_activo: false, email_activo: false, whatsapp_activo: false,
+    sms_provider: "", email_sender: "",
+    eventos: { nova_fatura: true, atraso_pagamento: true, pagamento_confirmado: true, nova_ocorrencia: true },
+  },
+  dashboard: { mostrar_graficos: true, exportacao_activa: true, metricas_publicas: false, periodo_relatorio_dias: 30 },
+  permissoes: {
+    admin:      { pode_editar_propinas: true,  pode_eliminar_alunos: true,  ver_relatorios_financeiros: true  },
+    financeiro: { pode_editar_propinas: true,  pode_eliminar_alunos: false, ver_relatorios_financeiros: true  },
+    operador:   { pode_editar_propinas: false, pode_eliminar_alunos: false, ver_relatorios_financeiros: false },
+  },
+  tecnico: { timezone: "Africa/Luanda", moeda: "AOA", auditoria_activa: true, modo_manutencao: false },
+};
+
 function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCreated: (c: Colegio) => void }) {
-  const [form, setForm] = useState({
-    name: "", nif: "", phone: "", email: "", password: "", iban: "",
-  });
+  type CTab = "basico"|"financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico";
+  const CTABS: { id: CTab; label: string }[] = [
+    { id: "basico",       label: "Básico"        },
+    { id: "financeiro",   label: "Financeiro"    },
+    { id: "pagamento",    label: "Pagamento"     },
+    { id: "academico",    label: "Académico"     },
+    { id: "encarregados", label: "Encarregados"  },
+    { id: "comunicacao",  label: "Comunicação"   },
+    { id: "dashboard",    label: "Dashboard"     },
+    { id: "permissoes",   label: "Permissões"    },
+    { id: "tecnico",      label: "Técnico"       },
+  ];
+
+  const [activeTab, setActiveTab] = useState<CTab>("basico");
+  const [form, setForm] = useState({ name: "", nif: "", phone: "", email: "", password: "", iban: "", commission_rate: "0" });
   const [usaPacotes, setUsaPacotes] = useState(false);
+  const [showPass, setShowPass] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [showPass, setShowPass] = useState(false);
+  const [settings, setSettings] = useState<any>(JSON.parse(JSON.stringify(INIT_SETTINGS)));
+
+  const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(p => ({ ...p, [k]: e.target.value }));
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+  const num = `${inp} w-28`;
+
+  const setS = (path: string[], val: any) => setSettings((prev: any) => {
+    const next = JSON.parse(JSON.stringify(prev));
+    let cur = next;
+    for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+    cur[path[path.length - 1]] = val;
+    return next;
+  });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setSaving(true);
     try {
       const res = await api("/admin/colegios", {
-        method: "POST", body: JSON.stringify({ ...form, usa_pacotes: usaPacotes }),
+        method: "POST",
+        body: JSON.stringify({ ...form, commission_rate: Number(form.commission_rate || 0), usa_pacotes: usaPacotes, settings }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao criar colégio.");
@@ -180,63 +240,394 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
     finally { setSaving(false); }
   };
 
-  const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm(p => ({ ...p, [k]: e.target.value }));
+  const F = settings.financeiro;
+  const PAG = settings.pagamento;
+  const A = settings.academico;
+  const E = settings.encarregados;
+  const C = settings.comunicacao;
+  const D = settings.dashboard;
+  const PE = settings.permissoes;
+  const T = settings.tecnico;
+
+  const CToggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
+    <button type="button" onClick={() => onChange(!value)}
+      className={`relative shrink-0 rounded-full transition-colors ${value ? "bg-primary" : "bg-slate-300"}`}
+      style={{ height: 22, width: 40 }}>
+      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+    </button>
+  );
+
+  const Row = ({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) => (
+    <div className="flex items-center justify-between gap-4 py-3 border-b border-slate-50 last:border-0">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-800">{label}</p>
+        {desc && <p className="text-xs text-slate-400 mt-0.5">{desc}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+
+  const Sect = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="mb-5">
+      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">{title}</p>
+      <div className="bg-slate-50 rounded-xl px-4 divide-y divide-slate-100">{children}</div>
+    </div>
+  );
 
   return (
-    <Modal title="Criar Colégio" onClose={onClose}>
-      <form onSubmit={submit} className="p-6 space-y-4">
-        <Field label="Nome do colégio" required>
-          <input className={inputCls} placeholder="ex: Colégio Nossa Senhora de Fátima" value={form.name} onChange={f("name")} required />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="NIF">
-            <input className={inputCls} placeholder="NIF da escola" value={form.nif} onChange={f("nif")} />
-          </Field>
-          <Field label="Telefone">
-            <input className={inputCls} placeholder="9xx xxx xxx" value={form.phone} onChange={f("phone")} />
-          </Field>
-        </div>
-        <Field label="Email" required>
-          <input type="email" className={inputCls} placeholder="secretaria@colegio.ao" value={form.email} onChange={f("email")} required />
-        </Field>
-        <Field label="Palavra-passe inicial">
-          <div className="relative">
-            <input type={showPass ? "text" : "password"} className={`${inputCls} pr-10`}
-              placeholder="Kiwara@2025 (padrão)" value={form.password} onChange={f("password")} />
-            <button type="button" onClick={() => setShowPass(s => !s)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-              {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </Field>
-        <Field label="IBAN (opcional)">
-          <input className={inputCls} placeholder="AO06004400006729503010102" value={form.iban} onChange={f("iban")} />
-        </Field>
-        {/* Pacotes toggle */}
-        <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-          <button type="button" onClick={() => setUsaPacotes(v => !v)}
-            className={`relative shrink-0 w-10 h-5.5 rounded-full transition-colors mt-0.5 ${usaPacotes ? "bg-primary" : "bg-slate-300"}`}
-            style={{ height: 22, width: 40 }}>
-            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${usaPacotes ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-          </button>
-          <div>
-            <p className="text-sm font-semibold text-slate-800">Pacotes de emolumentos</p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Permite agrupar emolumentos (ex: Mensalidade + Transporte + ATL) num pacote com valor fixo por aluno. Configurável após criar o colégio.
-            </p>
+    <Modal title="Criar Colégio" onClose={onClose} xl>
+      <form onSubmit={submit} className="flex flex-col h-full">
+        {/* Tab bar */}
+        <div className="overflow-x-auto border-b border-slate-100 px-4 pt-3 shrink-0">
+          <div className="flex gap-1 w-max pb-2">
+            {CTABS.map(t => (
+              <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  activeTab === t.id ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:bg-slate-100"
+                }`}>
+                {t.label}
+              </button>
+            ))}
           </div>
         </div>
-        {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
-        <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose}
-            className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-            Cancelar
-          </button>
-          <button type="submit" disabled={saving}
-            className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-            {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A criar...</> : "Criar Colégio"}
-          </button>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5">
+
+          {/* ── BÁSICO ── */}
+          {activeTab === "basico" && (
+            <div className="space-y-4">
+              <Field label="Nome do colégio" required>
+                <input className={inp} placeholder="ex: Colégio Nossa Senhora de Fátima" value={form.name} onChange={f("name")} required />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="NIF">
+                  <input className={inp} placeholder="NIF da escola" value={form.nif} onChange={f("nif")} />
+                </Field>
+                <Field label="Telefone">
+                  <input className={inp} placeholder="9xx xxx xxx" value={form.phone} onChange={f("phone")} />
+                </Field>
+              </div>
+              <Field label="Email" required>
+                <input type="email" className={inp} placeholder="secretaria@colegio.ao" value={form.email} onChange={f("email")} required />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Palavra-passe inicial">
+                  <div className="relative">
+                    <input type={showPass ? "text" : "password"} className={`${inp} pr-10`}
+                      placeholder="Kiwara@2025 (padrão)" value={form.password} onChange={f("password")} />
+                    <button type="button" onClick={() => setShowPass(s => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </Field>
+                <Field label="Comissão da plataforma (%)">
+                  <input type="number" min={0} max={100} step={0.1} className={inp} value={form.commission_rate} onChange={f("commission_rate")} />
+                </Field>
+              </div>
+              <Field label="IBAN (opcional)">
+                <input className={inp} placeholder="AO06004400006729503010102" value={form.iban} onChange={f("iban")} />
+              </Field>
+              <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                <CToggle value={usaPacotes} onChange={setUsaPacotes} />
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Pacotes de emolumentos</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Agrupa serviços (mensalidade, transporte, ATL…) num pacote com valor fixo por aluno.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── FINANCEIRO ── */}
+          {activeTab === "financeiro" && (
+            <div>
+              <Sect title="Propinas">
+                <Row label="Frequência de cobrança">
+                  <select className={inp} style={{width:160}} value={F.propinas.frequencia} onChange={e => setS(["financeiro","propinas","frequencia"], e.target.value)}>
+                    <option value="mensal">Mensal</option>
+                    <option value="trimestral">Trimestral</option>
+                    <option value="semestral">Semestral</option>
+                    <option value="anual">Anual</option>
+                  </select>
+                </Row>
+                <Row label="Dia de vencimento" desc="Dia do mês em que a propina vence.">
+                  <input type="number" min={1} max={31} className={num} value={F.propinas.vencimento_dia} onChange={e => setS(["financeiro","propinas","vencimento_dia"], Number(e.target.value))} />
+                </Row>
+                <Row label="Valor padrão (AOA)" desc="Valor base quando não há pacote definido.">
+                  <input type="number" min={0} className={num} value={F.propinas.valor_padrao} onChange={e => setS(["financeiro","propinas","valor_padrao"], Number(e.target.value))} />
+                </Row>
+                <Row label="Permitir pagamento parcial">
+                  <CToggle value={F.propinas.permite_pagamento_parcial} onChange={v => setS(["financeiro","propinas","permite_pagamento_parcial"], v)} />
+                </Row>
+              </Sect>
+              <Sect title="Multas & Mora">
+                <Row label="Tipo de multa">
+                  <select className={inp} style={{width:180}} value={F.multas.tipo} onChange={e => setS(["financeiro","multas","tipo"], e.target.value)}>
+                    <option value="percentagem">Percentagem (%)</option>
+                    <option value="fixo">Valor fixo (AOA)</option>
+                  </select>
+                </Row>
+                <Row label={F.multas.tipo === "fixo" ? "Valor da multa (AOA)" : "Percentagem da multa (%)"}>
+                  <input type="number" min={0} className={num} value={F.multas.valor} onChange={e => setS(["financeiro","multas","valor"], Number(e.target.value))} />
+                </Row>
+                <Row label="Tolerância (dias)" desc="Dias após vencimento antes de aplicar multa.">
+                  <input type="number" min={0} max={30} className={num} value={F.multas.tolerancia_dias} onChange={e => setS(["financeiro","multas","tolerancia_dias"], Number(e.target.value))} />
+                </Row>
+                <Row label="Multa progressiva" desc="Multa aumenta com o tempo em atraso.">
+                  <CToggle value={F.multas.progressiva} onChange={v => setS(["financeiro","multas","progressiva"], v)} />
+                </Row>
+                <Row label="Limite de multa (%)" desc="Percentagem máxima da multa.">
+                  <input type="number" min={0} max={100} className={num} value={F.multas.limite_percentagem} onChange={e => setS(["financeiro","multas","limite_percentagem"], Number(e.target.value))} />
+                </Row>
+                <Row label="Aplicação automática">
+                  <CToggle value={F.multas.aplica_automatico} onChange={v => setS(["financeiro","multas","aplica_automatico"], v)} />
+                </Row>
+              </Sect>
+              <Sect title="Emolumentos">
+                <Row label="Emolumentos obrigatórios">
+                  <CToggle value={F.emolumentos.obrigatorios} onChange={v => setS(["financeiro","emolumentos","obrigatorios"], v)} />
+                </Row>
+                <Row label="Tipos disponíveis" desc="Separados por vírgula.">
+                  <input className={inp} style={{width:260}} value={F.emolumentos.tipos.join(", ")} onChange={e => setS(["financeiro","emolumentos","tipos"], e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))} />
+                </Row>
+              </Sect>
+              <Sect title="Split Payment">
+                <Row label="Split activo" desc="Dividir pagamento entre escola e plataforma.">
+                  <CToggle value={F.split_payment.activo} onChange={v => setS(["financeiro","split_payment","activo"], v)} />
+                </Row>
+                {F.split_payment.activo && <>
+                  <Row label="Comissão (%)">
+                    <input type="number" min={0} max={100} step={0.1} className={num} value={F.split_payment.comissao_percentagem} onChange={e => setS(["financeiro","split_payment","comissao_percentagem"], Number(e.target.value))} />
+                  </Row>
+                  <Row label="IBAN destino escola">
+                    <input className={inp} style={{width:260}} value={F.split_payment.conta_destino_escola} onChange={e => setS(["financeiro","split_payment","conta_destino_escola"], e.target.value)} />
+                  </Row>
+                  <Row label="IBAN destino plataforma">
+                    <input className={inp} style={{width:260}} value={F.split_payment.conta_destino_plataforma} onChange={e => setS(["financeiro","split_payment","conta_destino_plataforma"], e.target.value)} />
+                  </Row>
+                </>}
+              </Sect>
+            </div>
+          )}
+
+          {/* ── PAGAMENTO ── */}
+          {activeTab === "pagamento" && (
+            <div>
+              <Sect title="Middleware EMIS / Multicaixa">
+                <Row label="URL do middleware">
+                  <input className={inp} style={{width:260}} placeholder="https://..." value={PAG.middleware_url} onChange={e => setS(["pagamento","middleware_url"], e.target.value)} />
+                </Row>
+                <Row label="API Key">
+                  <input className={inp} style={{width:260}} placeholder="sk-..." type="password" value={PAG.middleware_api_key} onChange={e => setS(["pagamento","middleware_api_key"], e.target.value)} />
+                </Row>
+                <Row label="Prefixo de referência">
+                  <input className={inp} style={{width:160}} placeholder="SCH" value={PAG.referencia_prefixo} onChange={e => setS(["pagamento","referencia_prefixo"], e.target.value)} />
+                </Row>
+              </Sect>
+              <Sect title="Reconciliação">
+                <Row label="Tolerância (%)" desc="Diferença percentual máxima tolerada.">
+                  <input type="number" min={0} max={10} step={0.1} className={num} value={PAG.reconciliacao_tolerancia_percentagem} onChange={e => setS(["pagamento","reconciliacao_tolerancia_percentagem"], Number(e.target.value))} />
+                </Row>
+                <Row label="Reconciliação automática">
+                  <CToggle value={PAG.reconciliacao_automatica} onChange={v => setS(["pagamento","reconciliacao_automatica"], v)} />
+                </Row>
+              </Sect>
+              <Sect title="Métodos de pagamento aceites">
+                {["MCX_EXPRESS","MULTICAIXA","NUMERARIO","TRANSFERENCIA","TPA"].map(m => (
+                  <Row key={m} label={m.replace(/_/g," ")}>
+                    <CToggle
+                      value={PAG.metodos_aceites.includes(m)}
+                      onChange={v => setS(["pagamento","metodos_aceites"], v ? [...PAG.metodos_aceites, m] : PAG.metodos_aceites.filter((x: string) => x !== m))}
+                    />
+                  </Row>
+                ))}
+              </Sect>
+            </div>
+          )}
+
+          {/* ── ACADÉMICO ── */}
+          {activeTab === "academico" && (
+            <div>
+              <Sect title="Turmas & Matrículas">
+                <Row label="Limite de alunos por turma">
+                  <input type="number" min={1} max={200} className={num} value={A.limite_alunos_por_turma} onChange={e => setS(["academico","limite_alunos_por_turma"], Number(e.target.value))} />
+                </Row>
+                <Row label="Matrícula online" desc="Permite matrículas via portal web.">
+                  <CToggle value={A.permite_matricula_online} onChange={v => setS(["academico","permite_matricula_online"], v)} />
+                </Row>
+                <Row label="Nomenclatura das turmas" desc="Ex: Turma, Classe, Sala.">
+                  <input className={inp} style={{width:160}} value={A.nomenclatura_turma} onChange={e => setS(["academico","nomenclatura_turma"], e.target.value)} />
+                </Row>
+              </Sect>
+              <Sect title="Anos lectivos activos">
+                <Row label="Anos lectivos" desc="Separados por vírgula.">
+                  <input className={inp} style={{width:260}} value={A.anos_lectivos.join(", ")} onChange={e => setS(["academico","anos_lectivos"], e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))} />
+                </Row>
+              </Sect>
+            </div>
+          )}
+
+          {/* ── ENCARREGADOS ── */}
+          {activeTab === "encarregados" && (
+            <div>
+              <Sect title="Portal do Encarregado">
+                <Row label="Portal activo" desc="Encarregados podem aceder ao portal.">
+                  <CToggle value={E.permite_portal_encarregado} onChange={v => setS(["encarregados","permite_portal_encarregado"], v)} />
+                </Row>
+                <Row label="Comunicação activa" desc="Enviar notificações aos encarregados.">
+                  <CToggle value={E.comunicacao_activa} onChange={v => setS(["encarregados","comunicacao_activa"], v)} />
+                </Row>
+                <Row label="Máximo de encarregados por aluno">
+                  <input type="number" min={1} max={5} className={num} value={E.maximo_por_aluno} onChange={e => setS(["encarregados","maximo_por_aluno"], Number(e.target.value))} />
+                </Row>
+              </Sect>
+              <Sect title="Campos obrigatórios do encarregado">
+                {["nome","telefone","bi","email","morada"].map(campo => (
+                  <Row key={campo} label={campo.charAt(0).toUpperCase() + campo.slice(1)}>
+                    <CToggle
+                      value={E.campos_obrigatorios.includes(campo)}
+                      onChange={v => setS(["encarregados","campos_obrigatorios"], v ? [...E.campos_obrigatorios, campo] : E.campos_obrigatorios.filter((x: string) => x !== campo))}
+                    />
+                  </Row>
+                ))}
+              </Sect>
+            </div>
+          )}
+
+          {/* ── COMUNICAÇÃO ── */}
+          {activeTab === "comunicacao" && (
+            <div>
+              <Sect title="Canais de comunicação">
+                <Row label="SMS activo">
+                  <CToggle value={C.sms_activo} onChange={v => setS(["comunicacao","sms_activo"], v)} />
+                </Row>
+                {C.sms_activo && <Row label="Provedor SMS">
+                  <input className={inp} style={{width:200}} placeholder="ex: Nexmo, Twilio" value={C.sms_provider} onChange={e => setS(["comunicacao","sms_provider"], e.target.value)} />
+                </Row>}
+                <Row label="Email activo">
+                  <CToggle value={C.email_activo} onChange={v => setS(["comunicacao","email_activo"], v)} />
+                </Row>
+                {C.email_activo && <Row label="Email remetente">
+                  <input className={inp} style={{width:240}} placeholder="noreply@colegio.ao" value={C.email_sender} onChange={e => setS(["comunicacao","email_sender"], e.target.value)} />
+                </Row>}
+                <Row label="WhatsApp activo">
+                  <CToggle value={C.whatsapp_activo} onChange={v => setS(["comunicacao","whatsapp_activo"], v)} />
+                </Row>
+              </Sect>
+              <Sect title="Eventos notificados">
+                <Row label="Nova fatura">
+                  <CToggle value={C.eventos.nova_fatura} onChange={v => setS(["comunicacao","eventos","nova_fatura"], v)} />
+                </Row>
+                <Row label="Atraso no pagamento">
+                  <CToggle value={C.eventos.atraso_pagamento} onChange={v => setS(["comunicacao","eventos","atraso_pagamento"], v)} />
+                </Row>
+                <Row label="Pagamento confirmado">
+                  <CToggle value={C.eventos.pagamento_confirmado} onChange={v => setS(["comunicacao","eventos","pagamento_confirmado"], v)} />
+                </Row>
+                <Row label="Nova ocorrência">
+                  <CToggle value={C.eventos.nova_ocorrencia} onChange={v => setS(["comunicacao","eventos","nova_ocorrencia"], v)} />
+                </Row>
+              </Sect>
+            </div>
+          )}
+
+          {/* ── DASHBOARD ── */}
+          {activeTab === "dashboard" && (
+            <div>
+              <Sect title="Configuração do Dashboard">
+                <Row label="Mostrar gráficos">
+                  <CToggle value={D.mostrar_graficos} onChange={v => setS(["dashboard","mostrar_graficos"], v)} />
+                </Row>
+                <Row label="Exportação activa" desc="Permitir exportação de relatórios.">
+                  <CToggle value={D.exportacao_activa} onChange={v => setS(["dashboard","exportacao_activa"], v)} />
+                </Row>
+                <Row label="Métricas públicas" desc="Disponibilizar métricas sem autenticação.">
+                  <CToggle value={D.metricas_publicas} onChange={v => setS(["dashboard","metricas_publicas"], v)} />
+                </Row>
+                <Row label="Período de relatório (dias)" desc="Janela temporal padrão dos relatórios.">
+                  <select className={inp} style={{width:160}} value={D.periodo_relatorio_dias} onChange={e => setS(["dashboard","periodo_relatorio_dias"], Number(e.target.value))}>
+                    <option value={7}>7 dias</option>
+                    <option value={14}>14 dias</option>
+                    <option value={30}>30 dias</option>
+                    <option value={60}>60 dias</option>
+                    <option value={90}>90 dias</option>
+                  </select>
+                </Row>
+              </Sect>
+            </div>
+          )}
+
+          {/* ── PERMISSÕES ── */}
+          {activeTab === "permissoes" && (
+            <div>
+              {(["admin","financeiro","operador"] as const).map(perfil => (
+                <Sect key={perfil} title={`Perfil: ${perfil.charAt(0).toUpperCase() + perfil.slice(1)}`}>
+                  <Row label="Pode editar propinas">
+                    <CToggle value={PE[perfil].pode_editar_propinas} onChange={v => setS(["permissoes",perfil,"pode_editar_propinas"], v)} />
+                  </Row>
+                  <Row label="Pode eliminar alunos">
+                    <CToggle value={PE[perfil].pode_eliminar_alunos} onChange={v => setS(["permissoes",perfil,"pode_eliminar_alunos"], v)} />
+                  </Row>
+                  <Row label="Ver relatórios financeiros">
+                    <CToggle value={PE[perfil].ver_relatorios_financeiros} onChange={v => setS(["permissoes",perfil,"ver_relatorios_financeiros"], v)} />
+                  </Row>
+                </Sect>
+              ))}
+            </div>
+          )}
+
+          {/* ── TÉCNICO ── */}
+          {activeTab === "tecnico" && (
+            <div>
+              <Sect title="Configuração Técnica">
+                <Row label="Fuso horário">
+                  <select className={inp} style={{width:200}} value={T.timezone} onChange={e => setS(["tecnico","timezone"], e.target.value)}>
+                    <option value="Africa/Luanda">Africa/Luanda (WAT)</option>
+                    <option value="UTC">UTC</option>
+                    <option value="Europe/Lisbon">Europe/Lisbon</option>
+                  </select>
+                </Row>
+                <Row label="Moeda">
+                  <select className={inp} style={{width:120}} value={T.moeda} onChange={e => setS(["tecnico","moeda"], e.target.value)}>
+                    <option value="AOA">AOA (Kwanza)</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </Row>
+                <Row label="Auditoria activa" desc="Registar todas as acções dos utilizadores.">
+                  <CToggle value={T.auditoria_activa} onChange={v => setS(["tecnico","auditoria_activa"], v)} />
+                </Row>
+                <Row label="Modo de manutenção" desc="Bloqueia acesso ao portal da escola.">
+                  <CToggle value={T.modo_manutencao} onChange={v => setS(["tecnico","modo_manutencao"], v)} />
+                </Row>
+              </Sect>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 px-5 py-4 shrink-0 bg-white rounded-b-2xl">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2 mb-3"><AlertCircle className="w-4 h-4 shrink-0"/>{error}</div>}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex gap-1">
+              {CTABS.map((t, i) => (
+                <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
+                  className={`w-2 h-2 rounded-full transition-colors ${activeTab === t.id ? "bg-primary" : "bg-slate-200"}`}
+                  title={t.label} />
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                Cancelar
+              </button>
+              <button type="submit" disabled={saving}
+                className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2">
+                {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A criar...</> : "Criar Colégio"}
+              </button>
+            </div>
+          </div>
         </div>
       </form>
     </Modal>

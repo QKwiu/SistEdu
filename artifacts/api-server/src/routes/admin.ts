@@ -90,7 +90,7 @@ router.get("/admin/colegios", adminAuth, async (_req, res) => {
 
 /* ─── POST /admin/colegios — create school ─── */
 router.post("/admin/colegios", adminAuth, async (req, res) => {
-  const { name, nif, phone, email, password, iban, usa_pacotes } = req.body;
+  const { name, nif, phone, email, password, iban, usa_pacotes, commission_rate, settings } = req.body;
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: "Nome e email são obrigatórios." });
   }
@@ -100,11 +100,33 @@ router.post("/admin/colegios", adminAuth, async (req, res) => {
   const schoolId = `SCH-${Date.now()}`;
 
   const r = await pool.query(
-    `INSERT INTO schools (school_id, name, nif, phone, email, password_hash, iban, usa_pacotes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, school_id, name, email, iban, usa_pacotes, created_at`,
-    [schoolId, name.trim(), nif?.trim() || null, phone?.trim() || null, email.trim(), hash, iban?.trim() || null, !!usa_pacotes]
+    `INSERT INTO schools (school_id, name, nif, phone, email, password_hash, iban, usa_pacotes, commission_rate)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, school_id, name, nif, phone, email, iban, usa_pacotes, commission_rate, created_at`,
+    [schoolId, name.trim(), nif?.trim() || "", phone?.trim() || "", email.trim(), hash, iban?.trim() || null, !!usa_pacotes, Number(commission_rate ?? 0)]
   );
-  res.status(201).json(r.rows[0]);
+  const school = r.rows[0];
+
+  // Save initial settings if provided
+  if (settings && typeof settings === "object") {
+    function deepMerge(target: any, source: any): any {
+      const out = { ...target };
+      for (const key of Object.keys(source ?? {})) {
+        if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key]))
+          out[key] = deepMerge(target[key] ?? {}, source[key]);
+        else out[key] = source[key];
+      }
+      return out;
+    }
+    const merged = deepMerge(DEFAULT_SETTINGS, settings);
+    await pool.query(
+      `INSERT INTO school_settings (school_id, settings, updated_by)
+       VALUES ($1,$2,'admin')
+       ON CONFLICT (school_id) DO UPDATE SET settings=$2, updated_at=NOW(), updated_by='admin'`,
+      [school.id, JSON.stringify(merged)]
+    );
+  }
+
+  res.status(201).json(school);
 });
 
 /* ─── GET /admin/colegios/:id ─── */
