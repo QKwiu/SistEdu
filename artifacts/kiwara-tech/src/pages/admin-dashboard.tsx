@@ -8,6 +8,8 @@ import {
   Eye, EyeOff, Search, ArrowLeft, Menu, Calendar, Pencil, MoreHorizontal,
   FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties, UserPlus,
   ArrowLeftRight, ShieldCheck, Filter, ChevronDown,
+  SlidersHorizontal, Save, MessageSquare, Mail, Smartphone, Globe, Lock,
+  Zap, BarChart3, CheckSquare, ToggleLeft,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -2546,8 +2548,424 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   SettingsView — Motor de Regras Configurável por Tenant
+══════════════════════════════════════════════════════════════════ */
+function Toggle({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button onClick={() => !disabled && onChange(!value)} disabled={disabled}
+      className={`relative shrink-0 rounded-full transition-colors disabled:opacity-50 ${value ? "bg-primary" : "bg-slate-300"}`}
+      style={{ height: 24, width: 44 }}>
+      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? "translate-x-[20px]" : "translate-x-0.5"}`} />
+    </button>
+  );
+}
+
+function SettingRow({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3.5 border-b border-slate-100 last:border-0">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-800">{label}</p>
+        {desc && <p className="text-xs text-slate-400 mt-0.5">{desc}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function SectionCard({ title, icon, children, onSave, saving, saved }: {
+  title: string; icon: React.ReactNode; children: React.ReactNode;
+  onSave: () => void; saving: boolean; saved: boolean;
+}) {
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-center gap-2.5">
+          <span className="text-primary">{icon}</span>
+          <h3 className="font-semibold text-slate-800">{title}</h3>
+        </div>
+        <button onClick={onSave} disabled={saving}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-60 ${
+            saved ? "bg-emerald-500 text-white" : "bg-primary text-white hover:bg-primary/90"
+          }`}>
+          {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : saved ? <CheckCircle2 className="w-3.5 h-3.5"/> : <Save className="w-3.5 h-3.5"/>}
+          {saved ? "Guardado!" : saving ? "A guardar..." : "Guardar"}
+        </button>
+      </div>
+      <div className="px-5 divide-y divide-slate-50">{children}</div>
+    </div>
+  );
+}
+
+function SettingsView({ schoolId }: { schoolId: number }) {
+  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico";
+  const STABS: { id: STab; label: string; icon: React.ReactNode }[] = [
+    { id: "financeiro",   label: "Financeiro",    icon: <Banknote className="w-4 h-4"/> },
+    { id: "pagamento",    label: "Pagamento",     icon: <CreditCard className="w-4 h-4"/> },
+    { id: "academico",    label: "Académico",     icon: <GraduationCap className="w-4 h-4"/> },
+    { id: "encarregados", label: "Encarregados",  icon: <Users className="w-4 h-4"/> },
+    { id: "comunicacao",  label: "Comunicação",   icon: <MessageSquare className="w-4 h-4"/> },
+    { id: "dashboard",    label: "Dashboard",     icon: <BarChart3 className="w-4 h-4"/> },
+    { id: "permissoes",   label: "Permissões",    icon: <Lock className="w-4 h-4"/> },
+    { id: "tecnico",      label: "Técnico",       icon: <Globe className="w-4 h-4"/> },
+  ];
+
+  const [tab, setTab] = useState<STab>("financeiro");
+  const [settings, setSettings] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [savedTab, setSavedTab] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    api(`/admin/colegios/${schoolId}/settings`)
+      .then(r => r.json())
+      .then(d => { setSettings(d.settings); setLoading(false); });
+  }, [schoolId]);
+
+  const set = (path: string[], val: any) => {
+    setSettings((prev: any) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      let cur = next;
+      for (let i = 0; i < path.length - 1; i++) { cur = cur[path[i]]; }
+      cur[path[path.length - 1]] = val;
+      return next;
+    });
+  };
+
+  const saveSection = async (sectionKey: STab) => {
+    setSaving(sectionKey); setError("");
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/settings`, {
+        method: "PUT",
+        body: JSON.stringify({ settings: { [sectionKey]: settings[sectionKey] } }),
+      });
+      const d = await r.json();
+      if (r.ok) { setSettings(d.settings); setSavedTab(sectionKey); setTimeout(() => setSavedTab(null), 2500); }
+      else setError(d.error ?? "Erro ao guardar.");
+    } finally { setSaving(null); }
+  };
+
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+  const num = `${inp} w-28`;
+
+  if (loading) return (
+    <div className="py-16 text-center"><RefreshCw className="w-6 h-6 animate-spin text-primary mx-auto mb-2"/><p className="text-sm text-slate-400">A carregar configurações…</p></div>
+  );
+  if (!settings) return null;
+
+  const F = settings.financeiro ?? {};
+  const P = settings.pagamento ?? {};
+  const A = settings.academico ?? {};
+  const E = settings.encarregados ?? {};
+  const C = settings.comunicacao ?? {};
+  const D = settings.dashboard ?? {};
+  const PE = settings.permissoes ?? {};
+  const T = settings.tecnico ?? {};
+
+  const isSaving = (t: STab) => saving === t;
+  const isSaved  = (t: STab) => savedTab === t;
+
+  return (
+    <div className="space-y-5">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0"/>{error}
+        </div>
+      )}
+
+      {/* Sub-tabs */}
+      <div className="overflow-x-auto -mx-0">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-max">
+          {STABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+                tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              }`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── FINANCEIRO ── */}
+      {tab === "financeiro" && (
+        <div className="space-y-5">
+          <SectionCard title="Propinas" icon={<Banknote className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
+            <SettingRow label="Frequência de cobrança" desc="Com que periodicidade são geradas as propinas.">
+              <select className={inp} value={F.propinas?.frequencia ?? "mensal"} onChange={e => set(["financeiro","propinas","frequencia"], e.target.value)} style={{width:160}}>
+                <option value="mensal">Mensal</option>
+                <option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </select>
+            </SettingRow>
+            <SettingRow label="Dia de vencimento" desc="Dia do mês em que a propina vence.">
+              <input type="number" min={1} max={31} className={num} value={F.propinas?.vencimento_dia ?? 15} onChange={e => set(["financeiro","propinas","vencimento_dia"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Valor padrão (AOA)" desc="Valor base a usar quando não há pacote definido.">
+              <input type="number" min={0} className={num} value={F.propinas?.valor_padrao ?? 0} onChange={e => set(["financeiro","propinas","valor_padrao"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Permitir pagamento parcial" desc="Aceitar pagamentos abaixo do total da fatura.">
+              <Toggle value={!!F.propinas?.permite_pagamento_parcial} onChange={v => set(["financeiro","propinas","permite_pagamento_parcial"], v)}/>
+            </SettingRow>
+          </SectionCard>
+
+          <SectionCard title="Multas & Mora" icon={<AlertTriangle className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
+            <SettingRow label="Tipo de multa">
+              <select className={inp} value={F.multas?.tipo ?? "percentagem"} onChange={e => set(["financeiro","multas","tipo"], e.target.value)} style={{width:160}}>
+                <option value="percentagem">Percentagem (%)</option>
+                <option value="fixo">Valor fixo (AOA)</option>
+              </select>
+            </SettingRow>
+            <SettingRow label={F.multas?.tipo === "fixo" ? "Valor da multa (AOA)" : "Percentagem da multa (%)"}>
+              <input type="number" min={0} className={num} value={F.multas?.valor ?? 5} onChange={e => set(["financeiro","multas","valor"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Tolerância (dias)" desc="Dias após vencimento antes de aplicar multa.">
+              <input type="number" min={0} max={30} className={num} value={F.multas?.tolerancia_dias ?? 5} onChange={e => set(["financeiro","multas","tolerancia_dias"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Multa progressiva" desc="A multa aumenta com o tempo em atraso.">
+              <Toggle value={!!F.multas?.progressiva} onChange={v => set(["financeiro","multas","progressiva"], v)}/>
+            </SettingRow>
+            <SettingRow label="Limite de multa (%)" desc="Percentagem máxima da multa em relação à propina.">
+              <input type="number" min={0} max={100} className={num} value={F.multas?.limite_percentagem ?? 20} onChange={e => set(["financeiro","multas","limite_percentagem"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Aplicação automática" desc="Aplicar multa automaticamente sem intervenção manual.">
+              <Toggle value={!!F.multas?.aplica_automatico} onChange={v => set(["financeiro","multas","aplica_automatico"], v)}/>
+            </SettingRow>
+          </SectionCard>
+
+          <SectionCard title="Emolumentos" icon={<Receipt className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
+            <SettingRow label="Emolumentos obrigatórios" desc="Todos os alunos devem ter emolumentos associados.">
+              <Toggle value={!!F.emolumentos?.obrigatorios} onChange={v => set(["financeiro","emolumentos","obrigatorios"], v)}/>
+            </SettingRow>
+            <SettingRow label="Tipos de emolumento disponíveis" desc="Lista separada por vírgulas dos tipos de emolumento.">
+              <input className={inp} style={{width:260}} value={(F.emolumentos?.tipos ?? []).join(", ")}
+                onChange={e => set(["financeiro","emolumentos","tipos"], e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}/>
+            </SettingRow>
+          </SectionCard>
+
+          <SectionCard title="Split Payment" icon={<ArrowLeftRight className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
+            <SettingRow label="Split activo" desc="Dividir automaticamente o pagamento entre escola e plataforma.">
+              <Toggle value={!!F.split_payment?.activo} onChange={v => set(["financeiro","split_payment","activo"], v)}/>
+            </SettingRow>
+            <SettingRow label="Comissão da plataforma (%)" desc="Percentagem retida pela plataforma em cada pagamento.">
+              <input type="number" min={0} max={100} step={0.5} className={num} value={F.split_payment?.comissao_percentagem ?? 0} onChange={e => set(["financeiro","split_payment","comissao_percentagem"], Number(e.target.value))} disabled={!F.split_payment?.activo}/>
+            </SettingRow>
+            <SettingRow label="IBAN da escola" desc="Conta de destino para a parte da escola.">
+              <input className={inp} style={{width:260}} value={F.split_payment?.conta_destino_escola ?? ""} placeholder="AO06.0044.0000.0000.0000.0000.0" onChange={e => set(["financeiro","split_payment","conta_destino_escola"], e.target.value)} disabled={!F.split_payment?.activo}/>
+            </SettingRow>
+            <SettingRow label="IBAN da plataforma" desc="Conta de destino para a comissão da plataforma.">
+              <input className={inp} style={{width:260}} value={F.split_payment?.conta_destino_plataforma ?? ""} placeholder="AO06.0044.0000.0000.0000.0000.0" onChange={e => set(["financeiro","split_payment","conta_destino_plataforma"], e.target.value)} disabled={!F.split_payment?.activo}/>
+            </SettingRow>
+          </SectionCard>
+        </div>
+      )}
+
+      {/* ── PAGAMENTO ── */}
+      {tab === "pagamento" && (
+        <SectionCard title="Integração & Reconciliação" icon={<Zap className="w-4 h-4"/>} onSave={() => saveSection("pagamento")} saving={isSaving("pagamento")} saved={isSaved("pagamento")}>
+          <SettingRow label="URL do middleware EMIS" desc="Endpoint do gateway de pagamentos a integrar.">
+            <input className={inp} style={{width:280}} value={P.middleware_url ?? ""} placeholder="https://emis.gateway.ao/api" onChange={e => set(["pagamento","middleware_url"], e.target.value)}/>
+          </SettingRow>
+          <SettingRow label="API Key do middleware" desc="Chave de autenticação para o gateway. Guardada de forma segura.">
+            <input type="password" className={inp} style={{width:200}} value={P.middleware_api_key ?? ""} placeholder="••••••••" onChange={e => set(["pagamento","middleware_api_key"], e.target.value)}/>
+          </SettingRow>
+          <SettingRow label="Prefixo de referência" desc="Prefixo personalizado para as referências internas (ex: ESC01).">
+            <input className={inp} style={{width:140}} value={P.referencia_prefixo ?? ""} placeholder="ESC01" maxLength={8} onChange={e => set(["pagamento","referencia_prefixo"], e.target.value)}/>
+          </SettingRow>
+          <SettingRow label="Tolerância de reconciliação (%)" desc="Diferença máxima aceite entre valor pago e fatura.">
+            <input type="number" min={0} max={10} step={0.5} className={num} value={P.reconciliacao_tolerancia_percentagem ?? 1} onChange={e => set(["pagamento","reconciliacao_tolerancia_percentagem"], Number(e.target.value))}/>
+          </SettingRow>
+          <SettingRow label="Reconciliação automática" desc="Atualizar estado da fatura automaticamente ao receber webhook.">
+            <Toggle value={!!P.reconciliacao_automatica} onChange={v => set(["pagamento","reconciliacao_automatica"], v)}/>
+          </SettingRow>
+          <SettingRow label="Métodos de pagamento aceites">
+            <div className="flex flex-wrap gap-2">
+              {["MCX_EXPRESS","MULTICAIXA","NUMERARIO","TRANSFERENCIA","TPA"].map(m => {
+                const active = (P.metodos_aceites ?? []).includes(m);
+                return (
+                  <button key={m} onClick={() => {
+                    const cur = P.metodos_aceites ?? [];
+                    set(["pagamento","metodos_aceites"], active ? cur.filter((x: string) => x !== m) : [...cur, m]);
+                  }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${active ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"}`}>
+                    {m.replace("_"," ")}
+                  </button>
+                );
+              })}
+            </div>
+          </SettingRow>
+        </SectionCard>
+      )}
+
+      {/* ── ACADÉMICO ── */}
+      {tab === "academico" && (
+        <SectionCard title="Parâmetros Académicos" icon={<GraduationCap className="w-4 h-4"/>} onSave={() => saveSection("academico")} saving={isSaving("academico")} saved={isSaved("academico")}>
+          <SettingRow label="Limite de alunos por turma" desc="Número máximo de alunos que uma turma pode ter.">
+            <input type="number" min={1} max={200} className={num} value={A.limite_alunos_por_turma ?? 40} onChange={e => set(["academico","limite_alunos_por_turma"], Number(e.target.value))}/>
+          </SettingRow>
+          <SettingRow label="Matrícula online" desc="Permitir que os encarregados façam matrícula pelo portal.">
+            <Toggle value={!!A.permite_matricula_online} onChange={v => set(["academico","permite_matricula_online"], v)}/>
+          </SettingRow>
+          <SettingRow label="Nomenclatura de turma" desc="Como as turmas são denominadas neste colégio.">
+            <input className={inp} style={{width:160}} value={A.nomenclatura_turma ?? "Turma"} placeholder="ex: Turma, Classe, Sala" onChange={e => set(["academico","nomenclatura_turma"], e.target.value)}/>
+          </SettingRow>
+          <SettingRow label="Anos lectivos disponíveis" desc="Lista separada por vírgulas dos anos lectivos activos.">
+            <input className={inp} style={{width:260}} value={(A.anos_lectivos ?? []).join(", ")}
+              onChange={e => set(["academico","anos_lectivos"], e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}/>
+          </SettingRow>
+        </SectionCard>
+      )}
+
+      {/* ── ENCARREGADOS ── */}
+      {tab === "encarregados" && (
+        <SectionCard title="Configuração de Encarregados" icon={<Users className="w-4 h-4"/>} onSave={() => saveSection("encarregados")} saving={isSaving("encarregados")} saved={isSaved("encarregados")}>
+          <SettingRow label="Máximo de encarregados por aluno" desc="Número máximo de encarregados associados a cada aluno.">
+            <input type="number" min={1} max={10} className={num} value={E.maximo_por_aluno ?? 2} onChange={e => set(["encarregados","maximo_por_aluno"], Number(e.target.value))}/>
+          </SettingRow>
+          <SettingRow label="Comunicação activa com encarregados" desc="Enviar notificações automáticas aos encarregados.">
+            <Toggle value={!!E.comunicacao_activa} onChange={v => set(["encarregados","comunicacao_activa"], v)}/>
+          </SettingRow>
+          <SettingRow label="Campos obrigatórios" desc="Dados exigidos no registo do encarregado (separados por vírgulas).">
+            <input className={inp} style={{width:260}} value={(E.campos_obrigatorios ?? []).join(", ")}
+              onChange={e => set(["encarregados","campos_obrigatorios"], e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}/>
+          </SettingRow>
+          <SettingRow label="Portal do Encarregado activo" desc="Permitir acesso ao portal de consulta via PIN.">
+            <Toggle value={!!E.permite_portal_encarregado} onChange={v => set(["encarregados","permite_portal_encarregado"], v)}/>
+          </SettingRow>
+        </SectionCard>
+      )}
+
+      {/* ── COMUNICAÇÃO ── */}
+      {tab === "comunicacao" && (
+        <div className="space-y-5">
+          <SectionCard title="Canais de Comunicação" icon={<MessageSquare className="w-4 h-4"/>} onSave={() => saveSection("comunicacao")} saving={isSaving("comunicacao")} saved={isSaved("comunicacao")}>
+            <SettingRow label="SMS activo" desc="Enviar notificações por mensagem SMS.">
+              <Toggle value={!!C.sms_activo} onChange={v => set(["comunicacao","sms_activo"], v)}/>
+            </SettingRow>
+            <SettingRow label="Provider SMS" desc="Fornecedor do serviço de SMS.">
+              <input className={inp} style={{width:200}} value={C.sms_provider ?? ""} placeholder="ex: Africell, Unitel" onChange={e => set(["comunicacao","sms_provider"], e.target.value)} disabled={!C.sms_activo}/>
+            </SettingRow>
+            <SettingRow label="Email activo" desc="Enviar notificações por correio electrónico.">
+              <Toggle value={!!C.email_activo} onChange={v => set(["comunicacao","email_activo"], v)}/>
+            </SettingRow>
+            <SettingRow label="Remetente de Email" desc="Endereço de email de envio das notificações.">
+              <input className={inp} style={{width:220}} value={C.email_sender ?? ""} placeholder="noreply@escola.ao" onChange={e => set(["comunicacao","email_sender"], e.target.value)} disabled={!C.email_activo}/>
+            </SettingRow>
+            <SettingRow label="WhatsApp activo" desc="Enviar notificações via WhatsApp Business API.">
+              <Toggle value={!!C.whatsapp_activo} onChange={v => set(["comunicacao","whatsapp_activo"], v)}/>
+            </SettingRow>
+          </SectionCard>
+
+          <SectionCard title="Eventos de Notificação" icon={<Zap className="w-4 h-4"/>} onSave={() => saveSection("comunicacao")} saving={isSaving("comunicacao")} saved={isSaved("comunicacao")}>
+            {([
+              ["nova_fatura",         "Nova fatura gerada",     "Notificar encarregado quando uma nova propina é criada."],
+              ["atraso_pagamento",    "Atraso no pagamento",    "Notificar quando a propina entra em mora."],
+              ["pagamento_confirmado","Pagamento confirmado",   "Notificar quando o pagamento é processado com sucesso."],
+              ["nova_ocorrencia",     "Nova ocorrência",        "Notificar quando uma ocorrência é registada para o aluno."],
+            ] as [string, string, string][]).map(([key, label, desc]) => (
+              <SettingRow key={key} label={label} desc={desc}>
+                <Toggle value={!!C.eventos?.[key]} onChange={v => set(["comunicacao","eventos",key], v)}/>
+              </SettingRow>
+            ))}
+          </SectionCard>
+        </div>
+      )}
+
+      {/* ── DASHBOARD ── */}
+      {tab === "dashboard" && (
+        <SectionCard title="Dashboard & Exportação" icon={<BarChart3 className="w-4 h-4"/>} onSave={() => saveSection("dashboard")} saving={isSaving("dashboard")} saved={isSaved("dashboard")}>
+          <SettingRow label="Mostrar gráficos" desc="Exibir visualizações gráficas no painel do colégio.">
+            <Toggle value={!!D.mostrar_graficos} onChange={v => set(["dashboard","mostrar_graficos"], v)}/>
+          </SettingRow>
+          <SettingRow label="Exportação activa" desc="Permitir exportar relatórios financeiros e listas de alunos.">
+            <Toggle value={!!D.exportacao_activa} onChange={v => set(["dashboard","exportacao_activa"], v)}/>
+          </SettingRow>
+          <SettingRow label="Métricas públicas" desc="Partilhar métricas anonimizadas com a plataforma para benchmarking.">
+            <Toggle value={!!D.metricas_publicas} onChange={v => set(["dashboard","metricas_publicas"], v)}/>
+          </SettingRow>
+          <SettingRow label="Período de relatório (dias)" desc="Janela temporal padrão para os relatórios do dashboard.">
+            <select className={inp} style={{width:160}} value={D.periodo_relatorio_dias ?? 30} onChange={e => set(["dashboard","periodo_relatorio_dias"], Number(e.target.value))}>
+              <option value={7}>Últimos 7 dias</option>
+              <option value={30}>Últimos 30 dias</option>
+              <option value={90}>Últimos 90 dias</option>
+              <option value={365}>Último ano</option>
+            </select>
+          </SettingRow>
+        </SectionCard>
+      )}
+
+      {/* ── PERMISSÕES ── */}
+      {tab === "permissoes" && (
+        <div className="space-y-5">
+          {(["admin","financeiro","operador"] as const).map(perfil => {
+            const P2 = PE[perfil] ?? {};
+            const labels: Record<string, string> = {
+              pode_editar_propinas: "Editar propinas",
+              pode_deletar_alunos: "Eliminar alunos",
+              pode_ver_financeiro: "Ver módulo financeiro",
+            };
+            const labelPerfil: Record<string, string> = {
+              admin: "Administrador",
+              financeiro: "Financeiro",
+              operador: "Operador",
+            };
+            return (
+              <SectionCard key={perfil} title={`Perfil: ${labelPerfil[perfil]}`} icon={<Lock className="w-4 h-4"/>}
+                onSave={() => saveSection("permissoes")} saving={isSaving("permissoes")} saved={isSaved("permissoes")}>
+                {Object.entries(labels).map(([key, lbl]) => (
+                  <SettingRow key={key} label={lbl}>
+                    <Toggle
+                      value={!!P2[key]}
+                      onChange={v => set(["permissoes", perfil, key], v)}
+                      disabled={perfil === "admin" && key === "pode_ver_financeiro"}
+                    />
+                  </SettingRow>
+                ))}
+              </SectionCard>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── TÉCNICO ── */}
+      {tab === "tecnico" && (
+        <SectionCard title="Parâmetros Técnicos" icon={<Globe className="w-4 h-4"/>} onSave={() => saveSection("tecnico")} saving={isSaving("tecnico")} saved={isSaved("tecnico")}>
+          <SettingRow label="Fuso horário" desc="Timezone utilizado para datas e notificações.">
+            <select className={inp} style={{width:200}} value={T.timezone ?? "Africa/Luanda"} onChange={e => set(["tecnico","timezone"], e.target.value)}>
+              <option value="Africa/Luanda">Africa/Luanda (WAT, UTC+1)</option>
+              <option value="UTC">UTC</option>
+              <option value="Europe/Lisbon">Europe/Lisbon</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Moeda" desc="Moeda utilizada no módulo financeiro.">
+            <select className={inp} style={{width:160}} value={T.moeda ?? "AOA"} onChange={e => set(["tecnico","moeda"], e.target.value)}>
+              <option value="AOA">AOA — Kwanza Angolano</option>
+              <option value="USD">USD — Dólar Americano</option>
+              <option value="EUR">EUR — Euro</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Logs activos" desc="Registar acções dos utilizadores para auditoria.">
+            <Toggle value={!!T.logs_activos} onChange={v => set(["tecnico","logs_activos"], v)}/>
+          </SettingRow>
+          <SettingRow label="Modo de manutenção" desc="Suspender temporariamente o acesso ao colégio na plataforma.">
+            <Toggle value={!!T.manutencao_activa} onChange={v => set(["tecnico","manutencao_activa"], v)}/>
+          </SettingRow>
+          {T.manutencao_activa && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 text-sm text-amber-800 my-2">
+              <AlertTriangle className="w-4 h-4 shrink-0"/> Modo de manutenção activo — o colégio não consegue aceder à plataforma.
+            </div>
+          )}
+        </SectionCard>
+      )}
+    </div>
+  );
+}
+
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -2571,6 +2989,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
+    { id: "configuracoes" as const, label: "Configurações", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ];
 
   return (
@@ -2786,6 +3205,10 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
             onUpdated={iban => setCurrentSchool(s => ({ ...s, iban }))}
           />
         </div>
+      )}
+
+      {tab === "configuracoes" && (
+        <SettingsView schoolId={currentSchool.id} />
       )}
     </div>
   );

@@ -144,6 +144,156 @@ router.put("/admin/colegios/:id/configuracao", adminAuth, async (req, res) => {
   res.json({ ok: true, usa_pacotes: !!usa_pacotes });
 });
 
+/* ─────────────────────────────────────────────────────────────────
+   SCHOOL SETTINGS — motor de regras configurável por tenant
+───────────────────────────────────────────────────────────────────── */
+
+const DEFAULT_SETTINGS = {
+  financeiro: {
+    propinas: {
+      frequencia: "mensal",
+      vencimento_dia: 15,
+      permite_pagamento_parcial: false,
+      valor_padrao: 0,
+    },
+    multas: {
+      tipo: "percentagem",
+      valor: 5,
+      tolerancia_dias: 5,
+      progressiva: false,
+      limite_percentagem: 20,
+      aplica_automatico: true,
+    },
+    emolumentos: {
+      obrigatorios: false,
+      tipos: ["Seguro Escolar", "Exame", "Material Didático"],
+    },
+    split_payment: {
+      activo: false,
+      comissao_percentagem: 0,
+      conta_destino_escola: "",
+      conta_destino_plataforma: "",
+    },
+  },
+  pagamento: {
+    middleware_url: "",
+    middleware_api_key: "",
+    referencia_prefixo: "",
+    reconciliacao_tolerancia_percentagem: 1,
+    reconciliacao_automatica: true,
+    metodos_aceites: ["MCX_EXPRESS", "MULTICAIXA", "NUMERARIO", "TRANSFERENCIA"],
+  },
+  academico: {
+    limite_alunos_por_turma: 40,
+    permite_matricula_online: false,
+    nomenclatura_turma: "Turma",
+    anos_lectivos: ["2025/2026", "2026/2027"],
+  },
+  encarregados: {
+    maximo_por_aluno: 2,
+    comunicacao_activa: true,
+    campos_obrigatorios: ["nome", "telefone", "bi"],
+    permite_portal_encarregado: true,
+  },
+  comunicacao: {
+    sms_activo: false,
+    email_activo: false,
+    whatsapp_activo: false,
+    sms_provider: "",
+    email_sender: "",
+    eventos: {
+      nova_fatura: true,
+      atraso_pagamento: true,
+      pagamento_confirmado: true,
+      nova_ocorrencia: true,
+    },
+  },
+  dashboard: {
+    mostrar_graficos: true,
+    exportacao_activa: true,
+    metricas_publicas: false,
+    periodo_relatorio_dias: 30,
+  },
+  permissoes: {
+    admin:      { pode_editar_propinas: true,  pode_deletar_alunos: true,  pode_ver_financeiro: true },
+    financeiro: { pode_editar_propinas: true,  pode_deletar_alunos: false, pode_ver_financeiro: true },
+    operador:   { pode_editar_propinas: false, pode_deletar_alunos: false, pode_ver_financeiro: false },
+  },
+  tecnico: {
+    timezone: "Africa/Luanda",
+    moeda: "AOA",
+    logs_activos: true,
+    manutencao_activa: false,
+  },
+};
+
+/* Deep merge: right overrides left, recursively for objects */
+function deepMerge(base: any, override: any): any {
+  const result = { ...base };
+  for (const key of Object.keys(override ?? {})) {
+    if (override[key] !== null && typeof override[key] === "object" && !Array.isArray(override[key])
+        && base[key] !== null && typeof base[key] === "object" && !Array.isArray(base[key])) {
+      result[key] = deepMerge(base[key], override[key]);
+    } else {
+      result[key] = override[key];
+    }
+  }
+  return result;
+}
+
+/* ─── GET /admin/colegios/:id/settings ─── */
+router.get("/admin/colegios/:id/settings", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+
+  /* Upsert default settings on first access */
+  await pool.query(`
+    INSERT INTO school_settings (school_id, settings)
+    VALUES ($1, $2::jsonb)
+    ON CONFLICT (school_id) DO NOTHING
+  `, [schoolId, JSON.stringify(DEFAULT_SETTINGS)]);
+
+  const r = await pool.query(
+    "SELECT settings, updated_at, updated_by FROM school_settings WHERE school_id = $1",
+    [schoolId]
+  );
+
+  const stored = r.rows[0]?.settings ?? {};
+  const merged = deepMerge(DEFAULT_SETTINGS, stored);
+
+  res.json({
+    settings: merged,
+    updated_at: r.rows[0]?.updated_at ?? null,
+    updated_by: r.rows[0]?.updated_by ?? null,
+  });
+});
+
+/* ─── PUT /admin/colegios/:id/settings ─── */
+router.put("/admin/colegios/:id/settings", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+  const incoming = req.body?.settings;
+
+  if (!incoming || typeof incoming !== "object") {
+    return res.status(400).json({ error: "Campo 'settings' (objeto) obrigatório." });
+  }
+
+  /* Get existing to deep-merge */
+  const existing = await pool.query(
+    "SELECT settings FROM school_settings WHERE school_id = $1",
+    [schoolId]
+  );
+  const base = deepMerge(DEFAULT_SETTINGS, existing.rows[0]?.settings ?? {});
+  const merged = deepMerge(base, incoming);
+
+  await pool.query(`
+    INSERT INTO school_settings (school_id, settings, updated_at, updated_by)
+    VALUES ($1, $2::jsonb, NOW(), 'admin')
+    ON CONFLICT (school_id) DO UPDATE
+    SET settings = $2::jsonb, updated_at = NOW(), updated_by = 'admin'
+  `, [schoolId, JSON.stringify(merged)]);
+
+  res.json({ ok: true, settings: merged });
+});
+
 /* ─── GET /admin/colegios/:id/pacotes ─── */
 router.get("/admin/colegios/:id/pacotes", adminAuth, async (req, res) => {
   const r = await pool.query(

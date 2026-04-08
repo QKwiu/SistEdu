@@ -90,6 +90,16 @@ export async function runReconciliationMigration() {
     ON propinas (transaction_id)
     WHERE transaction_id IS NOT NULL;
   `);
+  /* School settings table (motor de regras configurável por tenant) */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS school_settings (
+      id         SERIAL PRIMARY KEY,
+      school_id  INTEGER NOT NULL UNIQUE REFERENCES schools(id) ON DELETE CASCADE,
+      settings   JSONB NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMP DEFAULT NOW(),
+      updated_by TEXT
+    )
+  `);
   /* Backfill internal_reference for propinas that don't have one yet */
   await pool.query(`
     UPDATE propinas p
