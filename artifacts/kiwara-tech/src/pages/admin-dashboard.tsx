@@ -361,29 +361,6 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
                   <CToggle value={F.propinas.permite_pagamento_parcial} onChange={v => setS(["financeiro","propinas","permite_pagamento_parcial"], v)} />
                 </Row>
               </Sect>
-              <Sect title="Multas & Mora">
-                <Row label="Tipo de multa">
-                  <select className={inp} style={{width:180}} value={F.multas.tipo} onChange={e => setS(["financeiro","multas","tipo"], e.target.value)}>
-                    <option value="percentagem">Percentagem (%)</option>
-                    <option value="fixo">Valor fixo (AOA)</option>
-                  </select>
-                </Row>
-                <Row label={F.multas.tipo === "fixo" ? "Valor da multa (AOA)" : "Percentagem da multa (%)"}>
-                  <input type="number" min={0} className={num} value={F.multas.valor} onChange={e => setS(["financeiro","multas","valor"], Number(e.target.value))} />
-                </Row>
-                <Row label="Tolerância (dias)" desc="Dias após vencimento antes de aplicar multa.">
-                  <input type="number" min={0} max={30} className={num} value={F.multas.tolerancia_dias} onChange={e => setS(["financeiro","multas","tolerancia_dias"], Number(e.target.value))} />
-                </Row>
-                <Row label="Multa progressiva" desc="Multa aumenta com o tempo em atraso.">
-                  <CToggle value={F.multas.progressiva} onChange={v => setS(["financeiro","multas","progressiva"], v)} />
-                </Row>
-                <Row label="Limite de multa (%)" desc="Percentagem máxima da multa.">
-                  <input type="number" min={0} max={100} className={num} value={F.multas.limite_percentagem} onChange={e => setS(["financeiro","multas","limite_percentagem"], Number(e.target.value))} />
-                </Row>
-                <Row label="Aplicação automática">
-                  <CToggle value={F.multas.aplica_automatico} onChange={v => setS(["financeiro","multas","aplica_automatico"], v)} />
-                </Row>
-              </Sect>
               <Sect title="Emolumentos">
                 <Row label="Emolumentos obrigatórios">
                   <CToggle value={F.emolumentos.obrigatorios} onChange={v => setS(["financeiro","emolumentos","obrigatorios"], v)} />
@@ -3378,30 +3355,6 @@ function SettingsView({ schoolId }: { schoolId: number }) {
             </SettingRow>
             <SettingRow label="Permitir pagamento parcial" desc="Aceitar pagamentos abaixo do total da fatura.">
               <Toggle value={!!F.propinas?.permite_pagamento_parcial} onChange={v => set(["financeiro","propinas","permite_pagamento_parcial"], v)}/>
-            </SettingRow>
-          </SectionCard>
-
-          <SectionCard title="Multas & Mora" icon={<AlertTriangle className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
-            <SettingRow label="Tipo de multa">
-              <select className={inp} value={F.multas?.tipo ?? "percentagem"} onChange={e => set(["financeiro","multas","tipo"], e.target.value)} style={{width:160}}>
-                <option value="percentagem">Percentagem (%)</option>
-                <option value="fixo">Valor fixo (AOA)</option>
-              </select>
-            </SettingRow>
-            <SettingRow label={F.multas?.tipo === "fixo" ? "Valor da multa (AOA)" : "Percentagem da multa (%)"}>
-              <input type="number" min={0} className={num} value={F.multas?.valor ?? 5} onChange={e => set(["financeiro","multas","valor"], Number(e.target.value))}/>
-            </SettingRow>
-            <SettingRow label="Tolerância (dias)" desc="Dias após vencimento antes de aplicar multa.">
-              <input type="number" min={0} max={30} className={num} value={F.multas?.tolerancia_dias ?? 5} onChange={e => set(["financeiro","multas","tolerancia_dias"], Number(e.target.value))}/>
-            </SettingRow>
-            <SettingRow label="Multa progressiva" desc="A multa aumenta com o tempo em atraso.">
-              <Toggle value={!!F.multas?.progressiva} onChange={v => set(["financeiro","multas","progressiva"], v)}/>
-            </SettingRow>
-            <SettingRow label="Limite de multa (%)" desc="Percentagem máxima da multa em relação à propina.">
-              <input type="number" min={0} max={100} className={num} value={F.multas?.limite_percentagem ?? 20} onChange={e => set(["financeiro","multas","limite_percentagem"], Number(e.target.value))}/>
-            </SettingRow>
-            <SettingRow label="Aplicação automática" desc="Aplicar multa automaticamente sem intervenção manual.">
-              <Toggle value={!!F.multas?.aplica_automatico} onChange={v => set(["financeiro","multas","aplica_automatico"], v)}/>
             </SettingRow>
           </SectionCard>
 
