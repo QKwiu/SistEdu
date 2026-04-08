@@ -2778,11 +2778,39 @@ const SMS_EVENTS = [
 type SmsEventKey = typeof SMS_EVENTS[number]["key"];
 
 const DEFAULT_TEMPLATES: Record<SmsEventKey, string> = {
-  nova_fatura: "Prezado(a) {nome_encarregado}, a propina de {mes} no valor de {valor} Kz está disponível. {reference_info}",
-  pagamento_confirmado: "Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado, {nome_encarregado}.",
-  atraso_pagamento: "A propina de {mes} encontra-se em atraso. Evite multa. {reference_info}",
-  multa_aplicada: "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes} do aluno {nome_aluno}.",
+  nova_fatura:          "Prezado(a) {nome_encarregado}, a propina de {mes} no valor de {valor} Kz está disponível. {reference_info}",
+  pagamento_confirmado: "Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado.",
+  atraso_pagamento:     "A propina de {mes} encontra-se em atraso. Evite multa. {reference_info}",
+  multa_aplicada:       "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}.",
 };
+
+type TemplateVarDef = { key: string; label: string; sample: string; events: SmsEventKey[] };
+const TEMPLATE_VARS: TemplateVarDef[] = [
+  { key: "{nome_encarregado}", label: "Nome do Encarregado",         sample: "Maria Antónia",    events: ["nova_fatura","pagamento_confirmado","atraso_pagamento","multa_aplicada"] },
+  { key: "{nome_aluno}",       label: "Nome do Aluno",               sample: "João Silva",       events: ["nova_fatura","pagamento_confirmado","atraso_pagamento","multa_aplicada"] },
+  { key: "{mes}",              label: "Mês da Propina",              sample: "Março 2025",       events: ["nova_fatura","atraso_pagamento","multa_aplicada"] },
+  { key: "{valor}",            label: "Valor da Propina (Kz)",       sample: "15.000",           events: ["nova_fatura","pagamento_confirmado"] },
+  { key: "{valor_multa}",      label: "Valor da Multa (Kz)",         sample: "1.500",            events: ["multa_aplicada"] },
+  {
+    key: "{reference_info}",
+    label: "Referência inteligente",
+    sample: "Ref: REF-00123456",
+    events: ["nova_fatura","atraso_pagamento"],
+  },
+];
+
+const SAMPLE_PAYLOAD: Record<string, string> = {
+  "{nome_encarregado}": "Maria Antónia",
+  "{nome_aluno}":       "João Silva",
+  "{mes}":              "Março 2025",
+  "{valor}":            "15.000",
+  "{valor_multa}":      "1.500",
+  "{reference_info}":   "Ref: REF-00123456",
+};
+
+function previewTemplate(tpl: string): string {
+  return Object.entries(SAMPLE_PAYLOAD).reduce((t, [k, v]) => t.replaceAll(k, v), tpl);
+}
 
 function ComunicacaoView({ token }: { token: string }) {
   const [settings, setSettings] = useState<any>(null);
@@ -3062,25 +3090,62 @@ function ComunicacaoView({ token }: { token: string }) {
           </div>
 
           {/* Template Editor */}
-          {editingTemplate && (
-            <div className="bg-blue-50 rounded-2xl border border-blue-200 p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-blue-900">
-                  Template: {SMS_EVENTS.find(e => e.key === editingTemplate)?.label}
-                </h3>
-                <button onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate]: DEFAULT_TEMPLATES[editingTemplate] }))}
-                  className="text-xs text-blue-600 hover:underline">Repor padrão</button>
+          {editingTemplate && (() => {
+            const evVars = TEMPLATE_VARS.filter(v => v.events.includes(editingTemplate));
+            const preview = previewTemplate(templates[editingTemplate] ?? "");
+            return (
+              <div className="bg-blue-50 rounded-2xl border border-blue-200 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-blue-900 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4"/>
+                    Template: {SMS_EVENTS.find(e => e.key === editingTemplate)?.label}
+                  </h3>
+                  <button onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate]: DEFAULT_TEMPLATES[editingTemplate] }))}
+                    className="text-xs text-blue-600 hover:underline font-medium">↩ Repor padrão</button>
+                </div>
+
+                {/* Editor */}
+                <textarea
+                  value={templates[editingTemplate]}
+                  onChange={e => setTemplates(prev => ({ ...prev, [editingTemplate!]: e.target.value }))}
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none font-mono"/>
+
+                {/* Variable chips */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-blue-800">Variáveis disponíveis — clique para inserir:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {evVars.map(v => (
+                      <button key={v.key}
+                        onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate!]: (prev[editingTemplate!] ?? "") + v.key }))}
+                        className="text-xs bg-white border border-blue-300 text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-100 transition-colors font-mono">
+                        {v.key}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    {evVars.map(v => (
+                      <p key={v.key} className="text-xs text-blue-600">
+                        <span className="font-mono font-semibold">{v.key}</span> — {v.label}
+                        {v.key === "{reference_info}" && (
+                          <span className="ml-1 text-blue-500 italic">
+                            (ref. EMIS → "Ref: {v.sample}"; ref. interna → "Aceda ao Portal do Aluno para pagar.")
+                          </span>
+                        )}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Live preview */}
+                <div className="bg-white rounded-xl border border-blue-200 p-3">
+                  <p className="text-xs font-semibold text-slate-500 mb-1.5">Pré-visualização (dados de exemplo):</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{preview}</p>
+                  <p className="text-xs text-slate-400 mt-1">{preview.length} caracteres · {Math.ceil(preview.length / 160)} SMS</p>
+                </div>
               </div>
-              <textarea
-                value={templates[editingTemplate]}
-                onChange={e => setTemplates(prev => ({ ...prev, [editingTemplate!]: e.target.value }))}
-                rows={3}
-                className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"/>
-              <p className="text-xs text-blue-600">
-                Variáveis: {"{nome_encarregado}"} {"{nome_aluno}"} {"{mes}"} {"{valor}"} {"{valor_multa}"} {"{reference_info}"}
-              </p>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="flex justify-end">
             <button onClick={saveConfig} disabled={saving}

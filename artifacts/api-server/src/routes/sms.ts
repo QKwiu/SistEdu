@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
-import { sendSMS, sendBulkSMS, SMSConfig } from "../services/sms.service";
+import { sendSMS, sendBulkSMS, SMSConfig, DEFAULT_TEMPLATES } from "../services/sms.service";
 
 const router = Router();
 
@@ -321,6 +321,45 @@ router.put("/admin/sms/provider", adminAuth, async (req: any, res) => {
     `, [JSON.stringify({ provider, api_url, api_key, sender_name })]);
   });
   res.json({ ok: true });
+});
+
+/* GET /admin/sms/templates — get global platform SMS templates */
+router.get("/admin/sms/templates", adminAuth, async (_req, res) => {
+  const r = await pool.query(
+    "SELECT value FROM platform_settings WHERE key='sms_templates' LIMIT 1"
+  ).catch(() => ({ rows: [] }));
+  res.json(r.rows[0]?.value ?? DEFAULT_TEMPLATES);
+});
+
+/* PUT /admin/sms/templates — save global platform SMS templates */
+router.put("/admin/sms/templates", adminAuth, async (req: any, res) => {
+  const templates = req.body;
+  if (!templates || typeof templates !== "object") {
+    return res.status(400).json({ error: "Corpo inválido. Envie um objecto JSON com os templates." });
+  }
+
+  await pool.query(`
+    INSERT INTO platform_settings (key, value) VALUES ('sms_templates', $1::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value = $1::jsonb
+  `, [JSON.stringify(templates)]).catch(async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS platform_settings (
+        key TEXT PRIMARY KEY,
+        value JSONB NOT NULL
+      )
+    `);
+    await pool.query(`
+      INSERT INTO platform_settings (key, value) VALUES ('sms_templates', $1::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = $1::jsonb
+    `, [JSON.stringify(templates)]);
+  });
+
+  res.json({ ok: true });
+});
+
+/* GET /admin/sms/template-defaults — return hardcoded default templates for reference */
+router.get("/admin/sms/template-defaults", adminAuth, async (_req, res) => {
+  res.json(DEFAULT_TEMPLATES);
 });
 
 /* POST /admin/sms/send — admin bulk send to multiple schools */

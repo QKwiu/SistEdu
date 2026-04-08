@@ -137,17 +137,27 @@ export async function sendBulkSMS(
   return { sent, failed, total: recipients.length };
 }
 
-const DEFAULT_TEMPLATES: Record<SMSEvent, string> = {
+export const DEFAULT_TEMPLATES: Record<SMSEvent, string> = {
   nova_fatura:
     "Prezado(a) {nome_encarregado}, a propina de {mes} no valor de {valor} Kz está disponível. {reference_info}",
   pagamento_confirmado:
-    "Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado, {nome_encarregado}.",
+    "Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado.",
   atraso_pagamento:
     "A propina de {mes} encontra-se em atraso. Evite multa. {reference_info}",
   multa_aplicada:
-    "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes} do aluno {nome_aluno}.",
+    "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}.",
   manual: "{mensagem}",
 };
+
+/** Variables available in templates with human-readable descriptions */
+export const TEMPLATE_VARIABLES = [
+  { key: "{nome_encarregado}", label: "Nome do Encarregado",   events: ["nova_fatura", "pagamento_confirmado", "atraso_pagamento", "multa_aplicada"] },
+  { key: "{nome_aluno}",       label: "Nome do Aluno",         events: ["nova_fatura", "pagamento_confirmado", "atraso_pagamento", "multa_aplicada"] },
+  { key: "{mes}",              label: "Mês da Propina",        events: ["nova_fatura", "atraso_pagamento", "multa_aplicada"] },
+  { key: "{valor}",            label: "Valor da Propina (Kz)", events: ["nova_fatura", "pagamento_confirmado"] },
+  { key: "{valor_multa}",      label: "Valor da Multa (Kz)",   events: ["multa_aplicada"] },
+  { key: "{reference_info}",   label: "Referência (inteligente): mostra 'Ref: XXXX' para ref. EMIS ou redireciona para o Portal do Aluno se for referência interna", events: ["nova_fatura", "atraso_pagamento"] },
+] as const;
 
 export interface SMSEventPayload {
   telefone: string;
@@ -158,6 +168,43 @@ export interface SMSEventPayload {
   valor_multa?: number | string;
   reference?: string;
   is_emis_reference?: boolean;
+}
+
+/** Fetch global platform templates (admin-configurable fallback) */
+async function getGlobalTemplates(): Promise<Record<string, string>> {
+  try {
+    const r = await pool.query(
+      "SELECT value FROM platform_settings WHERE key='sms_templates' LIMIT 1"
+    );
+    return (r.rows[0]?.value as Record<string, string>) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Resolve template with priority: school custom → platform global → hardcoded default */
+export function resolveTemplate(
+  event: SMSEvent,
+  schoolTemplates: Record<string, string>,
+  globalTemplates: Record<string, string>
+): string {
+  return schoolTemplates[event] ?? globalTemplates[event] ?? DEFAULT_TEMPLATES[event] ?? "";
+}
+
+/** Interpolate SMS template variables */
+export function interpolateTemplate(template: string, payload: SMSEventPayload): string {
+  const refInfo = payload.is_emis_reference
+    ? `Ref: ${payload.reference}`
+    : "Aceda ao Portal do Aluno para pagar.";
+
+  return template
+    .replace(/\{nome_encarregado\}/g, payload.nome_encarregado ?? "Encarregado")
+    .replace(/\{nome_aluno\}/g,       payload.nome_aluno ?? "Aluno")
+    .replace(/\{mes\}/g,              payload.mes ?? "")
+    .replace(/\{valor\}/g,            String(payload.valor ?? ""))
+    .replace(/\{valor_multa\}/g,      String(payload.valor_multa ?? ""))
+    .replace(/\{reference\}/g,        payload.reference ?? "")
+    .replace(/\{reference_info\}/g,   refInfo);
 }
 
 export async function sendEventSMS(
@@ -180,7 +227,9 @@ export async function sendEventSMS(
     const eventos = comm.eventos ?? {};
     if (event !== "manual" && !eventos[event]) return;
 
-    const templates: Record<string, string> = comm.sms_templates ?? {};
+    const schoolTemplates: Record<string, string> = comm.sms_templates ?? {};
+    const globalTemplates = await getGlobalTemplates();
+
     const config: SMSConfig = {
       provider: comm.sms_provider || "mock",
       api_url: comm.sms_api_url,
@@ -188,20 +237,8 @@ export async function sendEventSMS(
       sender_name: comm.sms_sender_name || "KiwaraEsc",
     };
 
-    const template = templates[event] ?? DEFAULT_TEMPLATES[event] ?? "";
-
-    const refInfo = payload.is_emis_reference
-      ? `Ref: ${payload.reference}`
-      : "Aceda ao Portal do Aluno para pagar.";
-
-    const message = template
-      .replace(/\{nome_encarregado\}/g, payload.nome_encarregado ?? "Encarregado")
-      .replace(/\{nome_aluno\}/g, payload.nome_aluno ?? "Aluno")
-      .replace(/\{mes\}/g, payload.mes ?? "")
-      .replace(/\{valor\}/g, String(payload.valor ?? ""))
-      .replace(/\{valor_multa\}/g, String(payload.valor_multa ?? ""))
-      .replace(/\{reference\}/g, payload.reference ?? "")
-      .replace(/\{reference_info\}/g, refInfo);
+    const template = resolveTemplate(event, schoolTemplates, globalTemplates);
+    const message  = interpolateTemplate(template, payload);
 
     const idempotencyKey =
       event !== "manual"

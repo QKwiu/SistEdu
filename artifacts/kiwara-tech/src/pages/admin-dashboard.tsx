@@ -3911,15 +3911,44 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
    AdminSMSView — Global SMS Management
 ═══════════════════════════════════════════════════════════ */
 const ADMIN_SMS_EVENTS = [
-  { key: "nova_fatura",          label: "Nova Fatura" },
-  { key: "pagamento_confirmado", label: "Pagamento Confirmado" },
-  { key: "atraso_pagamento",     label: "Atraso de Pagamento" },
-  { key: "multa_aplicada",       label: "Multa Aplicada" },
-  { key: "manual",               label: "Manual" },
+  { key: "nova_fatura",          label: "Nova Fatura",          icon: "📄" },
+  { key: "pagamento_confirmado", label: "Pagamento Confirmado", icon: "✅" },
+  { key: "atraso_pagamento",     label: "Atraso de Pagamento",  icon: "⏰" },
+  { key: "multa_aplicada",       label: "Multa Aplicada",       icon: "⚠️" },
 ];
 
+const ADMIN_DEFAULT_TEMPLATES: Record<string, string> = {
+  nova_fatura:          "Prezado(a) {nome_encarregado}, a propina de {mes} no valor de {valor} Kz está disponível. {reference_info}",
+  pagamento_confirmado: "Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado.",
+  atraso_pagamento:     "A propina de {mes} encontra-se em atraso. Evite multa. {reference_info}",
+  multa_aplicada:       "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}.",
+};
+
+type AdminTemplateVarDef = { key: string; label: string; sample: string; events: string[] };
+const ADMIN_TEMPLATE_VARS: AdminTemplateVarDef[] = [
+  { key: "{nome_encarregado}", label: "Nome do Encarregado",         sample: "Maria Antónia", events: ["nova_fatura","pagamento_confirmado","atraso_pagamento","multa_aplicada"] },
+  { key: "{nome_aluno}",       label: "Nome do Aluno",               sample: "João Silva",    events: ["nova_fatura","pagamento_confirmado","atraso_pagamento","multa_aplicada"] },
+  { key: "{mes}",              label: "Mês da Propina",              sample: "Março 2025",    events: ["nova_fatura","atraso_pagamento","multa_aplicada"] },
+  { key: "{valor}",            label: "Valor da Propina (Kz)",       sample: "15.000",        events: ["nova_fatura","pagamento_confirmado"] },
+  { key: "{valor_multa}",      label: "Valor da Multa (Kz)",         sample: "1.500",         events: ["multa_aplicada"] },
+  { key: "{reference_info}",   label: "Referência inteligente (EMIS → 'Ref: XXXX' | interna → 'Aceda ao Portal do Aluno para pagar.')", sample: "Ref: REF-00123456", events: ["nova_fatura","atraso_pagamento"] },
+];
+
+const ADMIN_SAMPLE: Record<string, string> = {
+  "{nome_encarregado}": "Maria Antónia",
+  "{nome_aluno}":       "João Silva",
+  "{mes}":              "Março 2025",
+  "{valor}":            "15.000",
+  "{valor_multa}":      "1.500",
+  "{reference_info}":   "Ref: REF-00123456",
+};
+
+function adminPreviewTemplate(tpl: string): string {
+  return Object.entries(ADMIN_SAMPLE).reduce((t, [k, v]) => t.replaceAll(k, v), tpl);
+}
+
 function AdminSMSView() {
-  const [activeTab, setActiveTab] = useState<"provider" | "logs" | "enviar">("provider");
+  const [activeTab, setActiveTab] = useState<"provider" | "templates" | "logs" | "enviar">("provider");
 
   // Provider config
   const [providerConfig, setProviderConfig] = useState({ provider: "mock", api_url: "", api_key: "", sender_name: "KiwaraEsc" });
@@ -3935,6 +3964,12 @@ function AdminSMSView() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterEvento, setFilterEvento] = useState("");
 
+  // Global templates
+  const [globalTemplates, setGlobalTemplates] = useState<Record<string, string>>({ ...ADMIN_DEFAULT_TEMPLATES });
+  const [savingTemplates, setSavingTemplates] = useState(false);
+  const [savedTemplates, setSavedTemplates] = useState(false);
+  const [editingAdminTemplate, setEditingAdminTemplate] = useState<string | null>(null);
+
   // Bulk send
   const [schools, setSchools] = useState<any[]>([]);
   const [selectedSchools, setSelectedSchools] = useState<number[]>([]);
@@ -3942,16 +3977,6 @@ function AdminSMSView() {
   const [bulkMsg, setBulkMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<any>(null);
-
-  useEffect(() => {
-    fetchProvider();
-    fetchStats();
-    fetchSchools();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "logs") fetchLogs(1);
-  }, [activeTab, filterStatus, filterEvento]);
 
   const getToken = () => localStorage.getItem(TOKEN_KEY) ?? "";
   const apiAdmin = (path: string, opts?: RequestInit) =>
@@ -3979,6 +4004,10 @@ function AdminSMSView() {
       .finally(() => setLogsLoading(false));
   };
 
+  const fetchGlobalTemplates = () => {
+    apiAdmin("/admin/sms/templates").then(r => r.ok ? r.json() : null).then(d => d && setGlobalTemplates(d));
+  };
+
   const saveProvider = async () => {
     setSavingProvider(true);
     await apiAdmin("/admin/sms/provider", { method: "PUT", body: JSON.stringify(providerConfig) });
@@ -3986,6 +4015,25 @@ function AdminSMSView() {
     setSavedProvider(true);
     setTimeout(() => setSavedProvider(false), 2500);
   };
+
+  const saveGlobalTemplates = async () => {
+    setSavingTemplates(true);
+    await apiAdmin("/admin/sms/templates", { method: "PUT", body: JSON.stringify(globalTemplates) });
+    setSavingTemplates(false);
+    setSavedTemplates(true);
+    setTimeout(() => setSavedTemplates(false), 2500);
+  };
+
+  useEffect(() => {
+    fetchProvider();
+    fetchStats();
+    fetchSchools();
+    fetchGlobalTemplates();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "logs") fetchLogs(1);
+  }, [activeTab, filterStatus, filterEvento]);
 
   const handleBulkSend = async () => {
     if (!bulkMsg.trim()) return;
@@ -4039,11 +4087,11 @@ function AdminSMSView() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
-        {(["provider","enviar","logs"] as const).map(t => (
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
+        {(["provider","templates","enviar","logs"] as const).map(t => (
           <button key={t} onClick={() => setActiveTab(t)}
-            className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === t ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
-            {t === "provider" ? "Provedor" : t === "enviar" ? "Enviar em Massa" : "Monitorização"}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === t ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
+            {t === "provider" ? "Provedor" : t === "templates" ? "Templates" : t === "enviar" ? "Enviar em Massa" : "Monitorização"}
           </button>
         ))}
       </div>
@@ -4086,6 +4134,110 @@ function AdminSMSView() {
               className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
               {savingProvider ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedProvider ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
               {savedProvider ? "Guardado!" : "Guardar"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Templates Tab */}
+      {activeTab === "templates" && (
+        <div className="space-y-5">
+          {/* Info banner */}
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
+            <MessageSquare className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0"/>
+            <div className="text-sm text-blue-800">
+              <p className="font-semibold mb-1">Templates globais da plataforma</p>
+              <p>Estes templates são usados como padrão para todos os colégios. Cada colégio pode personalizar os seus próprios templates nas configurações de Comunicação, que têm prioridade sobre estes.</p>
+              <p className="mt-1 text-blue-600">Ordem de prioridade: <strong>Template do colégio</strong> → Template global (este) → Padrão do sistema</p>
+            </div>
+          </div>
+
+          {/* Event template editors */}
+          {ADMIN_SMS_EVENTS.map(ev => {
+            const tpl     = globalTemplates[ev.key] ?? ADMIN_DEFAULT_TEMPLATES[ev.key] ?? "";
+            const isEdit  = editingAdminTemplate === ev.key;
+            const preview = adminPreviewTemplate(tpl);
+            const evVars  = ADMIN_TEMPLATE_VARS.filter(v => v.events.includes(ev.key));
+
+            return (
+              <div key={ev.key} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{ev.icon}</span>
+                    <span className="font-semibold text-slate-900 text-sm">{ev.label}</span>
+                    {globalTemplates[ev.key] && globalTemplates[ev.key] !== ADMIN_DEFAULT_TEMPLATES[ev.key] && (
+                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Personalizado</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {globalTemplates[ev.key] !== ADMIN_DEFAULT_TEMPLATES[ev.key] && (
+                      <button onClick={() => setGlobalTemplates(prev => ({ ...prev, [ev.key]: ADMIN_DEFAULT_TEMPLATES[ev.key] }))}
+                        className="text-xs text-slate-500 hover:text-slate-700 hover:underline">↩ Padrão</button>
+                    )}
+                    <button onClick={() => setEditingAdminTemplate(isEdit ? null : ev.key)}
+                      className="text-xs text-primary hover:underline font-medium">
+                      {isEdit ? "Fechar" : "Editar"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Preview when not editing */}
+                {!isEdit && (
+                  <div className="px-5 py-3">
+                    <p className="text-xs text-slate-500 mb-1">Pré-visualização:</p>
+                    <p className="text-sm text-slate-700">{preview}</p>
+                    <p className="text-xs text-slate-400 mt-1">{preview.length} caracteres · {Math.ceil(preview.length / 160)} SMS</p>
+                  </div>
+                )}
+
+                {/* Editor when open */}
+                {isEdit && (
+                  <div className="p-5 space-y-4 bg-slate-50">
+                    <textarea
+                      value={tpl}
+                      onChange={e => setGlobalTemplates(prev => ({ ...prev, [ev.key]: e.target.value }))}
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none font-mono"/>
+
+                    {/* Variable chips */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-600">Variáveis disponíveis — clique para inserir:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {evVars.map(v => (
+                          <button key={v.key}
+                            onClick={() => setGlobalTemplates(prev => ({ ...prev, [ev.key]: (prev[ev.key] ?? "") + v.key }))}
+                            className="text-xs bg-white border border-slate-300 text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors font-mono">
+                            {v.key}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="space-y-1">
+                        {evVars.map(v => (
+                          <p key={v.key} className="text-xs text-slate-500">
+                            <span className="font-mono font-semibold text-slate-700">{v.key}</span> — {v.label}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-3">
+                      <p className="text-xs font-semibold text-slate-500 mb-1.5">Pré-visualização (dados de exemplo):</p>
+                      <p className="text-sm text-slate-700 leading-relaxed">{preview}</p>
+                      <p className="text-xs text-slate-400 mt-1">{preview.length} caracteres · {Math.ceil(preview.length / 160)} SMS</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div className="flex justify-end">
+            <button onClick={saveGlobalTemplates} disabled={savingTemplates}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+              {savingTemplates ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedTemplates ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+              {savedTemplates ? "Guardado!" : "Guardar Templates Globais"}
             </button>
           </div>
         </div>
