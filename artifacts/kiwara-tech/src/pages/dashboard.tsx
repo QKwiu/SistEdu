@@ -10,7 +10,8 @@ import {
   UserPlus, FileSpreadsheet, Download, Upload,
   ArrowLeftRight, ShieldCheck, Receipt, Landmark, Filter,
   Paperclip, FileCheck, CalendarDays, MessageSquare, ExternalLink, BadgeCheck,
-  Eye, FileImage, Link as LinkIcon,
+  Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
+  ChevronLeft, ChevronRight, ListFilter,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -45,7 +46,7 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicacao";
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -2764,6 +2765,412 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   ComunicacaoView — SMS Notifications (School)
+═══════════════════════════════════════════════════════════ */
+const SMS_EVENTS = [
+  { key: "nova_fatura",        label: "Nova Fatura",           desc: "Enviado ao criar propinas" },
+  { key: "pagamento_confirmado", label: "Pagamento Confirmado", desc: "Enviado após webhook de pagamento" },
+  { key: "atraso_pagamento",   label: "Atraso de Pagamento",   desc: "Enviado ao aplicar vencido" },
+  { key: "multa_aplicada",     label: "Multa Aplicada",        desc: "Enviado ao calcular multa" },
+] as const;
+
+type SmsEventKey = typeof SMS_EVENTS[number]["key"];
+
+const DEFAULT_TEMPLATES: Record<SmsEventKey, string> = {
+  nova_fatura: "Prezado(a) {nome_encarregado}, a propina de {mes} no valor de {valor} Kz está disponível. {reference_info}",
+  pagamento_confirmado: "Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado, {nome_encarregado}.",
+  atraso_pagamento: "A propina de {mes} encontra-se em atraso. Evite multa. {reference_info}",
+  multa_aplicada: "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes} do aluno {nome_aluno}.",
+};
+
+function ComunicacaoView({ token, alunos }: { token: string; alunos: any[] }) {
+  const [settings, setSettings] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState<"config" | "enviar" | "logs">("config");
+
+  // Settings fields
+  const [smsActivo, setSmsActivo] = useState(false);
+  const [provider, setProvider] = useState("mock");
+  const [apiUrl, setApiUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [senderName, setSenderName] = useState("KiwaraEsc");
+  const [eventos, setEventos] = useState<Record<string, boolean>>({
+    nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true,
+  });
+  const [templates, setTemplates] = useState<Record<string, string>>({ ...DEFAULT_TEMPLATES });
+  const [editingTemplate, setEditingTemplate] = useState<SmsEventKey | null>(null);
+
+  // Manual send
+  const [sendMsg, setSendMsg] = useState("");
+  const [selectedAlunos, setSelectedAlunos] = useState<number[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [selectAll, setSelectAll] = useState(false);
+
+  // Logs
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    fetch(`${API}/school/settings`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        setSettings(data);
+        const comm = data?.comunicacao ?? {};
+        setSmsActivo(comm.sms_activo ?? false);
+        setProvider(comm.sms_provider ?? "mock");
+        setApiUrl(comm.sms_api_url ?? "");
+        setApiKey(comm.sms_api_key ?? "");
+        setSenderName(comm.sms_sender_name ?? "KiwaraEsc");
+        setEventos(comm.eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
+        setTemplates({ ...DEFAULT_TEMPLATES, ...(comm.sms_templates ?? {}) });
+      });
+    fetchStats();
+  }, [token]);
+
+  useEffect(() => {
+    if (activeTab === "logs") fetchLogs(1);
+  }, [activeTab]);
+
+  const fetchStats = () => {
+    fetch(`${API}/school/sms/stats`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setStats(d));
+  };
+
+  const fetchLogs = (page: number) => {
+    setLogsLoading(true);
+    setLogsPage(page);
+    fetch(`${API}/school/sms/logs?page=${page}&limit=20`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { setLogs(d.logs ?? []); setLogsTotal(d.total ?? 0); })
+      .finally(() => setLogsLoading(false));
+  };
+
+  const saveConfig = async () => {
+    if (!settings) return;
+    setSaving(true);
+    const patch = {
+      ...settings,
+      comunicacao: {
+        ...(settings.comunicacao ?? {}),
+        sms_activo: smsActivo,
+        sms_provider: provider,
+        sms_api_url: apiUrl,
+        sms_api_key: apiKey,
+        sms_sender_name: senderName,
+        eventos,
+        sms_templates: templates,
+      },
+    };
+    await fetch(`${API}/school/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(patch),
+    });
+    setSettings(patch);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    setSelectAll(checked);
+    if (checked) setSelectedAlunos(alunos.map(a => a.id));
+    else setSelectedAlunos([]);
+  };
+
+  const handleSend = async () => {
+    if (!sendMsg.trim() || !selectedAlunos.length) return;
+    setSending(true);
+    setSendResult(null);
+    const recipients = alunos
+      .filter(a => selectedAlunos.includes(a.id) && a.telefone_encarregado)
+      .map(a => ({ phone: a.telefone_encarregado, name: a.nome_encarregado ?? a.nome }));
+
+    const r = await fetch(`${API}/school/sms/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mensagem: sendMsg, recipients }),
+    });
+    const d = await r.json();
+    setSendResult(d);
+    setSending(false);
+    setSendMsg("");
+    setSelectedAlunos([]);
+    setSelectAll(false);
+    fetchStats();
+  };
+
+  const totalPages = Math.ceil(logsTotal / 20);
+
+  const statusBadge = (s: string) => s === "sent"
+    ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Enviado</span>
+    : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Falhou</span>;
+
+  const eventLabel = (e: string) => SMS_EVENTS.find(ev => ev.key === e)?.label ?? e;
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Smartphone className="w-6 h-6 text-primary"/> Comunicação & Notificações SMS
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">Notifique encarregados automaticamente sobre propinas, pagamentos e multas.</p>
+        </div>
+        {stats && (
+          <div className="flex gap-3">
+            <div className="text-center px-4 py-2 bg-emerald-50 rounded-xl border border-emerald-100">
+              <div className="text-lg font-bold text-emerald-700">{stats.sent}</div>
+              <div className="text-xs text-emerald-600">Enviados</div>
+            </div>
+            <div className="text-center px-4 py-2 bg-red-50 rounded-xl border border-red-100">
+              <div className="text-lg font-bold text-red-700">{stats.failed}</div>
+              <div className="text-xs text-red-600">Falhas</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        {(["config","enviar","logs"] as const).map(t => (
+          <button key={t} onClick={() => setActiveTab(t)}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === t ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
+            {t === "config" ? "Configuração" : t === "enviar" ? "Enviar SMS" : "Histórico"}
+          </button>
+        ))}
+      </div>
+
+      {/* Config Tab */}
+      {activeTab === "config" && (
+        <div className="space-y-5">
+          {/* Main Toggle */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900">Notificações SMS</p>
+                <p className="text-sm text-slate-500">Activar envio automático de SMS para encarregados</p>
+              </div>
+              <button onClick={() => setSmsActivo(v => !v)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${smsActivo ? "bg-primary text-white" : "bg-slate-100 text-slate-600"}`}>
+                {smsActivo ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {smsActivo ? "Activado" : "Desactivado"}
+              </button>
+            </div>
+          </div>
+
+          {/* Provider Config */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Configuração do Provedor</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Provedor</label>
+                <select value={provider} onChange={e => setProvider(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <option value="mock">Simulação (Mock)</option>
+                  <option value="africastalking">Africa's Talking</option>
+                  <option value="twilio">Twilio</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nome do Remetente</label>
+                <input value={senderName} onChange={e => setSenderName(e.target.value)} maxLength={11}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="KiwaraEsc"/>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint (API do Provedor)</label>
+                <input value={apiUrl} onChange={e => setApiUrl(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="https://api.provedor.com/sms/send"/>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">API Key / Token de Autenticação</label>
+                <input value={apiKey} onChange={e => setApiKey(e.target.value)} type="password"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="••••••••••••••••"/>
+              </div>
+            </div>
+          </div>
+
+          {/* Events */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Eventos Activos</h3>
+            <div className="space-y-3">
+              {SMS_EVENTS.map(ev => (
+                <div key={ev.key} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{ev.label}</p>
+                    <p className="text-xs text-slate-500">{ev.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setEditingTemplate(editingTemplate === ev.key ? null : ev.key)}
+                      className="text-xs text-primary hover:underline">
+                      {editingTemplate === ev.key ? "Fechar" : "Editar template"}
+                    </button>
+                    <button onClick={() => setEventos(prev => ({ ...prev, [ev.key]: !prev[ev.key] }))}
+                      className={`w-10 h-5 rounded-full transition-colors relative ${eventos[ev.key] ? "bg-primary" : "bg-slate-300"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${eventos[ev.key] ? "translate-x-5" : ""}`}/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Template Editor */}
+          {editingTemplate && (
+            <div className="bg-blue-50 rounded-2xl border border-blue-200 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-blue-900">
+                  Template: {SMS_EVENTS.find(e => e.key === editingTemplate)?.label}
+                </h3>
+                <button onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate]: DEFAULT_TEMPLATES[editingTemplate] }))}
+                  className="text-xs text-blue-600 hover:underline">Repor padrão</button>
+              </div>
+              <textarea
+                value={templates[editingTemplate]}
+                onChange={e => setTemplates(prev => ({ ...prev, [editingTemplate!]: e.target.value }))}
+                rows={3}
+                className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"/>
+              <p className="text-xs text-blue-600">
+                Variáveis: {"{nome_encarregado}"} {"{nome_aluno}"} {"{mes}"} {"{valor}"} {"{valor_multa}"} {"{reference_info}"}
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button onClick={saveConfig} disabled={saving}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+              {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved ? <CheckCircle2 className="w-4 h-4"/> : <Send className="w-4 h-4"/>}
+              {saved ? "Guardado!" : "Guardar Configurações"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Send SMS Tab */}
+      {activeTab === "enviar" && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Mensagem</h3>
+            <textarea value={sendMsg} onChange={e => setSendMsg(e.target.value)} rows={4}
+              placeholder="Escreva a mensagem que será enviada a todos os encarregados seleccionados..."
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>{sendMsg.length} caracteres</span>
+              <span>{Math.ceil(sendMsg.length / 160)} SMS</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Destinatários</h3>
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} className="rounded"/>
+                Seleccionar todos ({alunos.filter(a => a.telefone_encarregado).length} com telefone)
+              </label>
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {alunos.map(a => (
+                <label key={a.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selectedAlunos.includes(a.id) ? "bg-primary/5 border border-primary/20" : "hover:bg-slate-50"}`}>
+                  <input type="checkbox" checked={selectedAlunos.includes(a.id)}
+                    onChange={e => setSelectedAlunos(prev => e.target.checked ? [...prev, a.id] : prev.filter(id => id !== a.id))}
+                    className="rounded text-primary"/>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{a.nome}</p>
+                    <p className="text-xs text-slate-500 truncate">{a.nome_encarregado ?? "—"} · {a.telefone_encarregado ?? <span className="text-red-400">Sem telefone</span>}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {sendResult && (
+            <div className={`rounded-xl p-4 flex items-center gap-3 ${sendResult.failed > 0 ? "bg-yellow-50 border border-yellow-200" : "bg-emerald-50 border border-emerald-200"}`}>
+              <CheckCircle2 className={`w-5 h-5 ${sendResult.failed > 0 ? "text-yellow-600" : "text-emerald-600"}`}/>
+              <p className="text-sm font-medium">
+                {sendResult.sent} enviado(s) · {sendResult.failed} falha(s)
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button onClick={handleSend} disabled={sending || !sendMsg.trim() || !selectedAlunos.length}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              {sending ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+              {sending ? "A enviar..." : `Enviar para ${selectedAlunos.length} aluno(s)`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Logs Tab */}
+      {activeTab === "logs" && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-900">Histórico de SMS ({logsTotal})</h3>
+            <button onClick={() => fetchLogs(logsPage)} className="text-xs text-primary hover:underline flex items-center gap-1">
+              <RefreshCw className="w-3 h-3"/> Actualizar
+            </button>
+          </div>
+          {logsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="w-5 h-5 animate-spin text-primary"/>
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+              <p className="text-sm">Nenhum SMS enviado ainda.</p>
+            </div>
+          ) : (
+            <>
+              <div className="divide-y divide-slate-100">
+                {logs.map((log: any) => (
+                  <div key={log.id} className="px-5 py-3 flex items-start gap-4">
+                    <div className="mt-0.5">{statusBadge(log.status)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-medium text-slate-700">{log.telefone}</span>
+                        {log.evento && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{eventLabel(log.evento)}</span>}
+                      </div>
+                      <p className="text-sm text-slate-600 line-clamp-2">{log.mensagem}</p>
+                    </div>
+                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                      {new Date(log.data_envio).toLocaleString("pt-AO", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {totalPages > 1 && (
+                <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
+                  <button onClick={() => fetchLogs(logsPage - 1)} disabled={logsPage <= 1}
+                    className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                    <ChevronLeft className="w-4 h-4"/> Anterior
+                  </button>
+                  <span className="text-xs text-slate-500">{logsPage} / {totalPages}</span>
+                  <button onClick={() => fetchLogs(logsPage + 1)} disabled={logsPage >= totalPages}
+                    className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                    Seguinte <ChevronRight className="w-4 h-4"/>
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -2825,6 +3232,7 @@ export default function Dashboard() {
     { key: "propinas", icon: <FileText className="w-5 h-5"/>, label: "Propinas & Faturas" },
     { key: "reconciliacao", icon: <ShieldCheck className="w-5 h-5"/>, label: "Reconciliação" },
     { key: "ocorrencias", icon: <AlertTriangle className="w-5 h-5"/>, label: "Ocorrências" },
+    { key: "comunicacao", icon: <Smartphone className="w-5 h-5"/>, label: "Comunicação" },
   ];
 
   return (
@@ -2917,6 +3325,11 @@ export default function Dashboard() {
             {view === "ocorrencias" && (
               <motion.div key="ocorrencias" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col">
                 <OcorrenciasView token={token} schoolName={schoolName}/>
+              </motion.div>
+            )}
+            {view === "comunicacao" && (
+              <motion.div key="comunicacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
+                <ComunicacaoView token={token} alunos={alunos}/>
               </motion.div>
             )}
           </AnimatePresence>

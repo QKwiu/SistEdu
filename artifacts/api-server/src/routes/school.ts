@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import { generateInternalReference } from "./reconciliation";
+import { sendEventSMS } from "../services/sms.service";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -55,8 +56,11 @@ async function applyFinesForSchool(schoolId: number): Promise<void> {
   const thisMonth = now.getMonth(); // 0-indexed
 
   const overdueRes = await pool.query(
-    `SELECT p.id, p.montante, p.multa, p.data_vencimento
+    `SELECT p.id, p.montante, p.multa, p.data_vencimento, p.mes,
+            s.nome AS nome_aluno, s.telefone_encarregado, s.nome_encarregado,
+            p.internal_reference
      FROM propinas p
+     JOIN students s ON s.id = p.student_id
      WHERE p.school_id = $1 AND p.status = 'pendente' AND p.data_vencimento < NOW()`,
     [schoolId]
   );
@@ -104,10 +108,32 @@ async function applyFinesForSchool(schoolId: number): Promise<void> {
       }
     }
 
+    const multaAnterior = Number(p.multa);
     await pool.query(
       "UPDATE propinas SET status = 'vencido', multa = $1 WHERE id = $2",
       [multa, p.id]
     );
+
+    if (p.telefone_encarregado) {
+      if (multa > multaAnterior && multa > 0) {
+        sendEventSMS("multa_aplicada", schoolId, {
+          telefone: p.telefone_encarregado,
+          nome_encarregado: p.nome_encarregado ?? undefined,
+          nome_aluno: p.nome_aluno,
+          mes: p.mes,
+          valor_multa: Math.round(multa),
+        }).catch(() => {});
+      } else {
+        sendEventSMS("atraso_pagamento", schoolId, {
+          telefone: p.telefone_encarregado,
+          nome_encarregado: p.nome_encarregado ?? undefined,
+          nome_aluno: p.nome_aluno,
+          mes: p.mes,
+          reference: p.internal_reference ?? undefined,
+          is_emis_reference: false,
+        }).catch(() => {});
+      }
+    }
   }
 }
 
@@ -534,10 +560,11 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
 
   // Verify student belongs to this school
   const stRes = await pool.query(
-    "SELECT id FROM students WHERE id = $1 AND school_id = $2",
+    "SELECT id, nome, telefone_encarregado, nome_encarregado FROM students WHERE id = $1 AND school_id = $2",
     [student_id, school.school_id]
   );
   if (!stRes.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+  const studentInfo = stRes.rows[0];
 
   const created = [];
   for (const mes of meses) {
@@ -555,6 +582,17 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
         const ref = await generateInternalReference(propina.id);
         await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
         created.push({ ...propina, internal_reference: ref });
+        if (studentInfo.telefone_encarregado) {
+          sendEventSMS("nova_fatura", school.school_id, {
+            telefone: studentInfo.telefone_encarregado,
+            nome_encarregado: studentInfo.nome_encarregado ?? undefined,
+            nome_aluno: studentInfo.nome,
+            mes,
+            valor: montante,
+            reference: ref,
+            is_emis_reference: false,
+          }).catch(() => {});
+        }
       }
     } catch {}
   }

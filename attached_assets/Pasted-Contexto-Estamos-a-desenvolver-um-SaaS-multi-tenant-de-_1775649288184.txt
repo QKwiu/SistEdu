@@ -1,0 +1,175 @@
+Contexto:
+Estamos a desenvolver um SaaS multi-tenant de gestão escolar com módulo financeiro (propinas, emolumentos, pagamentos e reconciliação).
+
+Objetivo:
+Permitir que colégios/instituições de ensino possam comunicar automaticamente com os encarregados de educação via SMS sobre pagamentos de diferentes emolumentos.
+
+A funcionalidade deve estar disponível tanto no:
+- Perfil do Colégio (Tenant)
+- Perfil de Administração da Plataforma
+
+----------------------------------------
+
+1. Ativação da funcionalidade (configuração por colégio):
+
+Criar configuração no school_settings:
+
+- enable_sms_notifications (boolean)
+- sms_provider (ex: Twilio, Africastalking, gateway local)
+- sms_sender_name
+- eventos_ativos:
+  - nova_fatura
+  - pagamento_confirmado
+  - atraso_pagamento
+  - multa_aplicada
+
+A funcionalidade só deve funcionar se estiver ativa para o colégio.
+
+----------------------------------------
+
+2. Tipos de notificações (event-driven):
+
+O sistema deve enviar SMS automaticamente nos seguintes eventos:
+
+- Criação de nova fatura (propina/emolumento)
+- Confirmação de pagamento (via webhook/middleware)
+- Atraso de pagamento (após vencimento)
+- Aplicação de multa
+
+----------------------------------------
+
+3. Destinatários:
+
+- Encarregados associados ao aluno
+- Utilizar:
+  - telefone principal
+  - telefone alternativo (se existir)
+
+----------------------------------------
+
+4. Conteúdo das mensagens (templates):
+
+Criar sistema de templates configuráveis:
+
+Exemplo:
+
+Nova fatura:
+"Prezado(a) {nome_encarregado}, a propina de {mes} no valor de {valor} Kz está disponível. Ref: {reference}"
+
+Pagamento confirmado:
+"Pagamento confirmado para {nome_aluno}. Valor: {valor} Kz. Obrigado."
+
+Atraso:
+"A propina de {mes} encontra-se em atraso. Evite multa. Ref: {reference}"
+Nota: o valor da refÊncia só se aplica se for uma referência emis, caso for uma referência interna, o pagamento deverá ser feito acedendo ao Portal do Aluno.
+
+Multa:
+"Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}."
+
+----------------------------------------
+
+5. Envio de SMS:
+
+Criar serviço:
+
+sms.service.ts
+
+Funções:
+- sendSMS(to, message)
+- sendBulkSMS(list, message)
+
+Requisitos:
+- Suporte a envio individual e em massa
+- Log de mensagens enviadas
+
+----------------------------------------
+
+6. Integração com eventos do sistema:
+
+Disparar SMS automaticamente:
+
+- Ao criar invoice
+- Ao receber webhook de pagamento
+- Ao aplicar multa
+- Ao identificar atraso (job agendado)
+
+----------------------------------------
+
+7. Envio manual (IMPORTANTE):
+
+Permitir envio manual de SMS:
+
+No perfil do Colégio:
+- Selecionar alunos/turmas
+- Enviar mensagem personalizada
+
+No perfil de Administração:
+- Envio em massa para múltiplos colégios
+
+----------------------------------------
+
+8. Logs e auditoria:
+
+Criar tabela:
+
+sms_logs
+- id
+- school_id
+- telefone
+- mensagem
+- status (sent, failed)
+- data_envio
+
+----------------------------------------
+
+9. UI/UX:
+
+No perfil do Colégio:
+
+Menu: "Comunicação" ou "Notificações"
+
+- Ativar/desativar SMS
+- Configurar templates
+- Ver histórico de envios
+- Botão "Enviar SMS"
+
+No perfil Admin:
+
+- Gestão global de SMS
+- Monitoramento de envios
+- Configuração de provider
+
+----------------------------------------
+
+10. Regras importantes:
+
+- Respeitar configuração por colégio (multi-tenant)
+- Não enviar SMS se funcionalidade estiver desativada
+- Validar formato do número (Angola: 9 dígitos)
+- Evitar duplicação de envio (idempotência)
+
+----------------------------------------
+
+11. Entregáveis:
+
+- Configuração de SMS por colégio
+- Serviço de envio de SMS
+- Integração com eventos do sistema
+- Templates configuráveis
+- UI para envio manual e gestão
+- Logs de envio
+
+----------------------------------------
+
+Objetivo final:
+
+Criar um sistema de comunicação automatizado e escalável que permita:
+
+- Notificar encarregados em tempo real
+- Reduzir inadimplência
+- Melhorar a experiência do utilizador
+- Dar controlo total ao colégio e à administração da plataforma
+
+Para a funcionalidade envio de mensagens em massa ou pontual, deve ser possível de ser enviado no perfil da administração e no perfil do Colégio.
+
+No perfil da administração, deve ser existir o campo para configurar os end point do provedor do serviço

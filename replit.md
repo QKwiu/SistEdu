@@ -73,8 +73,19 @@ The core business logic revolves around the tuition fee system and its flexible 
     5.  School administration confirms payment (status: paid).
     6.  All adjustments (forgiveness, rescheduling) are logged.
 
+## SMS Notification System
+A full multi-tenant SMS notification system is implemented:
+- **Service**: `artifacts/api-server/src/services/sms.service.ts` — provider-agnostic SMS sending with mock mode, `sendSMS()`, `sendBulkSMS()`, `sendEventSMS()`
+- **Routes**: `artifacts/api-server/src/routes/sms.ts` — school and admin SMS endpoints
+- **Events**: Automatic triggers on `nova_fatura` (propina created), `pagamento_confirmado` (payment webhook), `multa_aplicada` (fine applied), `atraso_pagamento` (overdue)
+- **DB Table**: `sms_logs (id, school_id, telefone, mensagem, status, evento, idempotency_key, provider_ref, data_envio)`
+- **Config**: Per-school SMS config stored in `school_settings.comunicacao` (sms_activo, sms_provider, sms_api_url, sms_api_key, sms_sender_name, eventos, sms_templates)
+- **School UI**: "Comunicação" tab in school dashboard with config, template editor, manual send, logs
+- **Admin UI**: "SMS & Comunicação" section with global provider config, bulk send to all/selected schools, monitoring
+- **Providers**: mock (default), Africa's Talking, Twilio, custom HTTP endpoint
+
 ## Database Schema Highlights
-Key tables include `schools`, `sessions`, `encarregados`, `guardian_sessions`, `encarregado_aluno`, `turmas`, `students`, `matriculas`, `propinas`, `pagamentos`, `ocorrencias`, `multa_regras`, and `propina_ajustes`. Enum values are defined for `students.estado`, `students.sexo`, `propinas.status`, and `pagamentos.estado`.
+Key tables include `schools`, `sessions`, `encarregados`, `guardian_sessions`, `encarregado_aluno`, `turmas`, `students`, `matriculas`, `propinas`, `pagamentos`, `ocorrencias`, `multa_regras`, `propina_ajustes`, and `sms_logs`. Enum values are defined for `students.estado`, `students.sexo`, `propinas.status`, and `pagamentos.estado`.
 
 # External Dependencies
 -   **Monorepo Tool**: pnpm workspaces

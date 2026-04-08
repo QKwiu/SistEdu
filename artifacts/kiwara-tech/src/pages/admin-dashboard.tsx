@@ -9,7 +9,7 @@ import {
   FileText, Clock, CreditCard, History, Slash, BadgePercent, TableProperties, UserPlus,
   ArrowLeftRight, ShieldCheck, Filter, ChevronDown,
   SlidersHorizontal, Save, MessageSquare, Mail, Smartphone, Globe, Lock,
-  Zap, BarChart3, CheckSquare, ToggleLeft,
+  Zap, BarChart3, CheckSquare, ToggleLeft, Send, ChevronLeft, ToggleRight, ListFilter,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -3907,8 +3907,340 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════
+   AdminSMSView — Global SMS Management
+═══════════════════════════════════════════════════════════ */
+const ADMIN_SMS_EVENTS = [
+  { key: "nova_fatura",          label: "Nova Fatura" },
+  { key: "pagamento_confirmado", label: "Pagamento Confirmado" },
+  { key: "atraso_pagamento",     label: "Atraso de Pagamento" },
+  { key: "multa_aplicada",       label: "Multa Aplicada" },
+  { key: "manual",               label: "Manual" },
+];
+
+function AdminSMSView() {
+  const [activeTab, setActiveTab] = useState<"provider" | "logs" | "enviar">("provider");
+
+  // Provider config
+  const [providerConfig, setProviderConfig] = useState({ provider: "mock", api_url: "", api_key: "", sender_name: "KiwaraEsc" });
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [savedProvider, setSavedProvider] = useState(false);
+
+  // Logs
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsStats, setLogsStats] = useState<any>(null);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterEvento, setFilterEvento] = useState("");
+
+  // Bulk send
+  const [schools, setSchools] = useState<any[]>([]);
+  const [selectedSchools, setSelectedSchools] = useState<number[]>([]);
+  const [sendTodos, setSendTodos] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<any>(null);
+
+  useEffect(() => {
+    fetchProvider();
+    fetchStats();
+    fetchSchools();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "logs") fetchLogs(1);
+  }, [activeTab, filterStatus, filterEvento]);
+
+  const getToken = () => localStorage.getItem(TOKEN_KEY) ?? "";
+  const apiAdmin = (path: string, opts?: RequestInit) =>
+    fetch(`${API}${path}`, { ...opts, headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...(opts?.headers ?? {}) } });
+
+  const fetchProvider = () => {
+    apiAdmin("/admin/sms/provider").then(r => r.ok ? r.json() : null).then(d => d && setProviderConfig(d));
+  };
+
+  const fetchStats = () => {
+    apiAdmin("/admin/sms/stats").then(r => r.ok ? r.json() : null).then(d => d && setLogsStats(d));
+  };
+
+  const fetchSchools = () => {
+    apiAdmin("/admin/colegios").then(r => r.ok ? r.json() : null).then(d => d && setSchools(d.colegios ?? d ?? []));
+  };
+
+  const fetchLogs = (page: number) => {
+    setLogsLoading(true);
+    setLogsPage(page);
+    const qs = new URLSearchParams({ page: String(page), limit: "30", ...(filterStatus ? { status: filterStatus } : {}), ...(filterEvento ? { evento: filterEvento } : {}) });
+    apiAdmin(`/admin/sms/logs?${qs}`)
+      .then(r => r.json())
+      .then(d => { setLogs(d.logs ?? []); setLogsTotal(d.total ?? 0); })
+      .finally(() => setLogsLoading(false));
+  };
+
+  const saveProvider = async () => {
+    setSavingProvider(true);
+    await apiAdmin("/admin/sms/provider", { method: "PUT", body: JSON.stringify(providerConfig) });
+    setSavingProvider(false);
+    setSavedProvider(true);
+    setTimeout(() => setSavedProvider(false), 2500);
+  };
+
+  const handleBulkSend = async () => {
+    if (!bulkMsg.trim()) return;
+    setSending(true);
+    setSendResult(null);
+    const body = sendTodos
+      ? { mensagem: bulkMsg, todos: true }
+      : { mensagem: bulkMsg, school_ids: selectedSchools };
+    const r = await apiAdmin("/admin/sms/send", { method: "POST", body: JSON.stringify(body) });
+    const d = await r.json();
+    setSendResult(d);
+    setSending(false);
+    setBulkMsg("");
+    setSelectedSchools([]);
+    setSendTodos(false);
+    fetchStats();
+  };
+
+  const totalPages = Math.ceil(logsTotal / 30);
+
+  const statusBadge = (s: string) => s === "sent"
+    ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Enviado</span>
+    : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Falhou</span>;
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Smartphone className="w-6 h-6 text-primary"/> Gestão Global de SMS
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">Configure o provedor, monitorize envios e comunique com todos os colégios.</p>
+        </div>
+        {logsStats && (
+          <div className="flex gap-3">
+            <div className="text-center px-4 py-2 bg-slate-100 rounded-xl">
+              <div className="text-lg font-bold text-slate-800">{logsStats.total ?? 0}</div>
+              <div className="text-xs text-slate-500">Total</div>
+            </div>
+            <div className="text-center px-4 py-2 bg-emerald-50 rounded-xl">
+              <div className="text-lg font-bold text-emerald-700">{logsStats.sent ?? 0}</div>
+              <div className="text-xs text-emerald-600">Enviados</div>
+            </div>
+            <div className="text-center px-4 py-2 bg-red-50 rounded-xl">
+              <div className="text-lg font-bold text-red-700">{logsStats.failed ?? 0}</div>
+              <div className="text-xs text-red-600">Falhas</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        {(["provider","enviar","logs"] as const).map(t => (
+          <button key={t} onClick={() => setActiveTab(t)}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === t ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
+            {t === "provider" ? "Provedor" : t === "enviar" ? "Enviar em Massa" : "Monitorização"}
+          </button>
+        ))}
+      </div>
+
+      {/* Provider Tab */}
+      {activeTab === "provider" && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
+          <h3 className="font-semibold text-slate-900">Configuração Global do Provedor SMS</h3>
+          <p className="text-sm text-slate-500">Esta configuração é usada como padrão. Cada colégio pode sobrepor com as suas próprias credenciais.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Provedor</label>
+              <select value={providerConfig.provider} onChange={e => setProviderConfig(prev => ({ ...prev, provider: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <option value="mock">Simulação (Mock)</option>
+                <option value="africastalking">Africa's Talking</option>
+                <option value="twilio">Twilio</option>
+                <option value="custom">Personalizado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Nome do Remetente</label>
+              <input value={providerConfig.sender_name} onChange={e => setProviderConfig(prev => ({ ...prev, sender_name: e.target.value }))} maxLength={11}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="KiwaraEsc"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint do Provedor</label>
+              <input value={providerConfig.api_url} onChange={e => setProviderConfig(prev => ({ ...prev, api_url: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                placeholder="https://api.provedor.com/sms/send"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">API Key / Token</label>
+              <input value={providerConfig.api_key} onChange={e => setProviderConfig(prev => ({ ...prev, api_key: e.target.value }))} type="password"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="••••••••••••••••"/>
+            </div>
+          </div>
+          <div className="pt-2 flex justify-end">
+            <button onClick={saveProvider} disabled={savingProvider}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+              {savingProvider ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedProvider ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+              {savedProvider ? "Guardado!" : "Guardar"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Send Tab */}
+      {activeTab === "enviar" && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Mensagem</h3>
+            <textarea value={bulkMsg} onChange={e => setBulkMsg(e.target.value)} rows={4}
+              placeholder="Escreva a mensagem que será enviada a todos os encarregados dos colégios seleccionados..."
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Colégios Destinatários</h3>
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={sendTodos} onChange={e => { setSendTodos(e.target.checked); setSelectedSchools([]); }} className="rounded"/>
+                Todos os colégios
+              </label>
+            </div>
+            {!sendTodos && (
+              <div className="max-h-52 overflow-y-auto space-y-1">
+                {schools.map((sc: any) => (
+                  <label key={sc.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selectedSchools.includes(sc.id) ? "bg-primary/5 border border-primary/20" : "hover:bg-slate-50"}`}>
+                    <input type="checkbox" checked={selectedSchools.includes(sc.id)}
+                      onChange={e => setSelectedSchools(prev => e.target.checked ? [...prev, sc.id] : prev.filter(id => id !== sc.id))}
+                      className="rounded text-primary"/>
+                    <span className="text-sm text-slate-800">{sc.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {sendResult && (
+            <div className={`rounded-xl p-4 flex items-center gap-3 ${sendResult.failed > 0 ? "bg-yellow-50 border border-yellow-200" : "bg-emerald-50 border border-emerald-200"}`}>
+              <CheckCircle2 className={`w-5 h-5 ${sendResult.failed > 0 ? "text-yellow-600" : "text-emerald-600"}`}/>
+              <p className="text-sm font-medium">
+                {sendResult.sent} enviado(s) · {sendResult.failed} falha(s) · {sendResult.total} total
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button onClick={handleBulkSend} disabled={sending || !bulkMsg.trim() || (!sendTodos && !selectedSchools.length)}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              {sending ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+              {sending ? "A enviar..." : sendTodos ? "Enviar para todos os colégios" : `Enviar para ${selectedSchools.length} colégio(s)`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Logs Tab */}
+      {activeTab === "logs" && (
+        <div className="space-y-4">
+          {/* Filters */}
+          <div className="flex gap-3 flex-wrap">
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none">
+              <option value="">Todos os estados</option>
+              <option value="sent">Enviado</option>
+              <option value="failed">Falhou</option>
+            </select>
+            <select value={filterEvento} onChange={e => setFilterEvento(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none">
+              <option value="">Todos os eventos</option>
+              {ADMIN_SMS_EVENTS.map(e => <option key={e.key} value={e.key}>{e.label}</option>)}
+            </select>
+            <button onClick={() => fetchLogs(1)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+              <RefreshCw className="w-3.5 h-3.5"/> Actualizar
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900">Logs de SMS ({logsTotal})</h3>
+            </div>
+            {logsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="w-5 h-5 animate-spin text-primary"/>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+                <p className="text-sm">Nenhum SMS encontrado.</p>
+              </div>
+            ) : (
+              <>
+                <div className="divide-y divide-slate-100">
+                  {logs.map((log: any) => (
+                    <div key={log.id} className="px-5 py-3 flex items-start gap-4">
+                      <div className="mt-0.5">{statusBadge(log.status)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-xs font-semibold text-slate-700">{log.school_name ?? `Colégio #${log.school_id}`}</span>
+                          <span className="text-xs text-slate-500">{log.telefone}</span>
+                          {log.evento && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{ADMIN_SMS_EVENTS.find(e => e.key === log.evento)?.label ?? log.evento}</span>}
+                        </div>
+                        <p className="text-sm text-slate-600 line-clamp-2">{log.mensagem}</p>
+                      </div>
+                      <span className="text-xs text-slate-400 whitespace-nowrap">
+                        {new Date(log.data_envio).toLocaleString("pt-AO", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
+                    <button onClick={() => fetchLogs(logsPage - 1)} disabled={logsPage <= 1}
+                      className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                      <ChevronLeft className="w-4 h-4"/> Anterior
+                    </button>
+                    <span className="text-xs text-slate-500">{logsPage} / {totalPages}</span>
+                    <button onClick={() => fetchLogs(logsPage + 1)} disabled={logsPage >= totalPages}
+                      className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                      Seguinte <ChevronRight className="w-4 h-4"/>
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Top schools mini chart */}
+          {logsStats?.top_schools?.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+              <h3 className="font-semibold text-slate-900 text-sm">Top Colégios (por SMS enviados)</h3>
+              {logsStats.top_schools.map((s: any, i: number) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500 w-4 text-right">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-sm text-slate-700 truncate">{s.name}</span>
+                      <span className="text-xs font-semibold text-slate-600">{s.total}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(100, (s.total / (logsStats.top_schools[0]?.total || 1)) * 100)}%` }}/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios";
+type AdminView = "stats" | "colegios" | "sms";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -3945,6 +4277,7 @@ export default function AdminDashboard() {
   const NAV = [
     { id: "stats" as const, label: "Visão Geral", icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: "colegios" as const, label: "Colégios", icon: <Building2 className="w-5 h-5" /> },
+    { id: "sms" as const, label: "SMS & Comunicação", icon: <Smartphone className="w-5 h-5" /> },
   ];
 
   const navigate = (id: AdminView) => {
@@ -4100,6 +4433,7 @@ export default function AdminDashboard() {
             {view === "colegios" && (
               <ColegiosView onSelect={id => { setSelectedSchoolId(id); setView("colegios"); }} />
             )}
+            {view === "sms" && <AdminSMSView />}
           </>
         )}
       </main>

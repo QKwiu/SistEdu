@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
+import { sendEventSMS } from "../services/sms.service";
 
 const router = Router();
 
@@ -56,9 +57,11 @@ router.post("/payments/webhook", async (req, res) => {
 
   /* ── 3. Locate invoice by internal_reference ── */
   const pRow = await pool.query(`
-    SELECT p.*, sc.commission_rate, sc.id AS school_db_id
+    SELECT p.*, sc.commission_rate, sc.id AS school_db_id,
+           st.nome AS nome_aluno, st.telefone_encarregado, st.nome_encarregado
     FROM propinas p
     JOIN schools sc ON sc.id = p.school_id
+    LEFT JOIN students st ON st.id = p.student_id
     WHERE p.internal_reference = $1
   `, [ref]);
 
@@ -133,6 +136,17 @@ router.post("/payments/webhook", async (req, res) => {
 
   /* Update pagamentos reference */
   await pool.query("UPDATE pagamentos SET estado='PAGO' WHERE propina_id=$1", [p.id]);
+
+  /* ── SMS: pagamento_confirmado ── */
+  if (newStatus === "pago" && p.telefone_encarregado) {
+    sendEventSMS("pagamento_confirmado", p.school_id, {
+      telefone: p.telefone_encarregado,
+      nome_encarregado: p.nome_encarregado ?? undefined,
+      nome_aluno: p.nome_aluno ?? undefined,
+      mes: p.mes,
+      valor: paid,
+    }).catch(() => {});
+  }
 
   /* ── 7. Split payment ── */
   const commissionRate    = Number(p.commission_rate ?? 0);
