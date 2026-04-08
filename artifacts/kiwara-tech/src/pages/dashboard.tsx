@@ -10,6 +10,7 @@ import {
   UserPlus, FileSpreadsheet, Download, Upload,
   ArrowLeftRight, ShieldCheck, Receipt, Landmark, Filter,
   Paperclip, FileCheck, CalendarDays, MessageSquare, ExternalLink, BadgeCheck,
+  Eye, FileImage, Link as LinkIcon,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -1727,6 +1728,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [filterTurma, setFilterTurma] = useState("");
   const [filterMes, setFilterMes] = useState("");
   const [filterAno, setFilterAno] = useState("");
+  const [detalhePropina, setDetalhePropina] = useState<Propina | null>(null);
   const [ajuste, setAjuste] = useState<Propina | null>(null);
   const [ajusteInitialTipo, setAjusteInitialTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">("perdao");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
@@ -1889,35 +1891,44 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-5 py-3">
-                    {p.status !== "pago" && (
-                      <div className="flex items-center gap-1 justify-end">
-                        {/* Baixa Manual quick button */}
-                        <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
-                          <FileCheck className="w-3 h-3"/> Baixa Manual
-                        </button>
-                        {/* More actions menu */}
-                        <div className="relative">
-                          <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
-                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                            <MoreHorizontal className="w-4 h-4"/>
+                    <div className="flex items-center gap-1 justify-end">
+                      {/* Lupa — detail view for all propinas */}
+                      <button
+                        title="Ver detalhe do pagamento"
+                        onClick={() => setDetalhePropina(p)}
+                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors">
+                        <Eye className="w-4 h-4"/>
+                      </button>
+                      {p.status !== "pago" && (
+                        <>
+                          {/* Baixa Manual quick button */}
+                          <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
+                            <FileCheck className="w-3 h-3"/> Baixa Manual
                           </button>
-                          <AnimatePresence>
-                            {openMenu === p.id && (
-                              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                                className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-56">
-                                {(["perdao","ajuste_valor","reagendamento","justificacao"] as const).map(t => (
-                                  <button key={t} onClick={() => openAjuste(p, t)}
-                                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
-                                    {AJUSTE_TIPO_LABELS[t]}
-                                  </button>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-                    )}
+                          {/* More actions menu */}
+                          <div className="relative">
+                            <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
+                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                              <MoreHorizontal className="w-4 h-4"/>
+                            </button>
+                            <AnimatePresence>
+                              {openMenu === p.id && (
+                                <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                                  className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-56">
+                                  {(["perdao","ajuste_valor","reagendamento","justificacao"] as const).map(t => (
+                                    <button key={t} onClick={() => openAjuste(p, t)}
+                                      className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
+                                      {AJUSTE_TIPO_LABELS[t]}
+                                    </button>
+                                  ))}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1936,6 +1947,166 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
             setAjuste(null);
           }}
         />
+      )}
+
+      {/* ── Detalhe Pagamento Modal ── */}
+      {detalhePropina && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setDetalhePropina(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-start justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">Detalhe da Propina</h3>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  {detalhePropina.aluno_nome} · {detalhePropina.turma} · {detalhePropina.mes} {detalhePropina.ano}
+                </p>
+              </div>
+              <button onClick={() => setDetalhePropina(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Status badge */}
+              <div className="flex items-center gap-3">
+                {detalhePropina.status === "pago"
+                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-4 h-4"/> Paga</span>
+                  : detalhePropina.status === "vencido"
+                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-4 h-4"/> Vencida</span>
+                  : <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-4 h-4"/> Pendente</span>}
+              </div>
+
+              {/* Financial grid */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide mb-1">Propina</p>
+                  <p className="font-bold text-slate-900">{fmt(Number(detalhePropina.montante))} Kz</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide mb-1">Multa</p>
+                  <p className={`font-bold ${Number(detalhePropina.multa) > 0 ? "text-red-600" : "text-slate-400"}`}>
+                    {Number(detalhePropina.multa) > 0 ? `+${fmt(Number(detalhePropina.multa))} Kz` : "—"}
+                  </p>
+                </div>
+                <div className="bg-primary/5 rounded-xl p-3 border border-primary/20">
+                  <p className="text-xs text-primary/70 uppercase font-semibold tracking-wide mb-1">Total</p>
+                  <p className="font-bold text-primary">{fmt(Number(detalhePropina.montante) + Number(detalhePropina.multa))} Kz</p>
+                </div>
+              </div>
+
+              {/* Reference */}
+              <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Referência</p>
+                {detalhePropina.ref_numero
+                  ? <p className="font-mono text-slate-800 font-semibold">{detalhePropina.entidade} / {detalhePropina.ref_numero}</p>
+                  : detalhePropina.internal_reference
+                  ? <p className="font-mono text-slate-600">{detalhePropina.internal_reference}</p>
+                  : <p className="text-slate-400 text-sm italic">Sem referência gerada</p>}
+                <div className="flex gap-4 mt-2 pt-2 border-t border-slate-200">
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Vencimento</p>
+                    <p className="text-sm font-medium text-slate-700 mt-0.5">
+                      {detalhePropina.data_vencimento
+                        ? new Date(detalhePropina.data_vencimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })
+                        : "—"}
+                    </p>
+                  </div>
+                  {detalhePropina.pago_em && (
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Pago em</p>
+                      <p className="text-sm font-semibold text-emerald-700 mt-0.5">
+                        {new Date(detalhePropina.pago_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}
+                      </p>
+                    </div>
+                  )}
+                  {detalhePropina.data_recebimento && (
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Data Recebimento</p>
+                      <p className="text-sm font-semibold text-emerald-700 mt-0.5">
+                        {new Date(detalhePropina.data_recebimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Baixa Manual section */}
+              {detalhePropina.baixa_manual && (
+                <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <BadgeCheck className="w-4 h-4 text-emerald-600"/>
+                    <p className="text-sm font-semibold text-emerald-800">Baixa Manual Registada</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {detalhePropina.baixa_manual_por && (
+                      <div>
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Registado por</p>
+                        <p className="font-medium text-slate-800 mt-0.5">{detalhePropina.baixa_manual_por}</p>
+                      </div>
+                    )}
+                    {detalhePropina.baixa_manual_em && (
+                      <div>
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Registado em</p>
+                        <p className="font-medium text-slate-800 mt-0.5">
+                          {new Date(detalhePropina.baixa_manual_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                        </p>
+                      </div>
+                    )}
+                    {detalhePropina.baixa_manual_obs && (
+                      <div className="col-span-2">
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Observações</p>
+                        <p className="text-slate-700 mt-0.5 italic">{detalhePropina.baixa_manual_obs}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Comprovante */}
+              {detalhePropina.comprovante_url && (() => {
+                const url = detalhePropina.comprovante_url!;
+                const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(url);
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide flex items-center gap-1.5">
+                      <FileImage className="w-3.5 h-3.5"/> Comprovante de Pagamento
+                    </p>
+                    {isImage ? (
+                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                        <img src={url} alt="Comprovante" className="w-full max-h-72 object-contain bg-slate-100"/>
+                        <div className="p-2 flex justify-end border-t border-slate-100">
+                          <a href={url} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
+                            <ExternalLink className="w-3 h-3"/> Abrir em ecrã completo
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-sm text-primary font-medium">
+                        <LinkIcon className="w-4 h-4 shrink-0"/>
+                        <span className="truncate">Ver comprovante</span>
+                        <ExternalLink className="w-3.5 h-3.5 ml-auto shrink-0"/>
+                      </a>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* No payment info yet */}
+              {detalhePropina.status !== "pago" && !detalhePropina.baixa_manual && !detalhePropina.comprovante_url && (
+                <div className="py-4 text-center text-slate-400">
+                  <Clock className="w-8 h-8 mx-auto mb-2 opacity-40"/>
+                  <p className="text-sm">Propina ainda não paga. Não há comprovante disponível.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 pb-5">
+              <Button className="w-full" onClick={() => setDetalhePropina(null)}>Fechar</Button>
+            </div>
+          </motion.div>
+        </div>
       )}
 
       {/* Baixa Manual Modal (inline in PropinasView) */}
