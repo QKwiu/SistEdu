@@ -6,6 +6,7 @@ import ocorrenciasRouter from "./ocorrencias";
 import schoolRouter from "./school";
 import adminRouter from "./admin";
 import reconciliationRouter, { runReconciliationMigration } from "./reconciliation";
+import paymentsRouter from "./payments";
 
 const router: IRouter = Router();
 
@@ -16,6 +17,7 @@ router.use(ocorrenciasRouter);
 router.use(schoolRouter);
 router.use(adminRouter);
 router.use(reconciliationRouter);
+router.use(paymentsRouter);
 
 /* Run DB migration for reconciliation tables/columns (idempotent) */
 runReconciliationMigration().catch(err =>

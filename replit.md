@@ -29,6 +29,7 @@ Every package extends a shared `tsconfig.base.json` with `composite: true`. The 
 -   **Classes**: Create and manage classes by grade and shift. Associate students with classes.
 -   **Tuition Fees**: View all tuition fees. Filters: All / Pending / Overdue / Paid. Columns: Fee + Penalty + Total. Adjustments via modal.
 -   **Reconciliação Financeira**: View internal references (format `SCH-CODE-studentId-YYYY-MM-DD-guardianId-propinaId`), reconciliation stats, split payment distribution (school vs platform), and process payments manually (EMIS, Appy Pay, Transferência, Numerário).
+-   **Pagamentos Híbridos**: Hybrid payment system supporting both manual (baixa manual) and automatic online payments (MCX Express / EMIS). Webhook endpoint `POST /payments/webhook` for automatic reconciliation. Idempotency via `transaction_id`. Online payments cannot be edited manually. DB columns: `transaction_id` (unique), `metodo_pagamento`, `pagamento_origem` (manual/online). Payment method filter in PropinasView. Transaction ID shown in detail modal.
 -   **Tuition Fee Adjustments**: Modal for adjustments: penalty forgiveness, value adjustment, rescheduling due date, justification. History of adjustments.
 -   **Incidents**: Register disciplinary or academic incidents per student (type, description, date).
 -   **Announcements**: Create and publish announcements visible to guardians.

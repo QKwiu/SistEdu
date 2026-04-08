@@ -77,6 +77,19 @@ export async function runReconciliationMigration() {
       created_at    TIMESTAMP DEFAULT NOW()
     )
   `);
+  /* Online payment tracking columns */
+  await pool.query(`
+    ALTER TABLE propinas
+      ADD COLUMN IF NOT EXISTS transaction_id    TEXT,
+      ADD COLUMN IF NOT EXISTS metodo_pagamento  TEXT,
+      ADD COLUMN IF NOT EXISTS pagamento_origem  TEXT DEFAULT 'manual';
+  `);
+  /* Unique index on transaction_id to enforce idempotency at DB level */
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS propinas_transaction_id_unique
+    ON propinas (transaction_id)
+    WHERE transaction_id IS NOT NULL;
+  `);
   /* Backfill internal_reference for propinas that don't have one yet */
   await pool.query(`
     UPDATE propinas p
@@ -175,6 +188,8 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
       p.partially_paid_amount,
       p.baixa_manual, p.baixa_manual_por, p.baixa_manual_em, p.baixa_manual_obs,
       p.comprovante_url, p.data_recebimento,
+      p.transaction_id, p.metodo_pagamento,
+      COALESCE(p.pagamento_origem, 'manual') AS pagamento_origem,
       s.nome AS aluno_nome,
       COALESCE(t.nome, 'Sem turma') AS turma,
       pg.referencia AS ref_multicaixa, pg.entidade, pg.valor AS ref_valor,
@@ -317,6 +332,10 @@ router.get("/admin/colegios/:id/reconciliacao", adminAuth, async (req, res) => {
         p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, p.status,
         p.internal_reference, p.data_vencimento, p.pago_em,
         p.partially_paid_amount,
+        p.baixa_manual, p.baixa_manual_por, p.baixa_manual_em, p.baixa_manual_obs,
+        p.comprovante_url, p.data_recebimento,
+        p.transaction_id, p.metodo_pagamento,
+        COALESCE(p.pagamento_origem, 'manual') AS pagamento_origem,
         s.nome AS aluno_nome,
         COALESCE(t.nome,'Sem turma') AS turma,
         pg.referencia AS ref_multicaixa, pg.entidade, pg.valor AS ref_valor,

@@ -1,0 +1,140 @@
+Contexto:
+Estamos a desenvolver um SaaS multi-tenant de gestão escolar com módulo financeiro e integração com middleware de pagamentos (que comunica com EMIS, incluindo MCX Express).
+
+Problema atual:
+No perfil do Colégio, no menu "Propinas e Reconciliação", os pagamentos são registados apenas manualmente, e o estado da fatura (invoice) é atualizado manualmente para "pago".
+
+Objetivo:
+Permitir que o estado do pagamento seja atualizado automaticamente quando um pagamento online for realizado (ex: MCX Express ou outros métodos via EMIS), mantendo também a opção de registo manual.
+
+----------------------------------------
+
+Requisitos funcionais:
+
+1. Estados de pagamento:
+O sistema deve suportar os seguintes estados de fatura:
+- pending (pendente)
+- paid (pago)
+- overdue (em atraso): Deve ser aplicada a regra da multa
+
+----------------------------------------
+
+2. Pagamento manual (já existente):
+- Manter funcionalidade atual
+- Permitir ao operador marcar como pago manualmente
+- Registar:
+  - valor
+  - data
+  - método (manual)
+
+----------------------------------------
+
+3. Pagamento automático (novo comportamento):
+
+O sistema deve atualizar automaticamente o estado da fatura quando receber confirmação de pagamento online.
+
+Origem:
+- MCX Express
+- Outros canais EMIS
+(via middleware de pagamentos)
+
+----------------------------------------
+
+4. Integração com middleware:
+
+4.1 Receber webhook:
+
+Criar endpoint:
+POST /payments/webhook
+
+Payload esperado:
+{
+  "reference": "internal_reference",
+  "amount_paid": 50000,
+  "status": "paid",
+  "transaction_id": "TX12345",
+  "payment_method": "MCX_EXPRESS",
+  "timestamp": "2026-04-08T10:00:00Z"
+}
+
+----------------------------------------
+
+5. Lógica de processamento:
+
+Ao receber o webhook:
+
+1. Validar payload
+2. Localizar invoice pela reference
+3. Validar valor (com tolerância configurável)
+4. Criar registo em payments
+5. Atualizar estado da fatura:
+   - Se valor total pago → paid
+   6. Executar split payment (se ativo)
+7. Guardar transaction_id (evitar duplicação)
+
+----------------------------------------
+
+6. Idempotência (CRÍTICO):
+
+- Se o mesmo transaction_id já existir:
+  → ignorar processamento
+- Evitar duplicação de pagamentos
+
+----------------------------------------
+
+7. UI (Perfil do Colégio):
+
+No menu "Propinas e Reconciliação":
+
+Atualizar interface para mostrar:
+
+- Tipo de pagamento:
+  - Manual
+  - Online (MCX Express / EMIS)
+
+- Estado:
+  - Atualizado automaticamente
+
+- Informações adicionais:
+  - transaction_id
+  - data de pagamento
+  - método de pagamento
+
+----------------------------------------
+
+8. Filtros e visualização:
+
+Adicionar filtros:
+
+- Por estado (paid, pending, overdue)
+- Por método de pagamento
+- Por período
+
+----------------------------------------
+
+9. Regras importantes:
+
+- Pagamentos online NUNCA devem ser alterados manualmente
+- Referência interna é a chave de reconciliação
+- Sistema deve suportar múltiplos pagamentos
+
+----------------------------------------
+
+10. Entregáveis:
+
+- Endpoint de webhook funcional
+- Lógica de reconciliação automática
+- Atualização do modelo de payments
+- Atualização da UI no perfil do colégio e no perfil da administração da plataforma
+- Suporte a pagamentos manuais e automáticos
+
+----------------------------------------
+
+Objetivo final:
+
+Criar um sistema híbrido (manual + automático) que permita:
+
+- Atualização automática de pagamentos via EMIS (MCX Express)
+- Redução de reconciliação manual
+- Maior controlo e transparência financeira
+- Base sólida para escala e integração com múltiplos métodos de pagamento

@@ -2230,6 +2230,20 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
                           <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Multa</p><p className="font-semibold text-red-700 mt-0.5">{fmtCur(p.multa)}</p></div>
                           <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Vencimento</p><p className="font-semibold mt-0.5">{p.data_vencimento ? new Date(p.data_vencimento).toLocaleDateString("pt-AO") : "—"}</p></div>
                           {p.pago_em && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Pago em</p><p className="font-semibold text-emerald-700 mt-0.5">{new Date(p.pago_em).toLocaleDateString("pt-AO")}</p></div>}
+                          {p.metodo_pagamento && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Método</p><p className="font-semibold mt-0.5">{p.metodo_pagamento}</p></div>}
+                          {p.pagamento_origem === "online" && <div><p className="text-slate-400 uppercase font-semibold tracking-wide">Origem</p><span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 mt-0.5">Online / EMIS</span></div>}
+                          {p.transaction_id && (
+                            <div className="col-span-2 sm:col-span-4">
+                              <p className="text-slate-400 uppercase font-semibold tracking-wide">Transaction ID</p>
+                              <p className="font-mono text-xs font-semibold text-blue-800 mt-0.5 break-all bg-blue-50 rounded-lg px-2 py-1 inline-block">{p.transaction_id}</p>
+                            </div>
+                          )}
+                          {p.baixa_manual && (
+                            <div className="col-span-2">
+                              <p className="text-slate-400 uppercase font-semibold tracking-wide">Baixa Manual por</p>
+                              <p className="font-semibold mt-0.5">{p.baixa_manual_por ?? "—"}</p>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>

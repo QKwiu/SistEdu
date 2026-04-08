@@ -37,6 +37,11 @@ interface Propina {
   data_vencimento: string; ref_numero?: string; ref_valor?: number;
   ref_estado?: string; ref_validade?: string; entidade?: string;
   internal_reference?: string;
+  pago_em?: string;
+  baixa_manual?: boolean; baixa_manual_por?: string; baixa_manual_em?: string;
+  baixa_manual_obs?: string; comprovante_url?: string; data_recebimento?: string;
+  transaction_id?: string; metodo_pagamento?: string;
+  pagamento_origem?: "manual" | "online";
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
@@ -1728,6 +1733,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [filterTurma, setFilterTurma] = useState("");
   const [filterMes, setFilterMes] = useState("");
   const [filterAno, setFilterAno] = useState("");
+  const [filterMetodo, setFilterMetodo] = useState("");
   const [detalhePropina, setDetalhePropina] = useState<Propina | null>(null);
   const [ajuste, setAjuste] = useState<Propina | null>(null);
   const [ajusteInitialTipo, setAjusteInitialTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">("perdao");
@@ -1791,10 +1797,16 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
     .filter(p => !filterAluno || String(p.student_id) === filterAluno)
     .filter(p => !filterTurma || p.turma === filterTurma)
     .filter(p => !filterMes || p.mes.toLowerCase() === filterMes.toLowerCase())
-    .filter(p => !filterAno || String(p.ano) === filterAno);
+    .filter(p => !filterAno || String(p.ano) === filterAno)
+    .filter(p => {
+      if (!filterMetodo) return true;
+      if (filterMetodo === "online") return p.pagamento_origem === "online";
+      if (filterMetodo === "manual") return p.pagamento_origem !== "online";
+      return (p.metodo_pagamento ?? "").toUpperCase() === filterMetodo;
+    });
 
-  const hasActiveFilters = !!(filterAluno || filterTurma || filterMes || filterAno);
-  const clearFilters = () => { setFilterAluno(""); setFilterTurma(""); setFilterMes(""); setFilterAno(""); };
+  const hasActiveFilters = !!(filterAluno || filterTurma || filterMes || filterAno || filterMetodo);
+  const clearFilters = () => { setFilterAluno(""); setFilterTurma(""); setFilterMes(""); setFilterAno(""); setFilterMetodo(""); };
 
   return (
     <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
@@ -1842,6 +1854,15 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
           <input type="number" placeholder="Ano (ex: 2026)" min="2020" max="2099"
             value={filterAno} onChange={e => setFilterAno(e.target.value)}
             className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-36"/>
+          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[170px]"
+            value={filterMetodo} onChange={e => setFilterMetodo(e.target.value)}>
+            <option value="">Todos os métodos</option>
+            <option value="manual">Manual</option>
+            <option value="online">Online (todos)</option>
+            <option value="MCX_EXPRESS">MCX Express</option>
+            <option value="MULTICAIXA">Multicaixa</option>
+            <option value="TPA">TPA</option>
+          </select>
         </div>
         {/* Active filter summary */}
         {hasActiveFilters && (
@@ -1876,12 +1897,24 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                   </td>
                   <td className="px-5 py-3 font-bold text-slate-900">{fmt(Number(p.montante)+Number(p.multa))} Kz</td>
                   <td className="px-5 py-3">
-                    {p.status === "pago"
-                      ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-3 h-3"/> Pago</span>
-                      : p.status === "vencido"
-                      ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-3 h-3"/> Vencido</span>
-                      : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3 h-3"/> Pendente</span>
-                    }
+                    <div className="flex flex-col gap-1">
+                      {p.status === "pago"
+                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-3 h-3"/> Pago</span>
+                        : p.status === "vencido"
+                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-3 h-3"/> Vencido</span>
+                        : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3 h-3"/> Pendente</span>
+                      }
+                      {p.pagamento_origem === "online"
+                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                            <Landmark className="w-2.5 h-2.5"/> {p.metodo_pagamento ?? "Online"}
+                          </span>
+                        : p.status === "pago"
+                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-500 border border-slate-200">
+                            <ShieldCheck className="w-2.5 h-2.5"/> Manual
+                          </span>
+                        : null
+                      }
+                    </div>
                   </td>
                   <td className="px-5 py-3 text-xs">
                     {p.ref_numero
@@ -1899,9 +1932,9 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                         className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors">
                         <Eye className="w-4 h-4"/>
                       </button>
-                      {p.status !== "pago" && (
+                      {p.status !== "pago" && p.pagamento_origem !== "online" && (
                         <>
-                          {/* Baixa Manual quick button */}
+                          {/* Baixa Manual quick button — blocked for online payments */}
                           <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
                             <FileCheck className="w-3 h-3"/> Baixa Manual
@@ -1967,13 +2000,23 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {/* Status badge */}
-              <div className="flex items-center gap-3">
+              {/* Status + origin badges */}
+              <div className="flex items-center gap-2 flex-wrap">
                 {detalhePropina.status === "pago"
                   ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-4 h-4"/> Paga</span>
                   : detalhePropina.status === "vencido"
                   ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-4 h-4"/> Vencida</span>
                   : <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-4 h-4"/> Pendente</span>}
+                {detalhePropina.pagamento_origem === "online"
+                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                      <Landmark className="w-3.5 h-3.5"/> {detalhePropina.metodo_pagamento ?? "Online"}
+                    </span>
+                  : detalhePropina.status === "pago"
+                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-slate-50 text-slate-600 border border-slate-200">
+                      <ShieldCheck className="w-3.5 h-3.5"/> Baixa Manual
+                    </span>
+                  : null
+                }
               </div>
 
               {/* Financial grid */}
@@ -2029,6 +2072,29 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                   )}
                 </div>
               </div>
+
+              {/* Online payment info */}
+              {detalhePropina.pagamento_origem === "online" && (
+                <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Landmark className="w-4 h-4 text-blue-600"/>
+                    <p className="text-sm font-semibold text-blue-800">Pagamento Online Automático</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Método</p>
+                      <p className="font-medium text-slate-800 mt-0.5">{detalhePropina.metodo_pagamento ?? "—"}</p>
+                    </div>
+                    {detalhePropina.transaction_id && (
+                      <div className="col-span-2">
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Transaction ID</p>
+                        <p className="font-mono text-xs font-semibold text-blue-800 mt-0.5 break-all bg-blue-100 rounded-lg px-2 py-1">{detalhePropina.transaction_id}</p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-blue-600/70 mt-1">Este pagamento foi processado automaticamente via EMIS. Não pode ser alterado manualmente.</p>
+                </div>
+              )}
 
               {/* Baixa Manual section */}
               {detalhePropina.baixa_manual && (

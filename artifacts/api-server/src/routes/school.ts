@@ -492,6 +492,8 @@ router.get("/school/propinas", schoolAuth, async (req: any, res) => {
             p.internal_reference,
             p.baixa_manual, p.baixa_manual_por, p.baixa_manual_em,
             p.baixa_manual_obs, p.comprovante_url, p.data_recebimento,
+            p.transaction_id, p.metodo_pagamento,
+            COALESCE(p.pagamento_origem, 'manual') AS pagamento_origem,
             s.nome AS aluno_nome,
             COALESCE(t.nome, 'Sem turma') AS turma,
             pg.entidade, pg.referencia AS ref_numero, pg.valor AS ref_valor,
