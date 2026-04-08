@@ -4448,10 +4448,10 @@ export default function AdminDashboard() {
       {/* ── Top Header ── */}
       <header className="sticky top-0 z-30 bg-slate-900 text-white shadow-lg">
         <div className="flex items-center h-14 px-4 gap-3">
-          {/* Menu toggle */}
+          {/* Mobile hamburger (hidden on desktop) */}
           <button
             onClick={() => setSidebarOpen(o => !o)}
-            className="p-2 rounded-xl hover:bg-white/10 transition-colors shrink-0"
+            className="p-2 rounded-xl hover:bg-white/10 transition-colors shrink-0 md:hidden"
             aria-label="Menu"
           >
             <Menu className="w-5 h-5" />
@@ -4462,7 +4462,7 @@ export default function AdminDashboard() {
             <div className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
               <Shield className="w-4 h-4 text-primary" />
             </div>
-            <div className="hidden sm:block">
+            <div>
               <span className="font-bold text-sm">Kiwara Tech</span>
               <span className="text-slate-400 text-xs ml-1.5 hidden md:inline">— Administração Central</span>
             </div>
@@ -4483,7 +4483,51 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      {/* ── Sidebar Drawer ── */}
+      {/* ── Desktop Sidebar (md+, permanent) ── */}
+      <aside className="hidden md:flex fixed top-14 left-0 h-[calc(100vh-3.5rem)] w-64 bg-slate-900 text-white flex-col shadow-lg z-20">
+        {/* Nav */}
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {NAV.map(n => (
+            <button key={n.id}
+              onClick={() => navigate(n.id)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                view === n.id && !selectedSchoolId
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:text-white hover:bg-white/5"
+              }`}>
+              {n.icon}{n.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Stats mini */}
+        {stats && (
+          <div className="px-4 py-3 border-t border-white/10 space-y-2">
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Colégios</span>
+              <span className="text-slate-300 font-semibold">{stats.total_colegios}</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Alunos</span>
+              <span className="text-slate-300 font-semibold">{fmt(stats.total_alunos)}</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Dívida total</span>
+              <span className="text-slate-300 font-semibold">{fmtCur(stats.divida_total)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Logout */}
+        <div className="p-3 border-t border-white/10">
+          <button onClick={logout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
+            <LogOut className="w-4 h-4" /> Terminar sessão
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Mobile Sidebar Drawer ── */}
       <AnimatePresence>
         {sidebarOpen && (
           <>
@@ -4495,7 +4539,7 @@ export default function AdminDashboard() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={() => setSidebarOpen(false)}
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
             />
 
             {/* Drawer */}
@@ -4505,7 +4549,7 @@ export default function AdminDashboard() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "tween", duration: 0.22, ease: "easeInOut" }}
-              className="fixed top-0 left-0 z-50 h-full w-72 bg-slate-900 text-white flex flex-col shadow-2xl"
+              className="fixed top-0 left-0 z-50 h-full w-72 bg-slate-900 text-white flex flex-col shadow-2xl md:hidden"
             >
               {/* Drawer header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
@@ -4570,7 +4614,7 @@ export default function AdminDashboard() {
       </AnimatePresence>
 
       {/* ── Main Content ── */}
-      <main className="w-full">
+      <main className="w-full md:ml-64">
         {selectedSchoolId ? (
           loadingDetail ? (
             <div className="flex items-center justify-center h-64">

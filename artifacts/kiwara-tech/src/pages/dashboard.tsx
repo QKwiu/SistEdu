@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, FileText, Settings, LogOut,
   Bell, Search, Plus, TrendingUp, AlertCircle, CheckCircle2,
   Clock, BarChart3, GraduationCap, Banknote, Share2, Copy,
-  AlertTriangle, RefreshCw, Trash2, Calendar, BookOpen, X,
+  AlertTriangle, RefreshCw, Trash2, Calendar, BookOpen, X, Menu,
   ChevronDown, User, School, CreditCard, MoreHorizontal, History,
   UserPlus, FileSpreadsheet, Download, Upload,
   ArrowLeftRight, ShieldCheck, Receipt, Landmark, Filter,
@@ -3322,6 +3322,7 @@ export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [view, setView] = useState<DashView>("inicio");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [turmas, setTurmas] = useState<Turma[]>([]);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
@@ -3382,61 +3383,109 @@ export default function Dashboard() {
     { key: "comunicacao", icon: <Smartphone className="w-5 h-5"/>, label: "Comunicação" },
   ];
 
+  const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
+    <>
+      <nav className="flex-1 px-4 py-6 space-y-1">
+        {NAV.map(item => (
+          <button key={item.key} onClick={() => { setView(item.key); onNav?.(); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${view===item.key?"bg-primary/10 text-primary font-medium":"hover:bg-slate-800 text-slate-400 hover:text-slate-200"}`}>
+            {item.icon} {item.label}
+          </button>
+        ))}
+        <div className="border-t border-slate-800 mt-2 pt-2">
+          <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
+            <BarChart3 className="w-5 h-5"/> Relatórios
+          </a>
+          <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
+            <Settings className="w-5 h-5"/> Configurações
+          </a>
+          <Link href="/encarregado" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-emerald-400 hover:text-emerald-300" onClick={onNav}>
+            <GraduationCap className="w-5 h-5"/> Portal Encarregado
+          </Link>
+        </div>
+      </nav>
+      <div className="p-4 border-t border-slate-800">
+        <div className="flex items-center gap-3 px-3 py-2 mb-2">
+          <div className="w-8 h-8 rounded-full bg-primary/20 text-primary font-bold text-xs flex items-center justify-center">{initials}</div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-white truncate">{schoolName}</p>
+            <p className="text-xs text-slate-500 truncate">{session?.adminEmail}</p>
+          </div>
+        </div>
+        <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-red-400 hover:text-red-300 text-sm">
+          <LogOut className="w-5 h-5"/> Terminar Sessão
+        </button>
+      </div>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar */}
+
+      {/* ── Desktop Sidebar (md+) ── */}
       <aside className="bg-slate-900 text-slate-300 w-64 flex-shrink-0 hidden md:flex flex-col">
         <div className="h-16 flex items-center px-6 border-b border-slate-800">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold mr-3 text-sm">K</div>
           <span className="font-display font-bold text-white text-base">Kiwara Escolar</span>
         </div>
-        <nav className="flex-1 px-4 py-6 space-y-1">
-          {NAV.map(item => (
-            <button key={item.key} onClick={() => setView(item.key)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${view===item.key?"bg-primary/10 text-primary font-medium":"hover:bg-slate-800 text-slate-400 hover:text-slate-200"}`}>
-              {item.icon} {item.label}
-            </button>
-          ))}
-          <div className="border-t border-slate-800 mt-2 pt-2">
-            <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
-              <BarChart3 className="w-5 h-5"/> Relatórios
-            </a>
-            <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
-              <Settings className="w-5 h-5"/> Configurações
-            </a>
-            <Link href="/encarregado" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-emerald-400 hover:text-emerald-300">
-              <GraduationCap className="w-5 h-5"/> Portal Encarregado
-            </Link>
-          </div>
-        </nav>
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center gap-3 px-3 py-2 mb-2">
-            <div className="w-8 h-8 rounded-full bg-primary/20 text-primary font-bold text-xs flex items-center justify-center">{initials}</div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-white truncate">{schoolName}</p>
-              <p className="text-xs text-slate-500 truncate">{session?.adminEmail}</p>
-            </div>
-          </div>
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-red-400 hover:text-red-300 text-sm">
-            <LogOut className="w-5 h-5"/> Terminar Sessão
-          </button>
-        </div>
+        <SidebarContent />
       </aside>
+
+      {/* ── Mobile Drawer ── */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div
+              key="dash-backdrop"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setSidebarOpen(false)}
+              className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            />
+            <motion.aside
+              key="dash-drawer"
+              initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
+              transition={{ type: "tween", duration: 0.22, ease: "easeInOut" }}
+              className="fixed top-0 left-0 z-50 h-full w-72 bg-slate-900 text-slate-300 flex flex-col shadow-2xl md:hidden"
+            >
+              <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold text-sm">K</div>
+                  <span className="font-display font-bold text-white text-base">Kiwara Escolar</span>
+                </div>
+                <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors">
+                  <X className="w-4 h-4"/>
+                </button>
+              </div>
+              <SidebarContent onNav={() => setSidebarOpen(false)} />
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-10">
-          <h1 className="font-semibold text-slate-900 capitalize">
-            {NAV.find(n => n.key === view)?.label ?? view}
-          </h1>
-          <div className="flex items-center gap-4">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(o => !o)}
+              className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 md:hidden transition-colors"
+              aria-label="Menu"
+            >
+              <Menu className="w-5 h-5"/>
+            </button>
+            <h1 className="font-semibold text-slate-900 text-sm md:text-base">
+              {NAV.find(n => n.key === view)?.label ?? view}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2 md:gap-4">
             <div className="relative hidden sm:block">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
               <input type="text" placeholder="Pesquisar aluno..."
-                className="pl-9 pr-4 py-2 bg-slate-100 border-transparent rounded-full text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all w-56"/>
+                className="pl-9 pr-4 py-2 bg-slate-100 border-transparent rounded-full text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all w-40 lg:w-56"/>
             </div>
             <button className="relative p-2 text-slate-500 hover:text-slate-900"><Bell className="w-5 h-5"/></button>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-bold text-xs shadow-sm">{initials}</div>
+            <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-bold text-xs shadow-sm">{initials}</div>
           </div>
         </header>
 
