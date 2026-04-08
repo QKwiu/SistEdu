@@ -2549,6 +2549,284 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   GeralView — Edição de dados básicos + configuração rápida
+══════════════════════════════════════════════════════════════════ */
+type GeralViewProps = {
+  school: ColegioDetail;
+  onUpdated: (patch: Partial<ColegioDetail>) => void;
+  onTogglePacotes: () => void;
+  togglingPacotes: boolean;
+};
+
+function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: GeralViewProps) {
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+  const num = `${inp} w-28`;
+
+  /* ── basic info form ── */
+  const [basic, setBasic] = useState({
+    name: school.name,
+    nif: school.nif || "",
+    phone: school.phone || "",
+    email: school.email,
+    commission_rate: String(school.commission_rate ?? 0),
+  });
+  const [savingBasic, setSavingBasic] = useState(false);
+  const [savedBasic, setSavedBasic] = useState(false);
+  const [errBasic, setErrBasic] = useState("");
+
+  const saveBasic = async () => {
+    setSavingBasic(true); setErrBasic("");
+    try {
+      const r = await api(`/admin/colegios/${school.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...basic, commission_rate: Number(basic.commission_rate) }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+      onUpdated({ name: d.school.name, nif: d.school.nif, phone: d.school.phone, email: d.school.email, commission_rate: Number(d.school.commission_rate) });
+      setSavedBasic(true); setTimeout(() => setSavedBasic(false), 2500);
+    } catch (e: any) { setErrBasic(e.message); }
+    finally { setSavingBasic(false); }
+  };
+
+  /* ── financial quick-settings ── */
+  const [fin, setFin] = useState<any>(null);
+  const [loadingFin, setLoadingFin] = useState(true);
+  const [savingFin, setSavingFin] = useState(false);
+  const [savedFin, setSavedFin] = useState(false);
+  const [errFin, setErrFin] = useState("");
+
+  useEffect(() => {
+    api(`/admin/colegios/${school.id}/settings`)
+      .then(r => r.json())
+      .then(d => { setFin(d.settings); setLoadingFin(false); });
+  }, [school.id]);
+
+  const setF = (path: string[], val: any) => setFin((prev: any) => {
+    const next = JSON.parse(JSON.stringify(prev));
+    let cur = next;
+    for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+    cur[path[path.length - 1]] = val;
+    return next;
+  });
+
+  const saveFin = async () => {
+    setSavingFin(true); setErrFin("");
+    try {
+      const r = await api(`/admin/colegios/${school.id}/settings`, {
+        method: "PUT",
+        body: JSON.stringify({ settings: { financeiro: fin?.financeiro, academico: fin?.academico } }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+      setFin(d.settings);
+      setSavedFin(true); setTimeout(() => setSavedFin(false), 2500);
+    } catch (e: any) { setErrFin(e.message); }
+    finally { setSavingFin(false); }
+  };
+
+  /* ── password reset ── */
+  const [newPass, setNewPass] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [savingPass, setSavingPass] = useState(false);
+  const [savedPass, setSavedPass] = useState(false);
+  const [errPass, setErrPass] = useState("");
+
+  const savePass = async () => {
+    if (newPass.length < 6) { setErrPass("Mínimo 6 caracteres."); return; }
+    setSavingPass(true); setErrPass("");
+    try {
+      const r = await api(`/admin/colegios/${school.id}/reset-password`, {
+        method: "PUT",
+        body: JSON.stringify({ new_password: newPass }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao redefinir.");
+      setNewPass(""); setSavedPass(true); setTimeout(() => setSavedPass(false), 2500);
+    } catch (e: any) { setErrPass(e.message); }
+    finally { setSavingPass(false); }
+  };
+
+  const F = fin?.financeiro ?? {};
+  const A = fin?.academico ?? {};
+
+  const SaveBtn = ({ saving, saved, onClick }: { saving: boolean; saved: boolean; onClick: () => void }) => (
+    <button onClick={onClick} disabled={saving}
+      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-60 ${
+        saved ? "bg-emerald-500 text-white" : "bg-primary text-white hover:bg-primary/90"
+      }`}>
+      {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : saved ? <CheckCircle2 className="w-3.5 h-3.5"/> : <Save className="w-3.5 h-3.5"/>}
+      {saved ? "Guardado!" : saving ? "A guardar..." : "Guardar"}
+    </button>
+  );
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Informações Básicas ── */}
+      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex items-center gap-2.5">
+            <Building2 className="w-4 h-4 text-primary"/>
+            <h3 className="font-semibold text-slate-800">Informações Básicas</h3>
+          </div>
+          <SaveBtn saving={savingBasic} saved={savedBasic} onClick={saveBasic}/>
+        </div>
+        <div className="p-5 space-y-4">
+          {errBasic && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0"/>{errBasic}</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome do colégio *</label>
+              <input className={inp} value={basic.name} onChange={e => setBasic(p => ({ ...p, name: e.target.value }))} placeholder="Nome do colégio"/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">NIF</label>
+              <input className={inp} value={basic.nif} onChange={e => setBasic(p => ({ ...p, nif: e.target.value }))} placeholder="NIF da escola"/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Telefone</label>
+              <input className={inp} value={basic.phone} onChange={e => setBasic(p => ({ ...p, phone: e.target.value }))} placeholder="9xx xxx xxx"/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Email</label>
+              <input type="email" className={inp} value={basic.email} onChange={e => setBasic(p => ({ ...p, email: e.target.value }))} placeholder="secretaria@colegio.ao"/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Comissão da plataforma (%)</label>
+              <input type="number" min={0} max={100} step={0.1} className={num} value={basic.commission_rate} onChange={e => setBasic(p => ({ ...p, commission_rate: e.target.value }))}/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">ID da escola</label>
+              <input className={inp} value={school.school_id} readOnly disabled style={{ opacity: 0.6, cursor: "not-allowed" }}/>
+            </div>
+          </div>
+          {/* Turmas info */}
+          {school.turmas.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Turmas registadas</p>
+              <div className="flex flex-wrap gap-2">
+                {school.turmas.map(t => (
+                  <span key={t.id} className="text-sm bg-slate-100 text-slate-700 px-3 py-1 rounded-lg">
+                    {t.nome} <span className="text-slate-400">({t.turno})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+            {[
+              { label: "Alunos", value: school.total_alunos },
+              { label: "Turmas", value: school.total_turmas },
+            ].map(item => (
+              <div key={item.label} className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
+                <p className="text-lg font-bold text-slate-900">{item.value}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Configuração Financeira Rápida ── */}
+      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex items-center gap-2.5">
+            <Banknote className="w-4 h-4 text-primary"/>
+            <div>
+              <h3 className="font-semibold text-slate-800">Configuração Financeira</h3>
+              <p className="text-xs text-slate-400">Regras financeiras aplicadas a este colégio. Para configuração avançada vá a <strong>Configurações</strong>.</p>
+            </div>
+          </div>
+          <SaveBtn saving={savingFin} saved={savedFin} onClick={saveFin}/>
+        </div>
+        {loadingFin ? (
+          <div className="py-10 text-center"><RefreshCw className="w-5 h-5 animate-spin text-primary mx-auto mb-2"/><p className="text-xs text-slate-400">A carregar…</p></div>
+        ) : (
+          <div className="px-5 divide-y divide-slate-50">
+            {errFin && <div className="py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0"/>{errFin}</div>}
+            <SettingRow label="Dia de vencimento das propinas" desc="Dia do mês em que a propina vence (1–31).">
+              <input type="number" min={1} max={31} className={num} value={F.propinas?.vencimento_dia ?? 15} onChange={e => setF(["financeiro","propinas","vencimento_dia"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Frequência de cobrança" desc="Com que periodicidade são geradas as propinas.">
+              <select className={inp} style={{width:160}} value={F.propinas?.frequencia ?? "mensal"} onChange={e => setF(["financeiro","propinas","frequencia"], e.target.value)}>
+                <option value="mensal">Mensal</option>
+                <option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </select>
+            </SettingRow>
+            <SettingRow label="Valor padrão das propinas (AOA)" desc="Valor base quando não há pacote definido.">
+              <input type="number" min={0} className={num} value={F.propinas?.valor_padrao ?? 0} onChange={e => setF(["financeiro","propinas","valor_padrao"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Permitir pagamento parcial" desc="Aceitar pagamentos abaixo do total da fatura.">
+              <Toggle value={!!F.propinas?.permite_pagamento_parcial} onChange={v => setF(["financeiro","propinas","permite_pagamento_parcial"], v)}/>
+            </SettingRow>
+            <SettingRow label="Tipo de multa por atraso">
+              <select className={inp} style={{width:180}} value={F.multas?.tipo ?? "percentagem"} onChange={e => setF(["financeiro","multas","tipo"], e.target.value)}>
+                <option value="percentagem">Percentagem (%)</option>
+                <option value="fixo">Valor fixo (AOA)</option>
+              </select>
+            </SettingRow>
+            <SettingRow label={F.multas?.tipo === "fixo" ? "Valor da multa (AOA)" : "Percentagem da multa (%)"}>
+              <input type="number" min={0} className={num} value={F.multas?.valor ?? 5} onChange={e => setF(["financeiro","multas","valor"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Tolerância antes de multa (dias)" desc="Dias após vencimento antes de aplicar multa.">
+              <input type="number" min={0} max={30} className={num} value={F.multas?.tolerancia_dias ?? 5} onChange={e => setF(["financeiro","multas","tolerancia_dias"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Multa automática" desc="Aplicar multa sem intervenção manual.">
+              <Toggle value={!!F.multas?.aplica_automatico} onChange={v => setF(["financeiro","multas","aplica_automatico"], v)}/>
+            </SettingRow>
+            <SettingRow label="Limite de alunos por turma">
+              <input type="number" min={1} max={200} className={num} value={A.limite_alunos_por_turma ?? 40} onChange={e => setF(["academico","limite_alunos_por_turma"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Portal do encarregado activo" desc="Permite que os encarregados acedam ao portal de pagamentos.">
+              <Toggle value={!!(fin?.encarregados?.permite_portal_encarregado)} onChange={v => setF(["encarregados","permite_portal_encarregado"], v)}/>
+            </SettingRow>
+          </div>
+        )}
+      </div>
+
+      {/* ── Funcionalidades ── */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-5">
+        <h3 className="font-semibold text-slate-800 mb-4">Funcionalidades</h3>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-slate-800">Pacotes de emolumentos</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Agrupa serviços (mensalidade, transporte, ATL…) num pacote com valor fixo por aluno.
+              {school.usa_pacotes && " A aba «Pacotes» fica disponível."}
+            </p>
+          </div>
+          <button onClick={onTogglePacotes} disabled={togglingPacotes}
+            className={`relative shrink-0 rounded-full transition-colors disabled:opacity-60 ${school.usa_pacotes ? "bg-primary" : "bg-slate-300"}`}
+            style={{ height: 24, width: 44 }}>
+            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${school.usa_pacotes ? "translate-x-[20px]" : "translate-x-0.5"}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Redefinir palavra-passe ── */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-5">
+        <h3 className="font-semibold text-slate-800 mb-1">Redefinir Palavra-passe</h3>
+        <p className="text-sm text-slate-500 mb-4">Define uma nova palavra-passe de acesso para este colégio.</p>
+        {errPass && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2 mb-3"><AlertCircle className="w-4 h-4 shrink-0"/>{errPass}</div>}
+        <div className="flex gap-3 items-center">
+          <div className="relative flex-1 max-w-xs">
+            <input type={showPass ? "text" : "password"} className={`${inp} pr-10`}
+              placeholder="Nova palavra-passe (min. 6 caracteres)" value={newPass} onChange={e => setNewPass(e.target.value)}/>
+            <button type="button" onClick={() => setShowPass(s => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              {showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+            </button>
+          </div>
+          <SaveBtn saving={savingPass} saved={savedPass} onClick={savePass}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
    SettingsView — Motor de Regras Configurável por Tenant
 ══════════════════════════════════════════════════════════════════ */
 function Toggle({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -3030,54 +3308,12 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
 
       {/* Tab content */}
       {tab === "geral" && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {[
-              { label: "Nome", value: currentSchool.name },
-              { label: "NIF", value: currentSchool.nif || "—" },
-              { label: "Telefone", value: currentSchool.phone || "—" },
-              { label: "Email", value: currentSchool.email },
-              { label: "IBAN", value: currentSchool.iban || "Não definido" },
-              { label: "Escola ID", value: currentSchool.school_id },
-              { label: "Turmas", value: String(currentSchool.total_turmas) },
-              { label: "Alunos", value: String(currentSchool.total_alunos) },
-            ].map(item => (
-              <div key={item.label} className="bg-white border border-slate-100 rounded-xl p-4">
-                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wider mb-1">{item.label}</p>
-                <p className="font-medium text-slate-900 font-mono text-sm">{item.value}</p>
-              </div>
-            ))}
-            {currentSchool.turmas.length > 0 && (
-              <div className="md:col-span-2 bg-white border border-slate-100 rounded-xl p-4">
-                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wider mb-3">Turmas registadas</p>
-                <div className="flex flex-wrap gap-2">
-                  {currentSchool.turmas.map(t => (
-                    <span key={t.id} className="text-sm bg-slate-100 text-slate-700 px-3 py-1 rounded-lg">
-                      {t.nome} <span className="text-slate-400">({t.turno})</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          {/* Pacotes toggle */}
-          <div className="bg-white border border-slate-100 rounded-xl p-5">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold text-slate-800">Pacotes de emolumentos</p>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  Permite agrupar serviços (mensalidade, transporte, ATL…) num pacote com valor fixo por aluno.
-                  {currentSchool.usa_pacotes && " A aba «Pacotes» fica disponível para configurar os pacotes."}
-                </p>
-              </div>
-              <button onClick={toggleUsaPacotes} disabled={togglingPacotes}
-                className={`relative shrink-0 rounded-full transition-colors disabled:opacity-60 ${currentSchool.usa_pacotes ? "bg-primary" : "bg-slate-300"}`}
-                style={{ height: 24, width: 44 }}>
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${currentSchool.usa_pacotes ? "translate-x-[20px]" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-          </div>
-        </div>
+        <GeralView
+          school={currentSchool}
+          onUpdated={patch => setCurrentSchool(s => ({ ...s, ...patch }))}
+          onTogglePacotes={toggleUsaPacotes}
+          togglingPacotes={togglingPacotes}
+        />
       )}
       {tab === "alunos" && (
         <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">

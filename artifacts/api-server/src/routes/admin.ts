@@ -134,6 +134,32 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
   });
 });
 
+/* ─── PUT /admin/colegios/:id — edit basic school info ─── */
+router.put("/admin/colegios/:id", adminAuth, async (req, res) => {
+  const { name, nif, phone, email, commission_rate } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
+
+  const r = await pool.query(
+    `UPDATE schools
+     SET name=$1, nif=$2, phone=$3, email=$4, commission_rate=$5
+     WHERE id=$6
+     RETURNING id, school_id, name, nif, phone, email, iban, commission_rate, usa_pacotes, created_at`,
+    [name.trim(), nif?.trim() ?? "", phone?.trim() ?? "", email?.trim(), Number(commission_rate ?? 0), req.params.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
+  res.json({ ok: true, school: r.rows[0] });
+});
+
+/* ─── PUT /admin/colegios/:id/reset-password — reset school password ─── */
+router.put("/admin/colegios/:id/reset-password", adminAuth, async (req, res) => {
+  const { new_password } = req.body;
+  if (!new_password || new_password.length < 6) return res.status(400).json({ error: "Palavra-passe deve ter pelo menos 6 caracteres." });
+  const { default: bcrypt } = await import("bcryptjs");
+  const hash = await bcrypt.hash(new_password, 10);
+  await pool.query("UPDATE schools SET password_hash=$1 WHERE id=$2", [hash, req.params.id]);
+  res.json({ ok: true });
+});
+
 /* ─── PUT /admin/colegios/:id/configuracao — update school settings ─── */
 router.put("/admin/colegios/:id/configuracao", adminAuth, async (req, res) => {
   const { usa_pacotes } = req.body;
