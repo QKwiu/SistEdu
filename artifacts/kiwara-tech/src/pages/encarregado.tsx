@@ -745,8 +745,8 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Resumo — Março 2026</p>
           <div className="grid grid-cols-3 gap-3">
             {[
-              { icon:<Wallet size={15} className="text-red-600"/>, bg:"bg-red-50", label:"Em dívida", value:`${(totalDivida/1000).toFixed(0)}K Kz` },
-              { icon:<AlertTriangle size={15} className="text-amber-600"/>, bg:"bg-amber-50", label:"Multas", value:`${(totalMultas/1000).toFixed(0)}K Kz` },
+              { icon:<Wallet size={15} className="text-red-600"/>, bg:"bg-red-50", label:"Em dívida", value: fmt(totalDivida) },
+              { icon:<AlertTriangle size={15} className="text-amber-600"/>, bg:"bg-amber-50", label:"Multas", value: fmt(totalMultas) },
               { icon:<Clock size={15} className="text-orange-600"/>, bg:"bg-orange-50", label:"Em atraso", value:`${totalVencidas} ${totalVencidas===1?"mês":"meses"}` },
             ].map((c,i)=>(
               <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">

@@ -3975,6 +3975,7 @@ function AdminSMSView() {
   const [selectedSchools, setSelectedSchools] = useState<number[]>([]);
   const [sendTodos, setSendTodos] = useState(false);
   const [bulkMsg, setBulkMsg] = useState("");
+  const [bulkTemplate, setBulkTemplate] = useState("");
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<any>(null);
 
@@ -4248,8 +4249,39 @@ function AdminSMSView() {
         <div className="space-y-5">
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900">Mensagem</h3>
-            <textarea value={bulkMsg} onChange={e => setBulkMsg(e.target.value)} rows={4}
-              placeholder="Escreva a mensagem que será enviada a todos os encarregados dos colégios seleccionados..."
+
+            {/* Template Picker */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar template global</p>
+              <div className="flex flex-wrap gap-2">
+                {ADMIN_SMS_EVENTS.filter(ev => ev.key !== "manual").map(ev => (
+                  <button key={ev.key}
+                    onClick={() => {
+                      setBulkMsg(globalTemplates[ev.key] ?? ADMIN_DEFAULT_TEMPLATES[ev.key] ?? "");
+                      setBulkTemplate(ev.key);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      bulkTemplate === ev.key
+                        ? "bg-primary text-white border-primary shadow-sm"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40 hover:bg-primary/5"
+                    }`}>
+                    {ev.label}
+                  </button>
+                ))}
+                {bulkTemplate && (
+                  <button onClick={() => { setBulkMsg(""); setBulkTemplate(""); }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 transition-all">
+                    Limpar
+                  </button>
+                )}
+              </div>
+              {bulkTemplate && (
+                <p className="text-xs text-slate-400">Template carregado — pode editar o texto abaixo antes de enviar. As variáveis {"{..."} serão substituídas automaticamente por cada colégio.</p>
+              )}
+            </div>
+
+            <textarea value={bulkMsg} onChange={e => { setBulkMsg(e.target.value); setBulkTemplate(""); }} rows={4}
+              placeholder="Escreva a mensagem ou selecione um template acima..."
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
           </div>
 

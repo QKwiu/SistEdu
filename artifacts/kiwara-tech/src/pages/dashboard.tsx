@@ -2837,6 +2837,7 @@ function ComunicacaoView({ token }: { token: string }) {
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
   const [sendMsg, setSendMsg] = useState("");
+  const [pickedTemplate, setPickedTemplate] = useState("");
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null);
 
@@ -3163,8 +3164,39 @@ function ComunicacaoView({ token }: { token: string }) {
           {/* Message Composer */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900">Mensagem</h3>
-            <textarea value={sendMsg} onChange={e => setSendMsg(e.target.value)} rows={4}
-              placeholder="Escreva a mensagem que será enviada aos encarregados seleccionados..."
+
+            {/* Template Picker */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar template</p>
+              <div className="flex flex-wrap gap-2">
+                {SMS_EVENTS.map(ev => (
+                  <button key={ev.key}
+                    onClick={() => {
+                      setSendMsg(templates[ev.key] ?? DEFAULT_TEMPLATES[ev.key] ?? "");
+                      setPickedTemplate(ev.key);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      pickedTemplate === ev.key
+                        ? "bg-primary text-white border-primary shadow-sm"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40 hover:bg-primary/5"
+                    }`}>
+                    {ev.label}
+                  </button>
+                ))}
+                {pickedTemplate && (
+                  <button onClick={() => { setSendMsg(""); setPickedTemplate(""); }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 transition-all">
+                    Limpar
+                  </button>
+                )}
+              </div>
+              {pickedTemplate && (
+                <p className="text-xs text-slate-400">Template carregado — pode editar o texto abaixo antes de enviar. As variáveis {"{..."} serão substituídas automaticamente.</p>
+              )}
+            </div>
+
+            <textarea value={sendMsg} onChange={e => { setSendMsg(e.target.value); setPickedTemplate(""); }} rows={4}
+              placeholder="Escreva a mensagem ou selecione um template acima..."
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
             <div className="flex items-center justify-between text-xs text-slate-500">
               <span>{sendMsg.length} caracteres</span>
