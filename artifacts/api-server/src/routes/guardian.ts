@@ -258,14 +258,61 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
   return res.json(result.rows);
 });
 
+// GET /guardian/payments/available-methods — métodos de pagamento disponíveis para a escola do encarregado
+router.get("/guardian/payments/available-methods", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const schoolRes = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (schoolRes.rows.length === 0) {
+    return res.json({ allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false, direct_debit: null });
+  }
+  const school_id = schoolRes.rows[0].school_id;
+
+  const r = await pool.query(
+    "SELECT settings FROM school_settings WHERE school_id = $1",
+    [school_id]
+  );
+  const settings = r.rows[0]?.settings ?? {};
+  const metodos = settings?.pagamento?.metodos_pagamento ?? { allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false };
+  const directDebit = settings?.pagamento?.direct_debit ?? null;
+
+  return res.json({ ...metodos, direct_debit: directDebit });
+});
+
 // POST /guardian/pagamentos/gerar — gera referência combinada para vários meses
 router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { propina_ids } = req.body as { propina_ids: number[] };
+  const { propina_ids, method } = req.body as { propina_ids: number[]; method?: string };
   if (!Array.isArray(propina_ids) || propina_ids.length === 0)
     return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+
+  // Validate that the requested payment method is enabled for this school
+  const schoolLookup = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (schoolLookup.rows.length > 0) {
+    const sid = schoolLookup.rows[0].school_id;
+    const settingsRow = await pool.query("SELECT settings FROM school_settings WHERE school_id = $1", [sid]);
+    const m = settingsRow.rows[0]?.settings?.pagamento?.metodos_pagamento ?? { allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false };
+    const requestedMethod = method ?? "reference";
+    if (requestedMethod === "reference" && !m.allow_reference)
+      return res.status(403).json({ error: "Pagamento por referência não está disponível nesta escola." });
+    if (requestedMethod === "gpo_mcx" && !m.allow_gpo_mcx)
+      return res.status(403).json({ error: "Pagamento via Multicaixa Express não está disponível nesta escola." });
+    if (requestedMethod === "direct_debit" && !m.allow_direct_debit)
+      return res.status(403).json({ error: "Débito direto não está disponível nesta escola." });
+  }
 
   // Verify all propinas belong to guardian's students
   const placeholders = propina_ids.map((_,i) => `$${i+2}`).join(",");

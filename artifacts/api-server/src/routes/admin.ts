@@ -230,6 +230,15 @@ const DEFAULT_SETTINGS = {
     reconciliacao_tolerancia_percentagem: 1,
     reconciliacao_automatica: true,
     metodos_aceites: ["MCX_EXPRESS", "MULTICAIXA", "NUMERARIO", "TRANSFERENCIA"],
+    metodos_pagamento: {
+      allow_reference: true,
+      allow_gpo_mcx: false,
+      allow_direct_debit: false,
+    },
+    direct_debit: {
+      banco_parceiro: "",
+      instrucoes: "",
+    },
   },
   academico: {
     limite_alunos_por_turma: 40,
@@ -340,6 +349,101 @@ router.put("/admin/colegios/:id/settings", adminAuth, async (req, res) => {
   `, [schoolId, JSON.stringify(merged)]);
 
   res.json({ ok: true, settings: merged });
+});
+
+/* ─── Payment Method Audit Log migration ─── */
+pool.query(`
+  CREATE TABLE IF NOT EXISTS payment_method_audit_log (
+    id SERIAL PRIMARY KEY,
+    school_id INTEGER NOT NULL,
+    changed_by TEXT NOT NULL DEFAULT 'superadmin',
+    changes JSONB NOT NULL,
+    previous_state JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+`).catch(() => {});
+
+/* ─── GET /admin/colegios/:id/payment-methods ─── */
+router.get("/admin/colegios/:id/payment-methods", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+
+  await pool.query(`
+    INSERT INTO school_settings (school_id, settings)
+    VALUES ($1, $2::jsonb)
+    ON CONFLICT (school_id) DO NOTHING
+  `, [schoolId, JSON.stringify(DEFAULT_SETTINGS)]);
+
+  const r = await pool.query(
+    "SELECT settings FROM school_settings WHERE school_id = $1",
+    [schoolId]
+  );
+  const stored = r.rows[0]?.settings ?? {};
+  const merged = deepMerge(DEFAULT_SETTINGS, stored);
+
+  const metodos = merged.pagamento?.metodos_pagamento ?? DEFAULT_SETTINGS.pagamento.metodos_pagamento;
+  const directDebit = merged.pagamento?.direct_debit ?? DEFAULT_SETTINGS.pagamento.direct_debit;
+
+  const logs = await pool.query(
+    "SELECT * FROM payment_method_audit_log WHERE school_id = $1 ORDER BY created_at DESC LIMIT 10",
+    [schoolId]
+  );
+
+  res.json({ metodos_pagamento: metodos, direct_debit: directDebit, audit_log: logs.rows });
+});
+
+/* ─── PUT /admin/colegios/:id/payment-methods ─── */
+router.put("/admin/colegios/:id/payment-methods", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.id);
+  const { metodos_pagamento, direct_debit } = req.body;
+
+  if (!metodos_pagamento || typeof metodos_pagamento !== "object") {
+    return res.status(400).json({ error: "Campo 'metodos_pagamento' obrigatório." });
+  }
+
+  const existing = await pool.query(
+    "SELECT settings FROM school_settings WHERE school_id = $1",
+    [schoolId]
+  );
+  const prevSettings = deepMerge(DEFAULT_SETTINGS, existing.rows[0]?.settings ?? {});
+  const previousMetodos = prevSettings.pagamento?.metodos_pagamento ?? DEFAULT_SETTINGS.pagamento.metodos_pagamento;
+
+  const newPagamento = {
+    ...prevSettings.pagamento,
+    metodos_pagamento: {
+      allow_reference: !!metodos_pagamento.allow_reference,
+      allow_gpo_mcx: !!metodos_pagamento.allow_gpo_mcx,
+      allow_direct_debit: !!metodos_pagamento.allow_direct_debit,
+    },
+    ...(direct_debit ? { direct_debit: {
+      banco_parceiro: direct_debit.banco_parceiro ?? "",
+      instrucoes: direct_debit.instrucoes ?? "",
+    }} : {}),
+  };
+
+  const newSettings = { ...prevSettings, pagamento: newPagamento };
+
+  await pool.query(`
+    INSERT INTO school_settings (school_id, settings, updated_at, updated_by)
+    VALUES ($1, $2::jsonb, NOW(), 'superadmin')
+    ON CONFLICT (school_id) DO UPDATE
+    SET settings = $2::jsonb, updated_at = NOW(), updated_by = 'superadmin'
+  `, [schoolId, JSON.stringify(newSettings)]);
+
+  const changes: Record<string, { de: any; para: any }> = {};
+  for (const key of Object.keys(metodos_pagamento)) {
+    if (previousMetodos[key] !== newPagamento.metodos_pagamento[key]) {
+      changes[key] = { de: previousMetodos[key], para: newPagamento.metodos_pagamento[key] };
+    }
+  }
+
+  if (Object.keys(changes).length > 0) {
+    await pool.query(
+      "INSERT INTO payment_method_audit_log (school_id, changed_by, changes, previous_state) VALUES ($1, $2, $3, $4)",
+      [schoolId, "superadmin", JSON.stringify(changes), JSON.stringify(previousMetodos)]
+    );
+  }
+
+  res.json({ ok: true, metodos_pagamento: newPagamento.metodos_pagamento });
 });
 
 /* ─── GET /admin/colegios/:id/pacotes ─── */

@@ -3387,39 +3387,70 @@ function SettingsView({ schoolId }: { schoolId: number }) {
 
       {/* ── PAGAMENTO ── */}
       {tab === "pagamento" && (
-        <SectionCard title="Integração & Reconciliação" icon={<Zap className="w-4 h-4"/>} onSave={() => saveSection("pagamento")} saving={isSaving("pagamento")} saved={isSaved("pagamento")}>
-          <SettingRow label="URL do middleware EMIS" desc="Endpoint do gateway de pagamentos a integrar.">
-            <input className={inp} style={{width:280}} value={P.middleware_url ?? ""} placeholder="https://emis.gateway.ao/api" onChange={e => set(["pagamento","middleware_url"], e.target.value)}/>
-          </SettingRow>
-          <SettingRow label="API Key do middleware" desc="Chave de autenticação para o gateway. Guardada de forma segura.">
-            <input type="password" className={inp} style={{width:200}} value={P.middleware_api_key ?? ""} placeholder="••••••••" onChange={e => set(["pagamento","middleware_api_key"], e.target.value)}/>
-          </SettingRow>
-          <SettingRow label="Prefixo de referência" desc="Prefixo personalizado para as referências internas (ex: ESC01).">
-            <input className={inp} style={{width:140}} value={P.referencia_prefixo ?? ""} placeholder="ESC01" maxLength={8} onChange={e => set(["pagamento","referencia_prefixo"], e.target.value)}/>
-          </SettingRow>
-          <SettingRow label="Tolerância de reconciliação (%)" desc="Diferença máxima aceite entre valor pago e fatura.">
-            <input type="number" min={0} max={10} step={0.5} className={num} value={P.reconciliacao_tolerancia_percentagem ?? 1} onChange={e => set(["pagamento","reconciliacao_tolerancia_percentagem"], Number(e.target.value))}/>
-          </SettingRow>
-          <SettingRow label="Reconciliação automática" desc="Atualizar estado da fatura automaticamente ao receber webhook.">
-            <Toggle value={!!P.reconciliacao_automatica} onChange={v => set(["pagamento","reconciliacao_automatica"], v)}/>
-          </SettingRow>
-          <SettingRow label="Métodos de pagamento aceites">
-            <div className="flex flex-wrap gap-2">
-              {["MCX_EXPRESS","MULTICAIXA","NUMERARIO","TRANSFERENCIA","TPA"].map(m => {
-                const active = (P.metodos_aceites ?? []).includes(m);
-                return (
-                  <button key={m} onClick={() => {
-                    const cur = P.metodos_aceites ?? [];
-                    set(["pagamento","metodos_aceites"], active ? cur.filter((x: string) => x !== m) : [...cur, m]);
-                  }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${active ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"}`}>
-                    {m.replace("_"," ")}
-                  </button>
-                );
-              })}
+        <div className="space-y-4">
+          <SectionCard title="Integração & Reconciliação" icon={<Zap className="w-4 h-4"/>} onSave={() => saveSection("pagamento")} saving={isSaving("pagamento")} saved={isSaved("pagamento")}>
+            <SettingRow label="URL do middleware EMIS" desc="Endpoint do gateway de pagamentos a integrar.">
+              <input className={inp} style={{width:280}} value={P.middleware_url ?? ""} placeholder="https://emis.gateway.ao/api" onChange={e => set(["pagamento","middleware_url"], e.target.value)}/>
+            </SettingRow>
+            <SettingRow label="API Key do middleware" desc="Chave de autenticação para o gateway. Guardada de forma segura.">
+              <input type="password" className={inp} style={{width:200}} value={P.middleware_api_key ?? ""} placeholder="••••••••" onChange={e => set(["pagamento","middleware_api_key"], e.target.value)}/>
+            </SettingRow>
+            <SettingRow label="Prefixo de referência" desc="Prefixo personalizado para as referências internas (ex: ESC01).">
+              <input className={inp} style={{width:140}} value={P.referencia_prefixo ?? ""} placeholder="ESC01" maxLength={8} onChange={e => set(["pagamento","referencia_prefixo"], e.target.value)}/>
+            </SettingRow>
+            <SettingRow label="Tolerância de reconciliação (%)" desc="Diferença máxima aceite entre valor pago e fatura.">
+              <input type="number" min={0} max={10} step={0.5} className={num} value={P.reconciliacao_tolerancia_percentagem ?? 1} onChange={e => set(["pagamento","reconciliacao_tolerancia_percentagem"], Number(e.target.value))}/>
+            </SettingRow>
+            <SettingRow label="Reconciliação automática" desc="Atualizar estado da fatura automaticamente ao receber webhook.">
+              <Toggle value={!!P.reconciliacao_automatica} onChange={v => set(["pagamento","reconciliacao_automatica"], v)}/>
+            </SettingRow>
+            <SettingRow label="Métodos de pagamento aceites">
+              <div className="flex flex-wrap gap-2">
+                {["MCX_EXPRESS","MULTICAIXA","NUMERARIO","TRANSFERENCIA","TPA"].map(m => {
+                  const active = (P.metodos_aceites ?? []).includes(m);
+                  return (
+                    <button key={m} onClick={() => {
+                      const cur = P.metodos_aceites ?? [];
+                      set(["pagamento","metodos_aceites"], active ? cur.filter((x: string) => x !== m) : [...cur, m]);
+                    }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${active ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"}`}>
+                      {m.replace("_"," ")}
+                    </button>
+                  );
+                })}
+              </div>
+            </SettingRow>
+          </SectionCard>
+
+          {/* Modalidades no Portal do Encarregado */}
+          <SectionCard title="Modalidades disponíveis no Portal do Encarregado" icon={<ShieldCheck className="w-4 h-4"/>} onSave={() => saveSection("pagamento")} saving={isSaving("pagamento")} saved={isSaved("pagamento")}>
+            <div className="px-1 py-2">
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5"/>
+                Apenas o Superadmin pode alterar estas permissões. Cada escola tem configuração independente e isolada.
+              </p>
             </div>
-          </SettingRow>
-        </SectionCard>
+            <SettingRow label="Referência Bancária (Multicaixa/ATM)" desc="Permitir que o encarregado gere referências de pagamento para pagar via ATM, MB Way ou internet banking.">
+              <Toggle value={!!P.metodos_pagamento?.allow_reference} onChange={v => set(["pagamento","metodos_pagamento","allow_reference"], v)}/>
+            </SettingRow>
+            <SettingRow label="GPO / Multicaixa Express" desc="Pagamento online em tempo real via Multicaixa Express (requer integração com middleware EMIS ativo).">
+              <Toggle value={!!P.metodos_pagamento?.allow_gpo_mcx} onChange={v => set(["pagamento","metodos_pagamento","allow_gpo_mcx"], v)}/>
+            </SettingRow>
+            <SettingRow label="Débito Direto" desc="Permite que o encarregado adira ao débito direto para pagamento automático das propinas.">
+              <Toggle value={!!P.metodos_pagamento?.allow_direct_debit} onChange={v => set(["pagamento","metodos_pagamento","allow_direct_debit"], v)}/>
+            </SettingRow>
+            {P.metodos_pagamento?.allow_direct_debit && (
+              <>
+                <SettingRow label="Banco parceiro (Débito Direto)" desc="Nome do banco ou instituição que processa os débitos.">
+                  <input className={inp} style={{width:220}} value={P.direct_debit?.banco_parceiro ?? ""} placeholder="ex: BAI, BFA, BIC" onChange={e => set(["pagamento","direct_debit","banco_parceiro"], e.target.value)}/>
+                </SettingRow>
+                <SettingRow label="Instruções ao encarregado" desc="Texto explicativo exibido ao encarregado ao aderir ao débito direto.">
+                  <input className={inp} style={{width:280}} value={P.direct_debit?.instrucoes ?? ""} placeholder="Para aderir, indique o seu IBAN…" onChange={e => set(["pagamento","direct_debit","instrucoes"], e.target.value)}/>
+                </SettingRow>
+              </>
+            )}
+          </SectionCard>
+        </div>
       )}
 
       {/* ── ACADÉMICO ── */}

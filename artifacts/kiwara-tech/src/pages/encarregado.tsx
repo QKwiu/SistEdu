@@ -6,7 +6,7 @@ import {
   AlertTriangle, Clock, CheckCircle, Wallet, Users,
   RefreshCw, X, CreditCard, Calendar, Info,
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
-  Phone, HelpCircle, RotateCcw, Menu, Bell, MessageSquare,
+  Phone, HelpCircle, RotateCcw, Menu, Bell, ArrowLeftRight,
 } from "lucide-react";
 
 const API = "/api";
@@ -40,6 +40,12 @@ interface Comunicado {
   id: number; titulo: string; conteudo: string;
   prioridade: "normal" | "urgente" | "informativo";
   created_at: string; lido: boolean;
+}
+interface AvailableMethods {
+  allow_reference: boolean;
+  allow_gpo_mcx: boolean;
+  allow_direct_debit: boolean;
+  direct_debit: { banco_parceiro: string; instrucoes: string; } | null;
 }
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
@@ -594,6 +600,16 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [comunicados, setComunicados] = useState<Comunicado[]>([]);
   const [loadingComunicados, setLoadingComunicados] = useState(false);
 
+  // Available payment methods
+  const [availableMethods, setAvailableMethods] = useState<AvailableMethods>({
+    allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false, direct_debit: null,
+  });
+
+  // Direct debit adhesion state
+  const [showDirectDebit, setShowDirectDebit] = useState(false);
+  const [ibanInput, setIbanInput] = useState("");
+  const [directDebitAccepted, setDirectDebitAccepted] = useState(false);
+
   // Modals
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
   const [generatedRef, setGeneratedRef] = useState<GeneratedRef|null>(null);
@@ -653,6 +669,14 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     finally { setLoadingComunicados(false); }
   }, [token]);
 
+  const loadAvailableMethods = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/guardian/payments/available-methods`, {headers});
+      if (!res.ok) return;
+      setAvailableMethods(await res.json());
+    } catch {}
+  }, [token]);
+
   const marcarLido = async (id: number) => {
     setComunicados(prev => prev.map(c => c.id === id ? { ...c, lido: true } : c));
     try {
@@ -664,6 +688,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
+  useEffect(() => { loadAvailableMethods(); }, [loadAvailableMethods]);
 
   useEffect(() => {
     if (!selectedStudent) return;
@@ -879,6 +904,109 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             ))}
           </div>
         </div>
+
+        {/* Payment Methods */}
+        {(availableMethods.allow_gpo_mcx || availableMethods.allow_direct_debit || availableMethods.allow_reference) && (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <CreditCard size={12}/> Modalidades de Pagamento Disponíveis
+            </p>
+            <div className="grid gap-3">
+
+              {/* Referência Bancária */}
+              {availableMethods.allow_reference && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                    <CreditCard size={18} className="text-blue-600"/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm">Referência Bancária</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Gere uma referência e pague via ATM, internet banking ou Multicaixa.</p>
+                    <div className="flex gap-2 mt-2">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">ATM</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Multicaixa</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Internet Banking</span>
+                    </div>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold shrink-0">Activo</span>
+                </div>
+              )}
+
+              {/* GPO / MCX Express */}
+              {availableMethods.allow_gpo_mcx && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+                    <Zap size={18} className="text-emerald-600"/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm">Multicaixa Express / GPO</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Pagamento online em tempo real via Multicaixa Express ou portal GPO.</p>
+                    <div className="flex gap-2 mt-2">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Tempo Real</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">MCX Express</span>
+                    </div>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold shrink-0">Activo</span>
+                </div>
+              )}
+
+              {/* Débito Direto */}
+              {availableMethods.allow_direct_debit && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="p-4 flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
+                      <ArrowLeftRight size={18} className="text-violet-600"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">Débito Direto</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {availableMethods.direct_debit?.instrucoes || "Autorize débitos automáticos da sua conta bancária para pagamento de propinas."}
+                      </p>
+                      {availableMethods.direct_debit?.banco_parceiro && (
+                        <p className="text-xs text-violet-600 font-semibold mt-1">Banco parceiro: {availableMethods.direct_debit.banco_parceiro}</p>
+                      )}
+                    </div>
+                    <button onClick={() => setShowDirectDebit(v => !v)}
+                      className="shrink-0 text-xs px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors">
+                      {showDirectDebit ? "Cancelar" : "Aderir"}
+                    </button>
+                  </div>
+
+                  <AnimatePresence>
+                    {showDirectDebit && (
+                      <motion.div initial={{height:0,opacity:0}} animate={{height:"auto",opacity:1}} exit={{height:0,opacity:0}}
+                        transition={{duration:0.22}} className="overflow-hidden">
+                        <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">IBAN da conta a debitar</label>
+                            <input
+                              value={ibanInput} onChange={e => setIbanInput(e.target.value)}
+                              placeholder="AO06.0044.0000.0000.0000.0000.0"
+                              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/20 focus:border-violet-400"
+                            />
+                          </div>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" checked={directDebitAccepted} onChange={e => setDirectDebitAccepted(e.target.checked)}
+                              className="mt-0.5 accent-violet-600"/>
+                            <span className="text-xs text-gray-600">
+                              Autorizo o débito automático da minha conta para pagamento de propinas e declaro ter lido e aceite os termos e condições.
+                            </span>
+                          </label>
+                          <button
+                            disabled={!ibanInput.trim() || !directDebitAccepted}
+                            onClick={() => { setShowDirectDebit(false); setIbanInput(""); setDirectDebitAccepted(false); }}
+                            className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-200 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+                            <CheckCircle size={15}/>Confirmar Adesão ao Débito Direto
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Students */}
         <div>
