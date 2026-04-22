@@ -969,4 +969,31 @@ router.delete("/admin/colegios/:id", adminAuth, async (req, res) => {
   res.status(204).end();
 });
 
+/* ─── GET /admin/colegios/:id/direct-debit/subscriptions ─── */
+router.get("/admin/colegios/:id/direct-debit/subscriptions", adminAuth, async (req, res) => {
+  const { id } = req.params;
+  const r = await pool.query(
+    `SELECT dds.*, e.nome AS encarregado_nome, e.telefone AS encarregado_telefone
+     FROM direct_debit_subscriptions dds
+     JOIN encarregados e ON e.id = dds.encarregado_id
+     WHERE dds.school_id = $1
+     ORDER BY dds.created_at DESC`,
+    [id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── PUT /admin/direct-debit/subscriptions/:id/approve-cancellation ─── */
+router.put("/admin/direct-debit/subscriptions/:id/approve-cancellation", adminAuth, async (req, res) => {
+  const { id } = req.params;
+  const { notes } = req.body;
+  await pool.query(
+    `UPDATE direct_debit_subscriptions
+     SET status='cancelled', cancelled_at=NOW(), cancellation_notes=$2
+     WHERE id=$1`,
+    [id, notes ?? null]
+  );
+  return res.json({ ok: true });
+});
+
 export default router;

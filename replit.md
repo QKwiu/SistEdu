@@ -84,8 +84,24 @@ A full multi-tenant SMS notification system is implemented:
 - **Admin UI**: "SMS & Comunicação" section with global provider config, bulk send to all/selected schools, monitoring
 - **Providers**: mock (default), Africa's Talking, Twilio, custom HTTP endpoint
 
+## Multimodal Payment System
+Payment methods are configurable per institution by Superadmin via `school_settings.pagamento`:
+- `metodos_pagamento`: `{allow_reference, allow_gpo_mcx, allow_direct_debit}` (all booleans)
+- `direct_debit`: `{banco_parceiro, instrucoes}` for the DD bank configuration
+- Admin endpoint: `GET/PUT /admin/colegios/:id/payment-methods` with full audit log in `payment_method_audit_log`
+- Guardian endpoint: `GET /guardian/payments/available-methods` returns active methods for the guardian's school
+- Method validation in `POST /guardian/pagamentos/gerar` rejects disabled methods (403)
+
+## Direct Debit (Débito Direto) Module
+Full DD subscription lifecycle implemented:
+- **Adhesion (one-time)**: 3-step wizard: (1) emolument selection + IBAN + debit day, (2) transparency schedule/detail, (3) T&C acceptance + email for contract delivery
+- **Emolumentos**: propina, transporte, refeição, atividades extracurriculares
+- **Subscription persistence**: `direct_debit_subscriptions` table; one active subscription per guardian/school; re-adhesion allowed after cancellation
+- **Cancellation flow**: Guardian submits cancel request → status becomes `cancellation_requested` → Admin approves via `PUT /admin/direct-debit/subscriptions/:id/approve-cancellation` → status becomes `cancelled`
+- **Transparency**: Subscription card shows masked IBAN, debit day, emoluments list, next 4 monthly debit dates
+
 ## Database Schema Highlights
-Key tables include `schools`, `sessions`, `encarregados`, `guardian_sessions`, `encarregado_aluno`, `turmas`, `students`, `matriculas`, `propinas`, `pagamentos`, `ocorrencias`, `multa_regras`, `propina_ajustes`, and `sms_logs`. Enum values are defined for `students.estado`, `students.sexo`, `propinas.status`, and `pagamentos.estado`.
+Key tables include `schools`, `sessions`, `encarregados`, `guardian_sessions`, `encarregado_aluno`, `turmas`, `students`, `matriculas`, `propinas`, `pagamentos`, `ocorrencias`, `multa_regras`, `propina_ajustes`, `sms_logs`, `comunicados`, `comunicados_lidos`, `payment_method_audit_log`, and `direct_debit_subscriptions`. Enum values are defined for `students.estado`, `students.sexo`, `propinas.status`, and `pagamentos.estado`.
 
 # External Dependencies
 -   **Monorepo Tool**: pnpm workspaces

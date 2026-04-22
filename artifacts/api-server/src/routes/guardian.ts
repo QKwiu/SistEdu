@@ -421,6 +421,21 @@ pool.query(`
     lido_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (comunicado_id, encarregado_id)
   );
+  CREATE TABLE IF NOT EXISTS direct_debit_subscriptions (
+    id SERIAL PRIMARY KEY,
+    encarregado_id INTEGER NOT NULL,
+    school_id INTEGER NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'active',
+    iban VARCHAR(60) NOT NULL,
+    emolumentos JSONB NOT NULL DEFAULT '["propina"]',
+    debit_day INTEGER NOT NULL DEFAULT 5,
+    email VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    activated_at TIMESTAMPTZ DEFAULT NOW(),
+    cancellation_requested_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancellation_notes TEXT
+  );
 `).catch(() => {});
 
 router.get("/guardian/comunicados", async (req, res) => {
@@ -461,6 +476,97 @@ router.post("/guardian/comunicados/:id/marcar-lido", async (req, res) => {
     [req.params.id, guardian.id]
   );
   res.json({ ok: true });
+});
+
+/* ── Débito Direto ── */
+
+// GET /guardian/direct-debit/subscription — estado actual da subscrição
+router.get("/guardian/direct-debit/subscription", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const schoolRes = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (schoolRes.rows.length === 0) return res.json(null);
+  const school_id = schoolRes.rows[0].school_id;
+
+  const r = await pool.query(
+    `SELECT * FROM direct_debit_subscriptions
+     WHERE encarregado_id = $1 AND school_id = $2 AND status != 'cancelled'
+     ORDER BY created_at DESC LIMIT 1`,
+    [guardian.id, school_id]
+  );
+  return res.json(r.rows[0] ?? null);
+});
+
+// POST /guardian/direct-debit/subscribe — adesão (única vez)
+router.post("/guardian/direct-debit/subscribe", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const schoolRes = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (schoolRes.rows.length === 0)
+    return res.status(400).json({ error: "Nenhum educando associado." });
+  const school_id = schoolRes.rows[0].school_id;
+
+  const existing = await pool.query(
+    `SELECT id, status FROM direct_debit_subscriptions
+     WHERE encarregado_id = $1 AND school_id = $2 AND status != 'cancelled' LIMIT 1`,
+    [guardian.id, school_id]
+  );
+  if (existing.rows.length > 0)
+    return res.status(409).json({ error: "Já possui uma subscrição de débito direto activa.", status: existing.rows[0].status });
+
+  const { iban, emolumentos, debit_day, email } = req.body;
+  if (!iban?.trim()) return res.status(400).json({ error: "IBAN obrigatório." });
+  if (!Array.isArray(emolumentos) || emolumentos.length === 0)
+    return res.status(400).json({ error: "Selecione pelo menos um emolumento." });
+  const day = Math.min(28, Math.max(1, parseInt(debit_day) || 5));
+
+  const r = await pool.query(
+    `INSERT INTO direct_debit_subscriptions
+       (encarregado_id, school_id, iban, emolumentos, debit_day, email, status, activated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,'active',NOW()) RETURNING *`,
+    [guardian.id, school_id, iban.trim().toUpperCase(), JSON.stringify(emolumentos), day, email || null]
+  );
+
+  console.log(`[DD] Nova subscrição #${r.rows[0].id} — contrato enviado para: ${email ?? guardian.telefone}`);
+  return res.json({ ok: true, subscription: r.rows[0] });
+});
+
+// POST /guardian/direct-debit/cancel-request — pedido de cancelamento (requer aprovação do colégio)
+router.post("/guardian/direct-debit/cancel-request", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { subscription_id } = req.body;
+  const check = await pool.query(
+    `SELECT id, status FROM direct_debit_subscriptions WHERE id=$1 AND encarregado_id=$2`,
+    [subscription_id, guardian.id]
+  );
+  if (check.rows.length === 0) return res.status(404).json({ error: "Subscrição não encontrada." });
+  const { status } = check.rows[0];
+  if (status === "cancellation_requested")
+    return res.status(409).json({ error: "Pedido de cancelamento já submetido. Aguarda validação do colégio." });
+  if (status === "cancelled")
+    return res.status(409).json({ error: "Subscrição já cancelada." });
+
+  await pool.query(
+    `UPDATE direct_debit_subscriptions
+     SET status='cancellation_requested', cancellation_requested_at=NOW()
+     WHERE id=$1`,
+    [subscription_id]
+  );
+  return res.json({ ok: true });
 });
 
 export default router;

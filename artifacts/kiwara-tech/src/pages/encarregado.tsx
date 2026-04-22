@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -7,6 +7,8 @@ import {
   RefreshCw, X, CreditCard, Calendar, Info,
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
   Phone, HelpCircle, RotateCcw, Menu, Bell, ArrowLeftRight,
+  FileText, Send, ChevronRight, ChevronLeft, Banknote,
+  BadgeCheck, XCircle,
 } from "lucide-react";
 
 const API = "/api";
@@ -46,6 +48,20 @@ interface AvailableMethods {
   allow_gpo_mcx: boolean;
   allow_direct_debit: boolean;
   direct_debit: { banco_parceiro: string; instrucoes: string; } | null;
+}
+interface DDSubscription {
+  id: number;
+  encarregado_id: number;
+  school_id: number;
+  status: "active" | "cancellation_requested" | "cancelled";
+  iban: string;
+  emolumentos: string[];
+  debit_day: number;
+  email: string | null;
+  created_at: string;
+  activated_at: string | null;
+  cancellation_requested_at: string | null;
+  cancelled_at: string | null;
 }
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
@@ -406,6 +422,480 @@ function RecuperarPinModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* ─── DD helpers ─── */
+const EMOLUMENTOS_OPCOES = [
+  { id: "propina",    label: "Propina mensal",                desc: "Mensalidade escolar mensal" },
+  { id: "transporte", label: "Serviço de Transporte",         desc: "Taxa mensal de transporte escolar" },
+  { id: "refeicao",   label: "Serviço de Refeição",           desc: "Cantina e refeições escolares" },
+  { id: "atividades", label: "Actividades Extracurriculares", desc: "Aulas e actividades opcionais" },
+];
+
+const EMOLUMENTO_LABEL: Record<string, string> = {
+  propina: "Propina mensal", transporte: "Transporte", refeicao: "Refeição", atividades: "Actividades",
+};
+
+const TERMOS_DD = `CONTRATO DE AUTORIZAÇÃO DE DÉBITO DIRETO
+
+1. AUTORIZAÇÃO
+O Encarregado de Educação (doravante "Titular"), ao aceitar estes termos, autoriza expressamente o Estabelecimento de Ensino (doravante "Colégio") a debitar automaticamente na conta bancária indicada, através do banco parceiro, os montantes correspondentes aos serviços selecionados.
+
+2. SERVIÇOS COBERTOS
+Apenas os serviços selecionados aquando da adesão serão debitados automaticamente. O Titular pode consultar os serviços ativos no Portal do Encarregado.
+
+3. PERIODICIDADE E DATA DE DÉBITO
+Os débitos são processados mensalmente na data indicada pelo Titular, salvo indicação contrária. Caso a data recaia num dia não útil, o débito é processado no dia útil imediatamente seguinte.
+
+4. NOTIFICAÇÃO PRÉVIA
+O Colégio compromete-se a notificar o Titular com pelo menos 5 (cinco) dias úteis de antecedência em caso de alteração do valor a debitar.
+
+5. CANCELAMENTO
+O Titular pode solicitar o cancelamento do débito direto através do Portal do Encarregado. O cancelamento está sujeito a validação e aprovação pelo Colégio e produz efeitos no mês seguinte à aprovação.
+
+6. RESPONSABILIDADE
+O Titular é responsável por manter saldo suficiente na conta indicada. Em caso de recusa do débito por insuficiência de fundos, o Colégio reserva-se o direito de aplicar encargos previstos no Regulamento Interno.
+
+7. DADOS PESSOAIS
+Os dados fornecidos são tratados de acordo com a política de privacidade do Colégio e da plataforma Kiwara Tech, exclusivamente para efeitos de processamento dos pagamentos autorizados.
+
+Ao confirmar a adesão, o Titular declara ter lido, compreendido e aceite integralmente estes Termos e Condições.`;
+
+function maskIban(iban: string): string {
+  const clean = iban.replace(/[.\s]/g, "");
+  if (clean.length < 8) return iban;
+  return clean.slice(0, 4) + "·····" + clean.slice(-4);
+}
+
+function nextDebitDates(day: number, count = 6): Date[] {
+  const dates: Date[] = [];
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth();
+  while (dates.length < count) {
+    const d = new Date(year, month, day);
+    if (d > now) dates.push(d);
+    month++;
+    if (month > 11) { month = 0; year++; }
+  }
+  return dates;
+}
+
+/* ─── DirectDebitWizard ─── */
+function DirectDebitWizard({ onClose, onSuccess, availableMethods, token }: {
+  onClose: () => void;
+  onSuccess: (sub: DDSubscription) => void;
+  availableMethods: AvailableMethods;
+  token: string;
+}) {
+  const [step, setStep] = useState(1);
+  const [emolumentos, setEmolumentos] = useState<string[]>(["propina"]);
+  const [iban, setIban] = useState("");
+  const [debitDay, setDebitDay] = useState(5);
+  const [email, setEmail] = useState("");
+  const [accepted, setAccepted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  const dates = useMemo(() => nextDebitDates(debitDay), [debitDay]);
+
+  const toggleEmol = (id: string) =>
+    setEmolumentos(prev => prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]);
+
+  const handleSubmit = async () => {
+    setError(""); setLoading(true);
+    try {
+      const res = await fetch(`${API}/guardian/direct-debit/subscribe`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ iban, emolumentos, debit_day: debitDay, email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao registar subscrição.");
+      setSuccess(true);
+      setTimeout(() => { onSuccess(data.subscription); onClose(); }, 2200);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const STEPS = ["Emolumentos", "Cronograma", "Termos e Confirmação"];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
+      <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 280, damping: 30 }}
+        className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl rounded-t-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="bg-gradient-to-r from-violet-700 to-violet-600 px-5 py-4 text-white shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <ArrowLeftRight size={18}/>
+              <span className="font-semibold">Adesão ao Débito Direto</span>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
+              <X size={16}/>
+            </button>
+          </div>
+          {/* Step indicators */}
+          <div className="flex items-center gap-1.5">
+            {STEPS.map((s, i) => (
+              <div key={i} className="flex items-center gap-1.5 flex-1">
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-all
+                  ${step > i+1 ? "bg-emerald-400 text-white" : step === i+1 ? "bg-white text-violet-700" : "bg-white/20 text-white/60"}`}>
+                  {step > i+1 ? <Check size={12}/> : i+1}
+                </div>
+                <span className={`text-xs whitespace-nowrap hidden sm:block ${step === i+1 ? "text-white font-semibold" : "text-white/50"}`}>{s}</span>
+                {i < STEPS.length - 1 && <div className="flex-1 h-px bg-white/20 mx-1"/>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5">
+
+          {/* ── Step 1: Emolumentos + IBAN + Dia ── */}
+          {step === 1 && (
+            <div className="space-y-5">
+              <div>
+                <p className="font-semibold text-gray-900 mb-1">O que deseja debitar automaticamente?</p>
+                <p className="text-xs text-gray-500 mb-3">Selecione os serviços a incluir no débito mensal.</p>
+                <div className="space-y-2">
+                  {EMOLUMENTOS_OPCOES.map(opt => {
+                    const sel = emolumentos.includes(opt.id);
+                    return (
+                      <button key={opt.id} onClick={() => toggleEmol(opt.id)}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all
+                          ${sel ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:border-gray-300"}`}>
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all
+                          ${sel ? "bg-violet-600 border-violet-600" : "border-gray-300"}`}>
+                          {sel && <Check size={12} className="text-white"/>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold ${sel ? "text-violet-800" : "text-gray-800"}`}>{opt.label}</p>
+                          <p className="text-xs text-gray-400">{opt.desc}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">IBAN da conta a debitar</label>
+                <input value={iban} onChange={e => setIban(e.target.value)}
+                  placeholder="AO06.0044.0000.0000.0000.0000.0"
+                  className="w-full border-2 border-gray-200 focus:border-violet-400 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-400/20 transition-all"/>
+                <p className="text-xs text-gray-400 mt-1">Conta bancária associada ao banco parceiro {availableMethods.direct_debit?.banco_parceiro ?? ""}.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Dia do débito mensal</label>
+                <div className="flex items-center gap-3">
+                  <input type="range" min={1} max={28} value={debitDay} onChange={e => setDebitDay(Number(e.target.value))}
+                    className="flex-1 accent-violet-600"/>
+                  <span className="w-12 text-center font-bold text-violet-700 text-lg shrink-0">Dia {debitDay}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">O débito será processado todo o mês no dia {debitDay}.</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 2: Cronograma e Transparência ── */}
+          {step === 2 && (
+            <div className="space-y-5">
+              <div>
+                <p className="font-semibold text-gray-900 mb-1">Detalhe do serviço</p>
+                <p className="text-xs text-gray-500 mb-3">Reveja o resumo antes de continuar.</p>
+
+                <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-violet-800 text-sm font-semibold mb-2">
+                    <ArrowLeftRight size={15}/> Resumo da subscrição
+                  </div>
+                  <div className="text-xs space-y-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Conta (IBAN)</span>
+                      <span className="font-mono font-semibold text-gray-800">{maskIban(iban)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Dia do débito</span>
+                      <span className="font-semibold text-gray-800">Todo o mês no dia {debitDay}</span>
+                    </div>
+                    {availableMethods.direct_debit?.banco_parceiro && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Banco parceiro</span>
+                        <span className="font-semibold text-gray-800">{availableMethods.direct_debit.banco_parceiro}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t border-violet-200 pt-2 mt-2">
+                    <p className="text-xs text-gray-500 mb-1.5">Serviços incluídos:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {emolumentos.map(e => (
+                        <span key={e} className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 font-semibold">
+                          {EMOLUMENTO_LABEL[e] ?? e}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+                  <Calendar size={14}/> Cronograma de débitos previstos
+                </p>
+                <div className="space-y-1.5">
+                  {dates.map((d, i) => (
+                    <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${i === 0 ? "bg-violet-500" : "bg-gray-300"}`}/>
+                        <span className="text-sm text-gray-700">
+                          {d.toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" })}
+                        </span>
+                      </div>
+                      {i === 0 && <span className="text-xs font-semibold text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">Próximo</span>}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2">
+                  <Info size={14} className="text-amber-500 shrink-0 mt-0.5"/>
+                  <p className="text-xs text-amber-700">Os valores exactos de cada débito serão os correspondentes às propinas e serviços em vigor em cada mês. Será notificado com antecedência em caso de alteração.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 3: T&C + Email + Confirmação ── */}
+          {step === 3 && !success && (
+            <div className="space-y-4">
+              <div>
+                <p className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                  <FileText size={16} className="text-violet-600"/> Termos e Condições
+                </p>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 h-48 overflow-y-auto text-xs text-gray-600 leading-relaxed whitespace-pre-line font-mono">
+                  {TERMOS_DD}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+                  <Send size={14} className="text-violet-500"/> E-mail para envio do contrato
+                  <span className="text-xs font-normal text-gray-400">(opcional)</span>
+                </label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="encarregado@exemplo.com"
+                  className="w-full border-2 border-gray-200 focus:border-violet-400 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/20 transition-all"/>
+                <p className="text-xs text-gray-400 mt-1">O contrato de débito direto será enviado para este endereço.</p>
+              </div>
+
+              <label className="flex items-start gap-2 cursor-pointer p-3 rounded-xl border-2 border-gray-200 hover:border-violet-300 transition-colors">
+                <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)}
+                  className="mt-0.5 accent-violet-600 w-4 h-4 shrink-0"/>
+                <span className="text-sm text-gray-700 leading-snug">
+                  Li, compreendi e aceito os <span className="text-violet-600 font-semibold">Termos e Condições</span> do débito direto e autorizo o processamento automático dos montantes correspondentes.
+                </span>
+              </label>
+
+              <AnimatePresence>
+                {error && (
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                    <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5"/>
+                    <p className="text-red-700 text-sm">{error}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* ── Success ── */}
+          {success && (
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              className="flex flex-col items-center justify-center py-8 text-center gap-4">
+              <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center">
+                <BadgeCheck size={32} className="text-emerald-600"/>
+              </div>
+              <div>
+                <p className="font-bold text-gray-900 text-lg">Adesão confirmada!</p>
+                <p className="text-gray-500 text-sm mt-1">O seu débito direto está activo.</p>
+                {email && <p className="text-xs text-gray-400 mt-2">Contrato enviado para <span className="font-semibold">{email}</span></p>}
+              </div>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Footer buttons */}
+        {!success && (
+          <div className="border-t border-gray-100 px-5 py-4 flex gap-3 shrink-0">
+            {step > 1 ? (
+              <button onClick={() => setStep(s => s - 1)}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition-colors">
+                <ChevronLeft size={16}/> Anterior
+              </button>
+            ) : (
+              <button onClick={onClose}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-500 text-sm font-semibold hover:bg-gray-50 transition-colors">
+                Cancelar
+              </button>
+            )}
+            <div className="flex-1"/>
+            {step < 3 ? (
+              <button onClick={() => setStep(s => s + 1)}
+                disabled={step === 1 && (emolumentos.length === 0 || iban.trim().length < 10)}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-200 text-white text-sm font-semibold transition-colors">
+                Seguinte <ChevronRight size={16}/>
+              </button>
+            ) : (
+              <button onClick={handleSubmit} disabled={!accepted || loading}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-200 text-white text-sm font-semibold transition-colors">
+                {loading ? <RefreshCw size={15} className="animate-spin"/> : <BadgeCheck size={15}/>}
+                {loading ? "A registar..." : "Confirmar Adesão"}
+              </button>
+            )}
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─── DDSubscriptionCard ─── */
+function DDSubscriptionCard({ sub, token, onCancelled }: {
+  sub: DDSubscription;
+  token: string;
+  onCancelled: () => void;
+}) {
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const dates = useMemo(() => nextDebitDates(sub.debit_day, 4), [sub.debit_day]);
+
+  const handleCancelRequest = async () => {
+    setCancelError(""); setCancelling(true);
+    try {
+      const res = await fetch(`${API}/guardian/direct-debit/cancel-request`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription_id: sub.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao submeter pedido.");
+      onCancelled();
+      setShowCancel(false);
+    } catch (e: any) { setCancelError(e.message); }
+    finally { setCancelling(false); }
+  };
+
+  const isCancelRequested = sub.status === "cancellation_requested";
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-violet-200 shadow-sm overflow-hidden">
+      {/* Status header */}
+      <div className={`px-4 py-3 flex items-center gap-2 ${isCancelRequested ? "bg-amber-50 border-b border-amber-200" : "bg-violet-50 border-b border-violet-200"}`}>
+        {isCancelRequested
+          ? <><Clock size={14} className="text-amber-600"/><span className="text-amber-800 text-xs font-semibold">Pedido de cancelamento em análise pelo colégio</span></>
+          : <><BadgeCheck size={14} className="text-violet-700"/><span className="text-violet-800 text-xs font-semibold">Débito Direto Activo</span></>
+        }
+      </div>
+
+      <div className="p-4 space-y-3">
+        {/* Details */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <div>
+            <p className="text-gray-400 mb-0.5">IBAN</p>
+            <p className="font-mono font-semibold text-gray-800">{maskIban(sub.iban)}</p>
+          </div>
+          <div>
+            <p className="text-gray-400 mb-0.5">Dia do débito</p>
+            <p className="font-semibold text-gray-800">Todo o mês no dia {sub.debit_day}</p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-gray-400 mb-1">Serviços debitados</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(Array.isArray(sub.emolumentos) ? sub.emolumentos : []).map(e => (
+                <span key={e} className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">
+                  {EMOLUMENTO_LABEL[e] ?? e}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Next debits */}
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+            <Calendar size={11}/> Próximos débitos previstos
+          </p>
+          <div className="space-y-1">
+            {dates.map((d, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 ? "bg-violet-500" : "bg-gray-300"}`}/>
+                {d.toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" })}
+                {i === 0 && <span className="text-violet-600 font-semibold">(próximo)</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Cancel section */}
+        {!isCancelRequested && (
+          <div className="border-t border-gray-100 pt-3">
+            <AnimatePresence>
+              {!showCancel ? (
+                <button onClick={() => setShowCancel(true)}
+                  className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 font-semibold transition-colors">
+                  <XCircle size={13}/> Solicitar cancelamento da subscrição
+                </button>
+              ) : (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden space-y-2">
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                    <p className="text-red-800 text-xs font-semibold mb-1">Confirmar pedido de cancelamento</p>
+                    <p className="text-red-700 text-xs">O cancelamento requer aprovação do colégio e produz efeitos a partir do mês seguinte à aprovação. O colégio será notificado do seu pedido.</p>
+                  </div>
+                  {cancelError && (
+                    <p className="text-red-600 text-xs flex items-center gap-1"><AlertTriangle size={11}/>{cancelError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={() => { setShowCancel(false); setCancelError(""); }}
+                      className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 transition-colors">
+                      Manter subscrição
+                    </button>
+                    <button onClick={handleCancelRequest} disabled={cancelling}
+                      className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5">
+                      {cancelling ? <RefreshCw size={12} className="animate-spin"/> : <XCircle size={12}/>}
+                      {cancelling ? "A submeter..." : "Submeter pedido"}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {isCancelRequested && (
+          <div className="border-t border-gray-100 pt-3">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2">
+              <Clock size={14} className="text-amber-500 shrink-0 mt-0.5"/>
+              <div>
+                <p className="text-amber-800 text-xs font-semibold">Pedido em análise</p>
+                <p className="text-amber-700 text-xs mt-0.5">O colégio irá analisar o seu pedido de cancelamento. Será notificado assim que for aprovado.</p>
+                {sub.cancellation_requested_at && (
+                  <p className="text-amber-500 text-xs mt-1">Submetido em {fmtDate(sub.cancellation_requested_at)}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) => void }) {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -605,10 +1095,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false, direct_debit: null,
   });
 
-  // Direct debit adhesion state
-  const [showDirectDebit, setShowDirectDebit] = useState(false);
-  const [ibanInput, setIbanInput] = useState("");
-  const [directDebitAccepted, setDirectDebitAccepted] = useState(false);
+  // Direct debit subscription state
+  const [ddSubscription, setDdSubscription] = useState<DDSubscription | null | "loading">("loading");
+  const [showDDWizard, setShowDDWizard] = useState(false);
 
   // Modals
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
@@ -677,6 +1166,14 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     } catch {}
   }, [token]);
 
+  const loadDDSubscription = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/guardian/direct-debit/subscription`, {headers});
+      if (!res.ok) { setDdSubscription(null); return; }
+      setDdSubscription(await res.json());
+    } catch { setDdSubscription(null); }
+  }, [token]);
+
   const marcarLido = async (id: number) => {
     setComunicados(prev => prev.map(c => c.id === id ? { ...c, lido: true } : c));
     try {
@@ -689,6 +1186,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
   useEffect(() => { loadAvailableMethods(); }, [loadAvailableMethods]);
+  useEffect(() => { loadDDSubscription(); }, [loadDDSubscription]);
 
   useEffect(() => {
     if (!selectedStudent) return;
@@ -952,57 +1450,47 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
               {/* Débito Direto */}
               {availableMethods.allow_direct_debit && (
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="p-4 flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
-                      <ArrowLeftRight size={18} className="text-violet-600"/>
+                <>
+                  {/* If subscribed — show subscription card */}
+                  {ddSubscription && ddSubscription !== "loading" ? (
+                    <DDSubscriptionCard
+                      sub={ddSubscription}
+                      token={token}
+                      onCancelled={() => loadDDSubscription()}
+                    />
+                  ) : ddSubscription === "loading" ? (
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
+                        <RefreshCw size={18} className="animate-spin text-violet-400"/>
+                      </div>
+                      <p className="text-sm text-gray-400">A verificar subscrição de débito direto...</p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm">Débito Direto</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {availableMethods.direct_debit?.instrucoes || "Autorize débitos automáticos da sua conta bancária para pagamento de propinas."}
-                      </p>
-                      {availableMethods.direct_debit?.banco_parceiro && (
-                        <p className="text-xs text-violet-600 font-semibold mt-1">Banco parceiro: {availableMethods.direct_debit.banco_parceiro}</p>
-                      )}
-                    </div>
-                    <button onClick={() => setShowDirectDebit(v => !v)}
-                      className="shrink-0 text-xs px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors">
-                      {showDirectDebit ? "Cancelar" : "Aderir"}
-                    </button>
-                  </div>
-
-                  <AnimatePresence>
-                    {showDirectDebit && (
-                      <motion.div initial={{height:0,opacity:0}} animate={{height:"auto",opacity:1}} exit={{height:0,opacity:0}}
-                        transition={{duration:0.22}} className="overflow-hidden">
-                        <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-1">IBAN da conta a debitar</label>
-                            <input
-                              value={ibanInput} onChange={e => setIbanInput(e.target.value)}
-                              placeholder="AO06.0044.0000.0000.0000.0000.0"
-                              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/20 focus:border-violet-400"
-                            />
-                          </div>
-                          <label className="flex items-start gap-2 cursor-pointer">
-                            <input type="checkbox" checked={directDebitAccepted} onChange={e => setDirectDebitAccepted(e.target.checked)}
-                              className="mt-0.5 accent-violet-600"/>
-                            <span className="text-xs text-gray-600">
-                              Autorizo o débito automático da minha conta para pagamento de propinas e declaro ter lido e aceite os termos e condições.
-                            </span>
-                          </label>
-                          <button
-                            disabled={!ibanInput.trim() || !directDebitAccepted}
-                            onClick={() => { setShowDirectDebit(false); setIbanInput(""); setDirectDebitAccepted(false); }}
-                            className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-200 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
-                            <CheckCircle size={15}/>Confirmar Adesão ao Débito Direto
-                          </button>
+                  ) : (
+                    /* Not subscribed — show adhesion card */
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
+                        <ArrowLeftRight size={18} className="text-violet-600"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm">Débito Direto</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {availableMethods.direct_debit?.instrucoes || "Autorize débitos automáticos da sua conta bancária para pagamento de propinas."}
+                        </p>
+                        {availableMethods.direct_debit?.banco_parceiro && (
+                          <p className="text-xs text-violet-600 font-semibold mt-1">Banco parceiro: {availableMethods.direct_debit.banco_parceiro}</p>
+                        )}
+                        <div className="flex gap-2 mt-2">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">Débito Automático</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">Mensal</span>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+                      </div>
+                      <button onClick={() => setShowDDWizard(true)}
+                        className="shrink-0 text-xs px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors">
+                        Aderir
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1373,6 +1861,14 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       <AnimatePresence>
         {viewPropina && <RefModal propina={viewPropina} onClose={()=>setViewPropina(null)}/>}
         {generatedRef && <CombinedRefModal ref={generatedRef} onClose={()=>setGeneratedRef(null)}/>}
+        {showDDWizard && (
+          <DirectDebitWizard
+            onClose={() => setShowDDWizard(false)}
+            onSuccess={(sub) => { setDdSubscription(sub); setShowDDWizard(false); }}
+            availableMethods={availableMethods}
+            token={token}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
