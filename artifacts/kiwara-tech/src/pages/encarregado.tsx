@@ -583,8 +583,6 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [loadingPropinas, setLoadingPropinas] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<"facturas" | "ocorrencias">("facturas");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<"facturas" | "ocorrencias">("facturas");
 
   // Modals
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
@@ -703,10 +701,6 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   };
 
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
-  const sidebarItems = [
-    { key: "facturas" as const, label: "Consultar facturas ou referências", icon: <CreditCard size={16} /> },
-    { key: "ocorrencias" as const, label: "Ocorrências/medidas disciplinares", icon: <BookOpen size={16} /> },
-  ];
   const sidebarItems = [
     { key: "facturas" as const, label: "Consultar facturas ou referências", icon: <CreditCard size={16} /> },
     { key: "ocorrencias" as const, label: "Ocorrências/medidas disciplinares", icon: <BookOpen size={16} /> },
@@ -1085,6 +1079,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           <p className="text-xs text-gray-300">Kiwara Escolar — Portal do Encarregado</p>
         </div>
       </div>
+      </div>{/* end flex-1 min-w-0 */}
 
       {/* Floating action bar */}
       <AnimatePresence>
