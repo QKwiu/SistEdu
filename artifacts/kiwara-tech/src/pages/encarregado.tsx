@@ -6,7 +6,7 @@ import {
   AlertTriangle, Clock, CheckCircle, Wallet, Users,
   RefreshCw, X, CreditCard, Calendar, Info,
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
-  Phone, HelpCircle, RotateCcw,
+  Phone, HelpCircle, RotateCcw, Menu,
 } from "lucide-react";
 
 const API = "/api";
@@ -581,6 +581,10 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [propinas, setPropinas] = useState<Propina[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingPropinas, setLoadingPropinas] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeMenu, setActiveMenu] = useState<"facturas" | "ocorrencias">("facturas");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeMenu, setActiveMenu] = useState<"facturas" | "ocorrencias">("facturas");
 
   // Modals
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
@@ -699,6 +703,14 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   };
 
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
+  const sidebarItems = [
+    { key: "facturas" as const, label: "Consultar facturas ou referências", icon: <CreditCard size={16} /> },
+    { key: "ocorrencias" as const, label: "Ocorrências/medidas disciplinares", icon: <BookOpen size={16} /> },
+  ];
+  const sidebarItems = [
+    { key: "facturas" as const, label: "Consultar facturas ou referências", icon: <CreditCard size={16} /> },
+    { key: "ocorrencias" as const, label: "Ocorrências/medidas disciplinares", icon: <BookOpen size={16} /> },
+  ];
 
   if (loadingStudents) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -714,29 +726,95 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-32">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-emerald-500 flex items-center justify-center text-white font-bold text-sm">{initials}</div>
-            <div>
-              <p className="font-semibold text-gray-900 text-sm leading-tight">{guardian.nome}</p>
-              <p className="text-xs text-gray-400">+244 {guardian.telefone}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <button onClick={()=>{ loadStudents(); if(selectedStudent) loadPropinas(selectedStudent.id); }}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700" title="Atualizar">
-              <RefreshCw size={16}/>
-            </button>
-            <button onClick={onLogout}
-              className="p-2 rounded-lg hover:bg-red-50 transition-colors text-gray-400 hover:text-red-600" title="Terminar sessão">
-              <LogOut size={16}/>
-            </button>
+    <div className="min-h-screen bg-gray-50 md:flex">
+      <aside className="hidden md:flex w-80 bg-slate-900 text-white flex-col shrink-0">
+        <div className="h-16 px-6 border-b border-white/10 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>
+          <div>
+            <p className="font-semibold text-sm">Portal do Encarregado</p>
+            <p className="text-xs text-slate-400">Kiwara Tech</p>
           </div>
         </div>
-      </header>
+        <div className="flex-1 p-4 space-y-2">
+          {sidebarItems.map(item => (
+            <button key={item.key} onClick={() => setActiveMenu(item.key)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeMenu === item.key ? "bg-white/10 text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
+              {item.icon}
+              <span className="text-left">{item.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="p-4 border-t border-white/10">
+          <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
+            <LogOut size={16}/> Terminar sessão
+          </button>
+        </div>
+      </aside>
+
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div key="guardian-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setSidebarOpen(false)} />
+            <motion.aside key="guardian-drawer" initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
+              transition={{ type: "tween", duration: 0.22, ease: "easeInOut" }}
+              className="fixed top-0 left-0 z-50 h-full w-72 bg-slate-900 text-white flex flex-col md:hidden">
+              <div className="h-16 px-5 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>
+                  <div>
+                    <p className="font-semibold text-sm">Portal do Encarregado</p>
+                    <p className="text-xs text-slate-400">Kiwara Tech</p>
+                  </div>
+                </div>
+                <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg hover:bg-white/10 text-slate-300">
+                  <X size={16}/>
+                </button>
+              </div>
+              <div className="flex-1 p-4 space-y-2">
+                {sidebarItems.map(item => (
+                  <button key={item.key} onClick={() => { setActiveMenu(item.key); setSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeMenu === item.key ? "bg-white/10 text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
+                    {item.icon}
+                    <span className="text-left">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 border-t border-white/10">
+                <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all">
+                  <LogOut size={16}/> Terminar sessão
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      <div className="flex-1 min-w-0">
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
+          <div className="px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600">
+                <Menu size={18}/>
+              </button>
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-emerald-500 flex items-center justify-center text-white font-bold text-sm">{initials}</div>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 text-sm leading-tight truncate">{guardian.nome}</p>
+                <p className="text-xs text-gray-400 truncate">+244 {guardian.telefone}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={()=>{ loadStudents(); if(selectedStudent) loadPropinas(selectedStudent.id); }}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700" title="Atualizar">
+                <RefreshCw size={16}/>
+              </button>
+              <button onClick={onLogout}
+                className="p-2 rounded-lg hover:bg-red-50 transition-colors text-gray-400 hover:text-red-600" title="Terminar sessão">
+                <LogOut size={16}/>
+              </button>
+            </div>
+          </div>
+        </header>
 
       <div className="max-w-2xl mx-auto px-4 py-5 space-y-6">
 
