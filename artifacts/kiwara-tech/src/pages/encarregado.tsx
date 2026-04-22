@@ -17,6 +17,7 @@ const SESSION_KEY = "kiwara_guardian_token";
 interface Guardian { id: number; nome: string; telefone: string; first_login: boolean; }
 interface Student {
   id: number; nome: string; bilhete: string;
+  school_id: number; school_name: string; school_logo_url: string | null;
   turma: string | null; turno: string | null;
   divida_total: number; total_multas: number;
   propinas_vencidas: number; propinas_pendentes: number;
@@ -148,8 +149,33 @@ function PasswordInput({ value, onChange, placeholder, label, autoComplete }: {
   );
 }
 
+/* ─── School color palette (consistent per school ID) ─── */
+const SCHOOL_COLORS = [
+  "from-blue-500 to-blue-700", "from-emerald-500 to-teal-700",
+  "from-violet-500 to-purple-700", "from-orange-500 to-amber-600",
+  "from-rose-500 to-pink-700", "from-cyan-500 to-sky-700",
+];
+function schoolColor(schoolId: number) { return SCHOOL_COLORS[schoolId % SCHOOL_COLORS.length]; }
+function schoolInitials(name: string) { return name.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase(); }
+
+function SchoolBadge({ name, logoUrl, schoolId, size = "sm" }: { name: string; logoUrl: string | null; schoolId: number; size?: "sm"|"md" }) {
+  const dim = size === "md" ? "w-8 h-8 text-sm" : "w-6 h-6 text-[10px]";
+  return (
+    <div className="flex items-center gap-1.5">
+      {logoUrl ? (
+        <img src={logoUrl} alt={name} className={`${dim} rounded-lg object-cover border border-white/30`}/>
+      ) : (
+        <div className={`${dim} rounded-lg bg-gradient-to-br ${schoolColor(schoolId)} flex items-center justify-center text-white font-bold shrink-0`}>
+          {schoolInitials(name)}
+        </div>
+      )}
+      <span className="text-xs font-semibold text-gray-600 leading-tight truncate max-w-[140px]">{name}</span>
+    </div>
+  );
+}
+
 /* ─── Pre-existing reference modal (from backoffice) ─── */
-function RefModal({ propina, onClose }: { propina: Propina; onClose: ()=>void }) {
+function RefModal({ propina, onClose, schoolName }: { propina: Propina; onClose: ()=>void; schoolName?: string }) {
   const [copiedAll, setCopiedAll] = useState(false);
   const refFmt = propina.referencia?.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3") ?? "";
 
@@ -171,6 +197,7 @@ function RefModal({ propina, onClose }: { propina: Propina; onClose: ()=>void })
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"><X size={16}/></button>
           </div>
           <p className="text-blue-100 text-sm mt-1">{propina.mes} {propina.ano}</p>
+          {schoolName && <p className="text-blue-200 text-xs mt-0.5 flex items-center gap-1"><span className="opacity-70">Beneficiário:</span> <span className="font-semibold">{schoolName}</span></p>}
         </div>
         <div className="p-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
@@ -220,7 +247,7 @@ function RefModal({ propina, onClose }: { propina: Propina; onClose: ()=>void })
 }
 
 /* ─── Combined reference modal (generated for multiple months) ─── */
-function CombinedRefModal({ ref: generated, onClose }: { ref: GeneratedRef; onClose: ()=>void }) {
+function CombinedRefModal({ ref: generated, onClose, schoolName }: { ref: GeneratedRef; onClose: ()=>void; schoolName?: string }) {
   const [copiedAll, setCopiedAll] = useState(false);
   const refFmt = generated.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3");
 
@@ -242,6 +269,7 @@ function CombinedRefModal({ ref: generated, onClose }: { ref: GeneratedRef; onCl
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"><X size={16}/></button>
           </div>
           <p className="text-emerald-100 text-sm mt-1">{generated.propinas.length} {generated.propinas.length===1?"mês":"meses"} selecionado{generated.propinas.length===1?"":"s"}</p>
+          {schoolName && <p className="text-emerald-200 text-xs mt-0.5 flex items-center gap-1"><span className="opacity-70">Beneficiário:</span> <span className="font-semibold">{schoolName}</span></p>}
         </div>
         <div className="p-5 space-y-4">
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
@@ -1090,6 +1118,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [comunicados, setComunicados] = useState<Comunicado[]>([]);
   const [loadingComunicados, setLoadingComunicados] = useState(false);
 
+  // Current school context (changes when selected student is from a different school)
+  const [currentSchoolId, setCurrentSchoolId] = useState<number | null>(null);
+
   // Available payment methods
   const [availableMethods, setAvailableMethods] = useState<AvailableMethods>({
     allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false, direct_debit: null,
@@ -1122,7 +1153,17 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       if (!res.ok) { onLogout(); return; }
       const data: Student[] = await res.json();
       setStudents(data);
-      if (data.length > 0) setSelectedStudent(prev => prev ?? data[0]);
+      if (data.length > 0) {
+        setSelectedStudent(prev => {
+          if (prev) return prev;
+          // First load: set school context and load per-school data
+          const first = data[0];
+          setCurrentSchoolId(first.school_id);
+          loadAvailableMethods(first.school_id);
+          loadDDSubscription(first.school_id);
+          return first;
+        });
+      }
     } catch {}
     finally { setLoadingStudents(false); }
   }, [token]);
@@ -1158,17 +1199,24 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     finally { setLoadingComunicados(false); }
   }, [token]);
 
-  const loadAvailableMethods = useCallback(async () => {
+  const loadAvailableMethods = useCallback(async (schoolId?: number) => {
     try {
-      const res = await fetch(`${API}/guardian/payments/available-methods`, {headers});
+      const url = schoolId
+        ? `${API}/guardian/payments/available-methods?school_id=${schoolId}`
+        : `${API}/guardian/payments/available-methods`;
+      const res = await fetch(url, {headers});
       if (!res.ok) return;
       setAvailableMethods(await res.json());
     } catch {}
   }, [token]);
 
-  const loadDDSubscription = useCallback(async () => {
+  const loadDDSubscription = useCallback(async (schoolId?: number) => {
+    setDdSubscription("loading");
     try {
-      const res = await fetch(`${API}/guardian/direct-debit/subscription`, {headers});
+      const url = schoolId
+        ? `${API}/guardian/direct-debit/subscription?school_id=${schoolId}`
+        : `${API}/guardian/direct-debit/subscription`;
+      const res = await fetch(url, {headers});
       if (!res.ok) { setDdSubscription(null); return; }
       setDdSubscription(await res.json());
     } catch { setDdSubscription(null); }
@@ -1185,14 +1233,22 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
-  useEffect(() => { loadAvailableMethods(); }, [loadAvailableMethods]);
-  useEffect(() => { loadDDSubscription(); }, [loadDDSubscription]);
+
+  // Load per-school data on initial mount (no specific school yet — auto-detect)
+  useEffect(() => { loadAvailableMethods(); loadDDSubscription(); }, [token]);
 
   useEffect(() => {
     if (!selectedStudent) return;
     setStudentTab("propinas");
     setOcorrencias([]);
     loadPropinas(selectedStudent.id);
+
+    // If school changed, reload payment methods + DD subscription for new school context
+    if (selectedStudent.school_id !== currentSchoolId) {
+      setCurrentSchoolId(selectedStudent.school_id);
+      loadAvailableMethods(selectedStudent.school_id);
+      loadDDSubscription(selectedStudent.school_id);
+    }
   }, [selectedStudent?.id]);
 
   useEffect(() => {
@@ -1456,7 +1512,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                     <DDSubscriptionCard
                       sub={ddSubscription}
                       token={token}
-                      onCancelled={() => loadDDSubscription()}
+                      onCancelled={() => loadDDSubscription(currentSchoolId ?? undefined)}
                     />
                   ) : ddSubscription === "loading" ? (
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
@@ -1508,9 +1564,15 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               const hasDebt = Number(st.divida_total) > 0;
               return (
                 <button key={st.id} onClick={()=>{ setSelectedStudent(st); setFilterEstado("TODOS"); setSelectedIds(new Set()); }}
-                  className={`flex-shrink-0 w-52 text-left rounded-2xl p-4 border-2 transition-all ${sel?"border-blue-600 bg-blue-50 shadow-md":"border-gray-200 bg-white hover:border-gray-300"}`}>
-                  <div className="flex items-start justify-between mb-2.5">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white font-bold text-sm">
+                  className={`flex-shrink-0 w-56 text-left rounded-2xl p-4 border-2 transition-all ${sel?"border-blue-600 bg-blue-50 shadow-md":"border-gray-200 bg-white hover:border-gray-300"}`}>
+
+                  {/* School badge — top identifier */}
+                  <div className="mb-3">
+                    <SchoolBadge name={st.school_name} logoUrl={st.school_logo_url} schoolId={st.school_id} size="sm"/>
+                  </div>
+
+                  <div className="flex items-start justify-between mb-2">
+                    <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${schoolColor(st.school_id)} flex items-center justify-center text-white font-bold text-sm`}>
                       {st.nome.split(" ").map(w=>w[0]).join("").slice(0,2)}
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${hasVenc?"bg-red-100 text-red-700":hasDebt?"bg-amber-100 text-amber-700":"bg-emerald-100 text-emerald-700"}`}>
@@ -1531,6 +1593,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           <div>
             <div className="flex items-start justify-between mb-3">
               <div>
+                <div className="mb-1">
+                  <SchoolBadge name={selectedStudent.school_name} logoUrl={selectedStudent.school_logo_url} schoolId={selectedStudent.school_id} size="sm"/>
+                </div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Propinas</p>
                 <p className="text-sm font-semibold text-gray-800 mt-0.5">{selectedStudent.nome}</p>
               </div>
@@ -1859,8 +1924,8 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
       {/* Modals */}
       <AnimatePresence>
-        {viewPropina && <RefModal propina={viewPropina} onClose={()=>setViewPropina(null)}/>}
-        {generatedRef && <CombinedRefModal ref={generatedRef} onClose={()=>setGeneratedRef(null)}/>}
+        {viewPropina && <RefModal propina={viewPropina} onClose={()=>setViewPropina(null)} schoolName={selectedStudent?.school_name}/>}
+        {generatedRef && <CombinedRefModal ref={generatedRef} onClose={()=>setGeneratedRef(null)} schoolName={selectedStudent?.school_name}/>}
         {showDDWizard && (
           <DirectDebitWizard
             onClose={() => setShowDDWizard(false)}

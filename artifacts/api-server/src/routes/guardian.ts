@@ -122,7 +122,7 @@ router.get("/guardian/me", authMiddleware, async (req: any, res) => {
   });
 });
 
-// GET /guardian/alunos — lista alunos com resumo financeiro
+// GET /guardian/alunos — lista alunos com resumo financeiro + nome e logo da escola
 router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
@@ -132,6 +132,9 @@ router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
       s.id,
       s.nome,
       s.bilhete,
+      s.school_id,
+      sc.name AS school_name,
+      sc.logo_url AS school_logo_url,
       t.nome AS turma,
       t.turno,
       COALESCE(SUM(CASE WHEN p.status != 'pago' THEN (p.montante + p.multa) ELSE 0 END), 0) AS divida_total,
@@ -140,11 +143,12 @@ router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
       COUNT(CASE WHEN p.status = 'pendente' THEN 1 END) AS propinas_pendentes
     FROM encarregado_aluno ea
     JOIN students s ON s.id = ea.aluno_id
+    JOIN schools sc ON sc.id = s.school_id
     LEFT JOIN turmas t ON t.id = s.turma_id
     LEFT JOIN propinas p ON p.student_id = s.id
     WHERE ea.encarregado_id = $1
-    GROUP BY s.id, s.nome, s.bilhete, t.nome, t.turno
-    ORDER BY s.nome
+    GROUP BY s.id, s.nome, s.bilhete, s.school_id, sc.name, sc.logo_url, t.nome, t.turno
+    ORDER BY sc.name, s.nome
   `, [guardian.id]);
 
   return res.json(result.rows);
@@ -258,25 +262,42 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
   return res.json(result.rows);
 });
 
-// GET /guardian/payments/available-methods — métodos de pagamento disponíveis para a escola do encarregado
+// GET /guardian/payments/available-methods — métodos de pagamento disponíveis (suporta ?school_id=N para multi-escola)
 router.get("/guardian/payments/available-methods", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
-  const schoolRes = await pool.query(
-    `SELECT DISTINCT s.school_id FROM students s
-     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
-     WHERE ea.encarregado_id = $1 LIMIT 1`,
-    [guardian.id]
-  );
-  if (schoolRes.rows.length === 0) {
+  // school_id_int = schools.id (integer PK), used in school_settings
+  let school_id_int: number | null = null;
+
+  if (req.query.school_id) {
+    const explicit = await pool.query(
+      `SELECT sc.id FROM schools sc
+       JOIN students s ON s.school_id = sc.id
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE sc.id = $1 AND ea.encarregado_id = $2 LIMIT 1`,
+      [req.query.school_id, guardian.id]
+    );
+    school_id_int = explicit.rows[0]?.id ?? null;
+  }
+
+  if (!school_id_int) {
+    const schoolRes = await pool.query(
+      `SELECT DISTINCT s.school_id FROM students s
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE ea.encarregado_id = $1 LIMIT 1`,
+      [guardian.id]
+    );
+    school_id_int = schoolRes.rows[0]?.school_id ?? null;
+  }
+
+  if (!school_id_int) {
     return res.json({ allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false, direct_debit: null });
   }
-  const school_id = schoolRes.rows[0].school_id;
 
   const r = await pool.query(
     "SELECT settings FROM school_settings WHERE school_id = $1",
-    [school_id]
+    [school_id_int]
   );
   const settings = r.rows[0]?.settings ?? {};
   const metodos = settings?.pagamento?.metodos_pagamento ?? { allow_reference: true, allow_gpo_mcx: false, allow_direct_debit: false };
@@ -406,6 +427,8 @@ router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, 
 /* ── Comunicados ── */
 
 // Ensure tables exist
+pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS logo_url TEXT`).catch(() => {});
+
 pool.query(`
   CREATE TABLE IF NOT EXISTS comunicados (
     id SERIAL PRIMARY KEY,
@@ -480,25 +503,42 @@ router.post("/guardian/comunicados/:id/marcar-lido", async (req, res) => {
 
 /* ── Débito Direto ── */
 
-// GET /guardian/direct-debit/subscription — estado actual da subscrição
+// GET /guardian/direct-debit/subscription — estado actual da subscrição (suporta ?school_id=N)
 router.get("/guardian/direct-debit/subscription", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
-  const schoolRes = await pool.query(
-    `SELECT DISTINCT s.school_id FROM students s
-     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
-     WHERE ea.encarregado_id = $1 LIMIT 1`,
-    [guardian.id]
-  );
-  if (schoolRes.rows.length === 0) return res.json(null);
-  const school_id = schoolRes.rows[0].school_id;
+  // school_id_int = schools.id (integer PK) = direct_debit_subscriptions.school_id
+  let school_id_int: number | null = null;
+
+  if (req.query.school_id) {
+    const explicit = await pool.query(
+      `SELECT sc.id FROM schools sc
+       JOIN students s ON s.school_id = sc.id
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE sc.id = $1 AND ea.encarregado_id = $2 LIMIT 1`,
+      [req.query.school_id, guardian.id]
+    );
+    school_id_int = explicit.rows[0]?.id ?? null;
+  }
+
+  if (!school_id_int) {
+    const schoolRes = await pool.query(
+      `SELECT DISTINCT s.school_id FROM students s
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE ea.encarregado_id = $1 LIMIT 1`,
+      [guardian.id]
+    );
+    school_id_int = schoolRes.rows[0]?.school_id ?? null;
+  }
+
+  if (!school_id_int) return res.json(null);
 
   const r = await pool.query(
     `SELECT * FROM direct_debit_subscriptions
      WHERE encarregado_id = $1 AND school_id = $2 AND status != 'cancelled'
      ORDER BY created_at DESC LIMIT 1`,
-    [guardian.id, school_id]
+    [guardian.id, school_id_int]
   );
   return res.json(r.rows[0] ?? null);
 });

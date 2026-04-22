@@ -3617,8 +3617,186 @@ function SettingsView({ schoolId }: { schoolId: number }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   DDManagementPanel — Painel de Débito Direto por Escola (Admin)
+══════════════════════════════════════════════════════════════════ */
+interface DDSub {
+  id: number; status: string; iban: string; debit_day: number;
+  emolumentos: string[]; email: string | null;
+  created_at: string; cancellation_requested_at: string | null;
+  cancelled_at: string | null;
+  encarregado_nome?: string; encarregado_telefone?: string;
+}
+
+function DDManagementPanel({ schoolId }: { schoolId: number }) {
+  const [subs, setSubs] = useState<DDSub[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [approving, setApproving] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"pending" | "all">("pending");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/direct-debit/subscriptions`);
+      if (r.ok) setSubs(await r.json());
+    } finally { setLoading(false); }
+  }, [schoolId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const approveCancellation = async (subId: number) => {
+    setApproving(subId); setError("");
+    try {
+      const r = await api(`/admin/direct-debit/subscriptions/${subId}/approve-cancellation`, { method: "PUT" });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro"); }
+      await load();
+    } catch (e: any) { setError(e.message); }
+    finally { setApproving(null); }
+  };
+
+  const maskIban = (iban: string) => iban.slice(0, 8) + " **** **** " + iban.slice(-4);
+
+  const pending = subs.filter(s => s.status === "cancellation_requested");
+  const displayed = filter === "pending" ? pending : subs;
+
+  return (
+    <div className="space-y-4">
+      {/* Header stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Subscrições Activas", value: subs.filter(s=>s.status==="active").length, color: "text-violet-700", bg: "bg-violet-50" },
+          { label: "Pendentes de Cancelamento", value: pending.length, color: "text-amber-700", bg: "bg-amber-50" },
+          { label: "Canceladas", value: subs.filter(s=>s.status==="cancelled").length, color: "text-slate-600", bg: "bg-slate-50" },
+        ].map(c => (
+          <div key={c.label} className={`${c.bg} rounded-2xl p-4 text-center border border-white`}>
+            <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+            <p className="text-xs text-slate-500 mt-0.5 leading-tight">{c.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Pending cancellations — prominent alert */}
+      {pending.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5"/>
+          <div className="flex-1">
+            <p className="font-semibold text-amber-900 text-sm">
+              {pending.length} pedido{pending.length > 1 ? "s" : ""} de cancelamento pendente{pending.length > 1 ? "s" : ""}
+            </p>
+            <p className="text-amber-700 text-xs mt-0.5">
+              Verifique se há facturas em trânsito antes de aprovar. O cancelamento é definitivo e o encarregado pode readerir mais tarde.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0"/>
+          <p className="text-red-700 text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Filter tabs */}
+      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+        <div className="flex border-b border-slate-100">
+          {([
+            { key: "pending" as const, label: `Aprovações Pendentes (${pending.length})` },
+            { key: "all" as const, label: `Todas as Subscrições (${subs.length})` },
+          ]).map(t => (
+            <button key={t.key} onClick={() => setFilter(t.key)}
+              className={`flex-1 px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${filter === t.key ? "border-primary text-primary bg-primary/5" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <RefreshCw className="w-5 h-5 animate-spin text-primary"/>
+          </div>
+        ) : displayed.length === 0 ? (
+          <div className="py-10 text-center">
+            <ArrowLeftRight className="w-8 h-8 mx-auto mb-2 text-slate-200"/>
+            <p className="text-slate-400 text-sm">{filter === "pending" ? "Sem aprovações pendentes" : "Nenhuma subscrição encontrada"}</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {displayed.map(sub => {
+              const isPending = sub.status === "cancellation_requested";
+              const isActive = sub.status === "active";
+              const isCancelled = sub.status === "cancelled";
+
+              return (
+                <div key={sub.id} className="p-4 flex items-start gap-4">
+                  <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${isActive?"bg-violet-500":isPending?"bg-amber-500":"bg-slate-300"}`}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div>
+                        {sub.encarregado_nome && (
+                          <p className="font-semibold text-slate-800 text-sm">{sub.encarregado_nome}</p>
+                        )}
+                        {sub.encarregado_telefone && (
+                          <p className="text-xs text-slate-400">+244 {sub.encarregado_telefone}</p>
+                        )}
+                      </div>
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-semibold shrink-0 ${
+                        isActive ? "bg-violet-100 text-violet-700" :
+                        isPending ? "bg-amber-100 text-amber-700" :
+                        "bg-slate-100 text-slate-500"
+                      }`}>
+                        {isActive ? "Activo" : isPending ? "Cancelamento Pendente" : "Cancelado"}
+                      </span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+                      <span><span className="font-medium text-slate-700">IBAN:</span> {maskIban(sub.iban)}</span>
+                      <span><span className="font-medium text-slate-700">Dia débito:</span> {sub.debit_day}</span>
+                      <span className="col-span-2">
+                        <span className="font-medium text-slate-700">Serviços:</span> {(sub.emolumentos ?? []).join(", ")}
+                      </span>
+                      {isPending && sub.cancellation_requested_at && (
+                        <span className="col-span-2 text-amber-600">
+                          <span className="font-medium">Pedido em:</span> {new Date(sub.cancellation_requested_at).toLocaleDateString("pt-AO", {day:"2-digit",month:"long",year:"numeric"})}
+                        </span>
+                      )}
+                      {isCancelled && sub.cancelled_at && (
+                        <span className="col-span-2 text-slate-400">
+                          Cancelado em {new Date(sub.cancelled_at).toLocaleDateString("pt-AO", {day:"2-digit",month:"long",year:"numeric"})}
+                        </span>
+                      )}
+                    </div>
+                    {isPending && (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => approveCancellation(sub.id)}
+                          disabled={approving === sub.id}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white text-xs font-semibold transition-colors">
+                          {approving === sub.id ? <RefreshCw className="w-3 h-3 animate-spin"/> : <X className="w-3 h-3"/>}
+                          Aprovar Cancelamento
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSubs(prev => prev.map(s => s.id === sub.id ? {...s, status:"active", cancellation_requested_at:null} : s));
+                          }}
+                          className="px-3.5 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors">
+                          Recusar (Manter DD)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -3642,6 +3820,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
+    { id: "debito_direto" as const, label: "Débito Direto", icon: <ArrowLeftRight className="w-4 h-4" /> },
     { id: "configuracoes" as const, label: "Configurações", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ];
 
@@ -3815,6 +3994,19 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
             currentIban={currentSchool.iban}
             onUpdated={iban => setCurrentSchool(s => ({ ...s, iban }))}
           />
+        </div>
+      )}
+
+      {tab === "debito_direto" && (
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <ArrowLeftRight className="w-5 h-5 text-primary"/>
+            <div>
+              <h3 className="font-semibold text-slate-900">Débito Direto</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Gerencie subscrições e aprove pedidos de cancelamento dos encarregados.</p>
+            </div>
+          </div>
+          <DDManagementPanel schoolId={currentSchool.id} />
         </div>
       )}
 
