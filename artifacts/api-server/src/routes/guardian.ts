@@ -356,4 +356,64 @@ router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, 
   res.json(result.rows);
 });
 
+/* ── Comunicados ── */
+
+// Ensure tables exist
+pool.query(`
+  CREATE TABLE IF NOT EXISTS comunicados (
+    id SERIAL PRIMARY KEY,
+    escola_id INTEGER NOT NULL,
+    titulo VARCHAR(255) NOT NULL,
+    conteudo TEXT NOT NULL,
+    prioridade VARCHAR(20) DEFAULT 'normal',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS comunicados_lidos (
+    comunicado_id INTEGER NOT NULL REFERENCES comunicados(id) ON DELETE CASCADE,
+    encarregado_id INTEGER NOT NULL,
+    lido_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (comunicado_id, encarregado_id)
+  );
+`).catch(() => {});
+
+router.get("/guardian/comunicados", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+  const guardian = await getGuardianFromToken(token);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  // Get the school_id from the guardian's students
+  const schoolRes = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (schoolRes.rows.length === 0) return res.json([]);
+  const escola_id = schoolRes.rows[0].school_id;
+
+  const result = await pool.query(
+    `SELECT c.id, c.titulo, c.conteudo, c.prioridade, c.created_at,
+            (cl.encarregado_id IS NOT NULL) AS lido
+     FROM comunicados c
+     LEFT JOIN comunicados_lidos cl ON cl.comunicado_id = c.id AND cl.encarregado_id = $2
+     WHERE c.escola_id = $1
+     ORDER BY c.created_at DESC`,
+    [escola_id, guardian.id]
+  );
+  res.json(result.rows);
+});
+
+router.post("/guardian/comunicados/:id/marcar-lido", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "") ?? "";
+  const guardian = await getGuardianFromToken(token);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  await pool.query(
+    `INSERT INTO comunicados_lidos (comunicado_id, encarregado_id)
+     VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [req.params.id, guardian.id]
+  );
+  res.json({ ok: true });
+});
+
 export default router;

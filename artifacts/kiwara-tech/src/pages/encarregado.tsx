@@ -6,7 +6,7 @@ import {
   AlertTriangle, Clock, CheckCircle, Wallet, Users,
   RefreshCw, X, CreditCard, Calendar, Info,
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
-  Phone, HelpCircle, RotateCcw, Menu,
+  Phone, HelpCircle, RotateCcw, Menu, Bell, MessageSquare,
 } from "lucide-react";
 
 const API = "/api";
@@ -36,9 +36,15 @@ interface Ocorrencia {
   id: number; tipo: string; descricao: string; registado_por: string;
   data_ocorrencia: string; created_at: string;
 }
+interface Comunicado {
+  id: number; titulo: string; conteudo: string;
+  prioridade: "normal" | "urgente" | "informativo";
+  created_at: string; lido: boolean;
+}
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
 type StudentTab = "propinas" | "ocorrencias";
+type ActiveMenu = "facturas" | "ocorrencias" | "comunicados";
 
 const TIPO_COLORS_ENC: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   "Comportamento Inadequado": { bg:"bg-red-50", text:"text-red-700", border:"border-red-200", dot:"bg-red-500" },
@@ -582,7 +588,11 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [loadingPropinas, setLoadingPropinas] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<"facturas" | "ocorrencias">("facturas");
+  const [activeMenu, setActiveMenu] = useState<ActiveMenu>("facturas");
+
+  // Comunicados
+  const [comunicados, setComunicados] = useState<Comunicado[]>([]);
+  const [loadingComunicados, setLoadingComunicados] = useState(false);
 
   // Modals
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
@@ -633,7 +643,28 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     finally { setLoadingOcorrencias(false); }
   }, [token]);
 
+  const loadComunicados = useCallback(async () => {
+    setLoadingComunicados(true);
+    try {
+      const res = await fetch(`${API}/guardian/comunicados`, {headers});
+      if (!res.ok) return;
+      setComunicados(await res.json());
+    } catch {}
+    finally { setLoadingComunicados(false); }
+  }, [token]);
+
+  const marcarLido = async (id: number) => {
+    setComunicados(prev => prev.map(c => c.id === id ? { ...c, lido: true } : c));
+    try {
+      await fetch(`${API}/guardian/comunicados/${id}/marcar-lido`, {
+        method: "POST", headers,
+      });
+    } catch {}
+  };
+
   useEffect(() => { loadStudents(); }, [loadStudents]);
+  useEffect(() => { loadComunicados(); }, [loadComunicados]);
+
   useEffect(() => {
     if (!selectedStudent) return;
     setStudentTab("propinas");
@@ -701,9 +732,11 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   };
 
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
-  const sidebarItems = [
-    { key: "facturas" as const, label: "Consultar facturas ou referências", icon: <CreditCard size={16} /> },
-    { key: "ocorrencias" as const, label: "Ocorrências/medidas disciplinares", icon: <BookOpen size={16} /> },
+  const unreadCount = comunicados.filter(c => !c.lido).length;
+  const sidebarItems: { key: ActiveMenu; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { key: "facturas",    label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
+    { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
+    { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
   ];
 
   if (loadingStudents) return (
@@ -729,12 +762,19 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             <p className="text-xs text-slate-400">Kiwara Tech</p>
           </div>
         </div>
-        <div className="flex-1 p-4 space-y-2">
+        <div className="flex-1 p-4 space-y-1">
           {sidebarItems.map(item => (
             <button key={item.key} onClick={() => setActiveMenu(item.key)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeMenu === item.key ? "bg-white/10 text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
-              {item.icon}
-              <span className="text-left">{item.label}</span>
+              <span className="relative shrink-0">
+                {item.icon}
+                {item.badge && item.badge > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center">
+                    {item.badge > 9 ? "9+" : item.badge}
+                  </span>
+                )}
+              </span>
+              <span className="text-left flex-1">{item.label}</span>
             </button>
           ))}
         </div>
@@ -765,12 +805,19 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                   <X size={16}/>
                 </button>
               </div>
-              <div className="flex-1 p-4 space-y-2">
+              <div className="flex-1 p-4 space-y-1">
                 {sidebarItems.map(item => (
                   <button key={item.key} onClick={() => { setActiveMenu(item.key); setSidebarOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeMenu === item.key ? "bg-white/10 text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
-                    {item.icon}
-                    <span className="text-left">{item.label}</span>
+                    <span className="relative shrink-0">
+                      {item.icon}
+                      {item.badge && item.badge > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center">
+                          {item.badge > 9 ? "9+" : item.badge}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-left flex-1">{item.label}</span>
                   </button>
                 ))}
               </div>
@@ -812,9 +859,12 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
       <div className="max-w-2xl mx-auto px-4 py-5 space-y-6">
 
+        {/* ══ ECRÃ: FACTURAS / REFERÊNCIAS ══ */}
+        {activeMenu === "facturas" && <>
+
         {/* Summary */}
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Resumo — Março 2026</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Resumo Financeiro</p>
           <div className="grid grid-cols-3 gap-3">
             {[
               { icon:<Wallet size={15} className="text-red-600"/>, bg:"bg-red-50", label:"Em dívida", value: fmt(totalDivida) },
@@ -860,73 +910,19 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           </div>
         </div>
 
-        {/* Propinas / Ocorrências */}
+        {/* Propinas */}
         {selectedStudent && (
           <div>
-            {/* Header row */}
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  {studentTab === "propinas" ? "Propinas" : "Ocorrências"}
-                </p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Propinas</p>
                 <p className="text-sm font-semibold text-gray-800 mt-0.5">{selectedStudent.nome}</p>
               </div>
-              {studentTab === "propinas" && (
-                <div className="text-right">
-                  <p className="text-xs text-gray-400">Total em dívida</p>
-                  <p className="font-bold text-red-600">{fmt(selectedStudent.divida_total)}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Section tabs: Propinas | Ocorrências */}
-            <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-xl">
-              <button onClick={() => setStudentTab("propinas")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${studentTab === "propinas" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-                <Wallet size={12}/> Propinas
-              </button>
-              <button onClick={() => setStudentTab("ocorrencias")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${studentTab === "ocorrencias" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
-                <BookOpen size={12}/> Ocorrências
-                {ocorrencias.length > 0 && studentTab !== "ocorrencias" && (
-                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{ocorrencias.length}</span>
-                )}
-              </button>
-            </div>
-
-            {/* Occurrences tab content */}
-            {studentTab === "ocorrencias" && (
-              <div className="space-y-3 pb-6">
-                {loadingOcorrencias ? (
-                  <div className="flex items-center justify-center py-10">
-                    <RefreshCw size={20} className="animate-spin text-blue-500"/>
-                  </div>
-                ) : ocorrencias.length === 0 ? (
-                  <div className="bg-white rounded-2xl p-8 border border-gray-100 text-center">
-                    <BookOpen size={32} className="text-gray-200 mx-auto mb-3"/>
-                    <p className="font-semibold text-gray-400 text-sm">Sem ocorrências registadas</p>
-                    <p className="text-gray-300 text-xs mt-1">Não existem ocorrências para este educando.</p>
-                  </div>
-                ) : (
-                  ocorrencias.map((o, i) => (
-                    <motion.div key={o.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                      className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        {tipoBadgeEnc(o.tipo)}
-                        <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
-                          <Calendar size={11}/> {fmtShort(o.data_ocorrencia)}
-                        </span>
-                      </div>
-                      <p className="text-gray-800 text-sm leading-relaxed">{o.descricao}</p>
-                      <p className="text-gray-400 text-xs mt-2">Registado por: {o.registado_por}</p>
-                    </motion.div>
-                  ))
-                )}
+              <div className="text-right">
+                <p className="text-xs text-gray-400">Total em dívida</p>
+                <p className="font-bold text-red-600">{fmt(selectedStudent.divida_total)}</p>
               </div>
-            )}
-
-            {/* Propinas tab content — only shown when tab = propinas */}
-            {studentTab === "propinas" && <>
+            </div>
 
             {/* Filter tabs */}
             <div className="flex gap-1.5 mb-4 bg-gray-100 p-1 rounded-xl overflow-x-auto">
@@ -1071,9 +1067,144 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                 })}
               </div>
             )}
-            </>}
           </div>
         )}
+        </>}{/* end facturas screen */}
+
+        {/* ══ ECRÃ: OCORRÊNCIAS ══ */}
+        {activeMenu === "ocorrencias" && <>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <Users size={12}/> Selecionar educando
+            </p>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {students.map(st => {
+                const sel = selectedStudent?.id === st.id;
+                return (
+                  <button key={st.id} onClick={()=>{ setSelectedStudent(st); loadOcorrencias(st.id); }}
+                    className={`flex-shrink-0 w-44 text-left rounded-2xl p-3 border-2 transition-all ${sel?"border-blue-600 bg-blue-50 shadow-md":"border-gray-200 bg-white hover:border-gray-300"}`}>
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white font-bold text-sm mb-2">
+                      {st.nome.split(" ").map((w:string)=>w[0]).join("").slice(0,2)}
+                    </div>
+                    <p className="font-semibold text-gray-900 text-sm leading-snug">{st.nome}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{st.turma ?? "Sem turma"}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {selectedStudent && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Ocorrências — {selectedStudent.nome}
+              </p>
+              <div className="space-y-3 pb-6">
+                {loadingOcorrencias ? (
+                  <div className="flex items-center justify-center py-10">
+                    <RefreshCw size={20} className="animate-spin text-blue-500"/>
+                  </div>
+                ) : ocorrencias.length === 0 ? (
+                  <div className="bg-white rounded-2xl p-8 border border-gray-100 text-center">
+                    <BookOpen size={32} className="text-gray-200 mx-auto mb-3"/>
+                    <p className="font-semibold text-gray-400 text-sm">Sem ocorrências registadas</p>
+                    <p className="text-gray-300 text-xs mt-1">Não existem ocorrências para este educando.</p>
+                  </div>
+                ) : (
+                  ocorrencias.map((o, i) => (
+                    <motion.div key={o.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                      className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        {tipoBadgeEnc(o.tipo)}
+                        <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+                          <Calendar size={11}/> {fmtShort(o.data_ocorrencia)}
+                        </span>
+                      </div>
+                      <p className="text-gray-800 text-sm leading-relaxed">{o.descricao}</p>
+                      <p className="text-gray-400 text-xs mt-2">Registado por: {o.registado_por}</p>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </>}{/* end ocorrencias screen */}
+
+        {/* ══ ECRÃ: COMUNICADOS ══ */}
+        {activeMenu === "comunicados" && <>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Bell size={12}/> Comunicados da Escola
+            </p>
+            {unreadCount > 0 && (
+              <span className="text-xs bg-red-100 text-red-700 font-semibold px-2.5 py-1 rounded-full">
+                {unreadCount} por ler
+              </span>
+            )}
+          </div>
+
+          {loadingComunicados ? (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw size={24} className="animate-spin text-blue-500"/>
+            </div>
+          ) : comunicados.length === 0 ? (
+            <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+              <Bell size={36} className="text-gray-200 mx-auto mb-3"/>
+              <p className="font-semibold text-gray-400">Sem comunicados</p>
+              <p className="text-gray-300 text-xs mt-1">Nenhum comunicado da escola por enquanto.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 pb-6">
+              {comunicados.map((c, i) => {
+                const prioColor = c.prioridade === "urgente"
+                  ? "border-red-300 bg-red-50"
+                  : c.prioridade === "informativo"
+                  ? "border-blue-200 bg-blue-50"
+                  : "border-gray-100 bg-white";
+                const prioLabel = c.prioridade === "urgente" ? "Urgente" : c.prioridade === "informativo" ? "Informativo" : "Normal";
+                const prioLabelCls = c.prioridade === "urgente"
+                  ? "bg-red-100 text-red-700"
+                  : c.prioridade === "informativo"
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-gray-100 text-gray-600";
+                return (
+                  <motion.div key={c.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                    className={`rounded-2xl border shadow-sm overflow-hidden transition-all ${prioColor}`}>
+                    {!c.lido && (
+                      <div className="px-4 pt-2 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/>
+                        <span className="text-xs font-semibold text-red-600">Novo</span>
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-gray-900 text-sm ${!c.lido ? "font-bold" : ""}`}>{c.titulo}</p>
+                          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                            <Calendar size={10}/> {fmtShort(c.created_at)}
+                          </p>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${prioLabelCls}`}>{prioLabel}</span>
+                      </div>
+                      <p className="text-gray-700 text-sm leading-relaxed mb-3">{c.conteudo}</p>
+                      {!c.lido && (
+                        <button onClick={() => marcarLido(c.id)}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+                          <Check size={13}/> Marcar como lido
+                        </button>
+                      )}
+                      {c.lido && (
+                        <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                          <CheckCircle size={13} className="text-emerald-500"/> Lido
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
+        </>}{/* end comunicados screen */}
 
         <div className="text-center pt-2">
           <p className="text-xs text-gray-300">Kiwara Escolar — Portal do Encarregado</p>
