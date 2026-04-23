@@ -838,4 +838,82 @@ router.post("/school/propinas/:id/ajuste", schoolAuth, async (req: any, res) => 
   res.json(updated.rows[0]);
 });
 
+/* ─── GET /school/comunicados ─── */
+router.get("/school/comunicados", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT c.*,
+            (SELECT COUNT(*)::int FROM comunicados_lidos cl WHERE cl.comunicado_id = c.id) AS total_lidos
+     FROM comunicados c
+     WHERE c.escola_id = $1
+     ORDER BY c.created_at DESC`,
+    [school.school_id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── POST /school/comunicados ─── */
+router.post("/school/comunicados", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { titulo, conteudo, prioridade } = req.body;
+  if (!titulo?.trim() || !conteudo?.trim()) {
+    return res.status(400).json({ error: "Título e conteúdo são obrigatórios." });
+  }
+  const r = await pool.query(
+    `INSERT INTO comunicados (escola_id, titulo, conteudo, prioridade)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [school.school_id, titulo.trim(), conteudo.trim(), prioridade ?? "normal"]
+  );
+  return res.status(201).json(r.rows[0]);
+});
+
+/* ─── DELETE /school/comunicados/:id ─── */
+router.delete("/school/comunicados/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query("DELETE FROM comunicados WHERE id = $1 AND escola_id = $2", [req.params.id, school.school_id]);
+  res.status(204).end();
+});
+
+/* ─── GET /school/direct-debit/subscriptions ─── */
+router.get("/school/direct-debit/subscriptions", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT dds.*, e.nome AS encarregado_nome, e.telefone AS encarregado_telefone
+     FROM direct_debit_subscriptions dds
+     JOIN encarregados e ON e.id = dds.encarregado_id
+     WHERE dds.school_id = $1
+     ORDER BY dds.created_at DESC`,
+    [school.school_id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── PUT /school/direct-debit/subscriptions/:id/approve-cancellation ─── */
+router.put("/school/direct-debit/subscriptions/:id/approve-cancellation", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query(
+    `UPDATE direct_debit_subscriptions SET status='cancelled', cancelled_at=NOW()
+     WHERE id=$1 AND school_id=$2`,
+    [req.params.id, school.school_id]
+  );
+  return res.json({ ok: true });
+});
+
+/* ─── PUT /school/direct-debit/subscriptions/:id/reject-cancellation ─── */
+router.put("/school/direct-debit/subscriptions/:id/reject-cancellation", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query(
+    `UPDATE direct_debit_subscriptions SET status='active', cancellation_requested_at=NULL
+     WHERE id=$1 AND school_id=$2`,
+    [req.params.id, school.school_id]
+  );
+  return res.json({ ok: true });
+});
+
 export default router;

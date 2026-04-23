@@ -12,6 +12,7 @@ import {
   Paperclip, FileCheck, CalendarDays, MessageSquare, ExternalLink, BadgeCheck,
   Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
   ChevronLeft, ChevronRight, ListFilter,
+  Megaphone, CheckCheck, XCircle, Info,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -46,7 +47,7 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicacao";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicacao" | "comunicados" | "debito_direto";
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -3350,6 +3351,292 @@ function ComunicacaoView({ token }: { token: string }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ComunicadosEscolaView — comunicados management for school portal
+   ═══════════════════════════════════════════════════════════════ */
+interface Comunicado {
+  id: number; titulo: string; conteudo: string; prioridade: string;
+  created_at: string; total_lidos: number;
+}
+
+function ComunicadosEscolaView({ token }: { token: string }) {
+  const [list, setList] = useState<Comunicado[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({ titulo: "", conteudo: "", prioridade: "normal" });
+  const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/school/comunicados`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error("Erro ao carregar comunicados");
+      setList(await r.json());
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!form.titulo.trim() || !form.conteudo.trim()) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/school/comunicados`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error); }
+      setForm({ titulo: "", conteudo: "", prioridade: "normal" });
+      setShowForm(false);
+      load();
+    } catch (e: any) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeleteId(id);
+    try {
+      await fetch(`${API}/school/comunicados/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setList(prev => prev.filter(c => c.id !== id));
+    } catch { alert("Erro ao eliminar comunicado."); }
+    finally { setDeleteId(null); }
+  };
+
+  const prioridadeBadge = (p: string) => {
+    const map: Record<string, string> = {
+      urgente: "bg-red-100 text-red-700 border-red-200",
+      alta: "bg-amber-100 text-amber-700 border-amber-200",
+      normal: "bg-slate-100 text-slate-600 border-slate-200",
+    };
+    const label: Record<string, string> = { urgente: "Urgente", alta: "Alta", normal: "Normal" };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium border ${map[p] ?? map.normal}`}>{label[p] ?? p}</span>;
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-6 max-w-3xl mx-auto w-full">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Megaphone className="w-5 h-5 text-primary"/> Comunicados</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Mensagens publicadas para os encarregados</p>
+        </div>
+        <button onClick={() => setShowForm(v => !v)}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
+          <Plus className="w-4 h-4"/> Novo Comunicado
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-800 mb-4">Novo Comunicado</h2>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+              <input value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="Ex: Reunião de encarregados"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Conteúdo *</label>
+              <textarea value={form.conteudo} onChange={e => setForm(f => ({ ...f, conteudo: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                rows={4} placeholder="Escreva o comunicado aqui…"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Prioridade</label>
+              <select value={form.prioridade} onChange={e => setForm(f => ({ ...f, prioridade: e.target.value }))}
+                className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                <option value="normal">Normal</option>
+                <option value="alta">Alta</option>
+                <option value="urgente">Urgente</option>
+              </select>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={handleCreate} disabled={saving}
+                className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
+                {saving ? "A guardar…" : "Publicar"}
+              </button>
+              <button onClick={() => setShowForm(false)} className="px-5 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center py-20 text-red-500 gap-2"><AlertCircle className="w-6 h-6"/><p className="text-sm">{error}</p></div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
+          <Megaphone className="w-8 h-8 opacity-40"/>
+          <p className="text-sm">Nenhum comunicado publicado.</p>
+          <p className="text-xs">Crie um comunicado para os encarregados verem no portal.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {list.map(c => (
+            <div key={c.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    {prioridadeBadge(c.prioridade)}
+                    <span className="text-xs text-slate-400">{new Date(c.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                    <span className="text-xs text-slate-400 flex items-center gap-1"><CheckCheck className="w-3.5 h-3.5"/>{c.total_lidos} lido(s)</span>
+                  </div>
+                  <h3 className="font-semibold text-slate-900 text-sm">{c.titulo}</h3>
+                  <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{c.conteudo}</p>
+                </div>
+                <button onClick={() => handleDelete(c.id)} disabled={deleteId === c.id}
+                  className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40">
+                  <Trash2 className="w-4 h-4"/>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DDCancelamentosView — direct debit management for school portal
+   ═══════════════════════════════════════════════════════════════ */
+interface DDSub {
+  id: number; encarregado_id: number; encarregado_nome: string; encarregado_telefone: string;
+  status: string; created_at: string; cancelled_at?: string; cancellation_requested_at?: string;
+}
+
+function DDCancelamentosView({ token }: { token: string }) {
+  const [list, setList] = useState<DDSub[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actioning, setActioning] = useState<number | null>(null);
+  const [filter, setFilter] = useState<"todos" | "active" | "cancellation_requested" | "cancelled">("todos");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/school/direct-debit/subscriptions`, { headers: { Authorization: `Bearer ${token}` } });
+      setList(await r.json());
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doAction = async (id: number, action: "approve-cancellation" | "reject-cancellation") => {
+    setActioning(id);
+    try {
+      await fetch(`${API}/school/direct-debit/subscriptions/${id}/${action}`, {
+        method: "PUT", headers: { Authorization: `Bearer ${token}` },
+      });
+      load();
+    } catch { alert("Erro ao processar a acção."); }
+    finally { setActioning(null); }
+  };
+
+  const statusBadge = (s: string) => {
+    const map: Record<string, { label: string; cls: string }> = {
+      active: { label: "Activo", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+      cancellation_requested: { label: "Cancelamento Pedido", cls: "bg-amber-100 text-amber-700 border-amber-200" },
+      cancelled: { label: "Cancelado", cls: "bg-slate-100 text-slate-500 border-slate-200" },
+    };
+    const cfg = map[s] ?? { label: s, cls: "bg-slate-100 text-slate-500 border-slate-200" };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium border ${cfg.cls}`}>{cfg.label}</span>;
+  };
+
+  const filtered = filter === "todos" ? list : list.filter(d => d.status === filter);
+  const pendingCount = list.filter(d => d.status === "cancellation_requested").length;
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-6 max-w-3xl mx-auto w-full">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-primary"/> Débito Direto
+          </h1>
+          <p className="text-sm text-slate-500 mt-0.5">Subscrições e pedidos de cancelamento</p>
+        </div>
+        {pendingCount > 0 && (
+          <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold border border-amber-200">
+            {pendingCount} pedido{pendingCount > 1 ? "s" : ""} pendente{pendingCount > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      <div className="flex gap-2 mb-5 flex-wrap">
+        {(["todos","active","cancellation_requested","cancelled"] as const).map(f => {
+          const labels: Record<string, string> = { todos: "Todos", active: "Activos", cancellation_requested: "Pedidos Cancelamento", cancelled: "Cancelados" };
+          return (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${filter === f ? "bg-primary text-white border-primary" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+              {labels[f]}
+            </button>
+          );
+        })}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
+          <CreditCard className="w-8 h-8 opacity-40"/>
+          <p className="text-sm">Nenhuma subscrição encontrada.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(d => (
+            <div key={d.id} className={`bg-white border rounded-2xl p-5 shadow-sm ${d.status === "cancellation_requested" ? "border-amber-200" : "border-slate-200"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    {statusBadge(d.status)}
+                    <span className="text-xs text-slate-400">Subscrito em {new Date(d.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                  </div>
+                  <p className="font-semibold text-slate-900 text-sm">{d.encarregado_nome}</p>
+                  <p className="text-xs text-slate-500">{d.encarregado_telefone}</p>
+                  {d.cancellation_requested_at && (
+                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                      <Info className="w-3.5 h-3.5"/> Cancelamento pedido em {new Date(d.cancellation_requested_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}
+                    </p>
+                  )}
+                  {d.cancelled_at && (
+                    <p className="text-xs text-slate-400 mt-1">Cancelado em {new Date(d.cancelled_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</p>
+                  )}
+                </div>
+                {d.status === "cancellation_requested" && (
+                  <div className="flex flex-col gap-2 flex-shrink-0">
+                    <button onClick={() => doAction(d.id, "approve-cancellation")} disabled={actioning === d.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors">
+                      <XCircle className="w-3.5 h-3.5"/> Confirmar Cancelamento
+                    </button>
+                    <button onClick={() => doAction(d.id, "reject-cancellation")} disabled={actioning === d.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                      <CheckCheck className="w-3.5 h-3.5"/> Manter Activo
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -3406,13 +3693,24 @@ export default function Dashboard() {
 
   const handleLogout = () => { logout(); setLocation("/escolar"); };
 
-  const NAV: { key: DashView; icon: React.ReactNode; label: string }[] = [
+  const [ddPendingCount, setDdPendingCount] = useState(0);
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API}/school/direct-debit/subscriptions`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then((rows: DDSub[]) => setDdPendingCount(rows.filter(r => r.status === "cancellation_requested").length))
+      .catch(() => {});
+  }, [token]);
+
+  const NAV: { key: DashView; icon: React.ReactNode; label: string; badge?: number }[] = [
     { key: "inicio", icon: <LayoutDashboard className="w-5 h-5"/>, label: "Início" },
     { key: "alunos", icon: <Users className="w-5 h-5"/>, label: "Alunos & Turmas" },
     { key: "propinas", icon: <FileText className="w-5 h-5"/>, label: "Propinas & Faturas" },
     { key: "reconciliacao", icon: <ShieldCheck className="w-5 h-5"/>, label: "Reconciliação" },
     { key: "ocorrencias", icon: <AlertTriangle className="w-5 h-5"/>, label: "Ocorrências" },
     { key: "comunicacao", icon: <Smartphone className="w-5 h-5"/>, label: "Comunicação" },
+    { key: "comunicados", icon: <Megaphone className="w-5 h-5"/>, label: "Comunicados" },
+    { key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>, label: "Débito Direto", badge: ddPendingCount },
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -3421,7 +3719,9 @@ export default function Dashboard() {
         {NAV.map(item => (
           <button key={item.key} onClick={() => { setView(item.key); onNav?.(); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${view===item.key?"bg-primary/10 text-primary font-medium":"hover:bg-slate-800 text-slate-400 hover:text-slate-200"}`}>
-            {item.icon} {item.label}
+            {item.icon}
+            <span className="flex-1 text-left">{item.label}</span>
+            {item.badge && item.badge > 0 ? <span className="ml-auto px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none">{item.badge}</span> : null}
           </button>
         ))}
         <div className="border-t border-slate-800 mt-2 pt-2">
@@ -3559,6 +3859,12 @@ export default function Dashboard() {
               <motion.div key="comunicacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
                 <ComunicacaoView token={token}/>
               </motion.div>
+            )}
+            {view === "comunicados" && (
+              <ComunicadosEscolaView key="comunicados" token={token}/>
+            )}
+            {view === "debito_direto" && (
+              <DDCancelamentosView key="debito_direto" token={token}/>
             )}
           </AnimatePresence>
         )}
