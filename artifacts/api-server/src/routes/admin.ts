@@ -969,6 +969,52 @@ router.delete("/admin/colegios/:id", adminAuth, async (req, res) => {
   res.status(204).end();
 });
 
+/* ─── GET /admin/colegios/:id/comunicados ─── */
+router.get("/admin/colegios/:id/comunicados", adminAuth, async (req, res) => {
+  const r = await pool.query(
+    `SELECT c.*,
+            (SELECT COUNT(*)::int FROM comunicados_lidos cl WHERE cl.comunicado_id = c.id) AS total_lidos
+     FROM comunicados c
+     WHERE c.escola_id = $1
+     ORDER BY c.created_at DESC`,
+    [req.params.id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── POST /admin/colegios/:id/comunicados ─── */
+router.post("/admin/colegios/:id/comunicados", adminAuth, async (req, res) => {
+  const { titulo, conteudo, prioridade } = req.body;
+  if (!titulo?.trim() || !conteudo?.trim()) {
+    return res.status(400).json({ error: "Título e conteúdo são obrigatórios." });
+  }
+  const r = await pool.query(
+    `INSERT INTO comunicados (escola_id, titulo, conteudo, prioridade)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [req.params.id, titulo.trim(), conteudo.trim(), prioridade ?? "normal"]
+  );
+  return res.status(201).json(r.rows[0]);
+});
+
+/* ─── DELETE /admin/comunicados/:id ─── */
+router.delete("/admin/comunicados/:id", adminAuth, async (req, res) => {
+  await pool.query("DELETE FROM comunicados WHERE id = $1", [req.params.id]);
+  res.status(204).end();
+});
+
+/* ─── GET /admin/pending-dd-cancellations ─── */
+router.get("/admin/pending-dd-cancellations", adminAuth, async (_req, res) => {
+  const r = await pool.query(
+    `SELECT school_id, COUNT(*)::int AS pending_count
+     FROM direct_debit_subscriptions
+     WHERE status = 'cancellation_requested'
+     GROUP BY school_id`
+  );
+  const map: Record<number, number> = {};
+  for (const row of r.rows) map[row.school_id] = row.pending_count;
+  return res.json(map);
+});
+
 /* ─── GET /admin/colegios/:id/direct-debit/subscriptions ─── */
 router.get("/admin/colegios/:id/direct-debit/subscriptions", adminAuth, async (req, res) => {
   const { id } = req.params;

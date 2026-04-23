@@ -3618,6 +3618,170 @@ function SettingsView({ schoolId }: { schoolId: number }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   ComunicadosPanel — Gerir comunicados por Escola (Admin)
+══════════════════════════════════════════════════════════════════ */
+interface AdminComunicado {
+  id: number; titulo: string; conteudo: string;
+  prioridade: string; created_at: string; total_lidos: number;
+}
+
+function ComunicadosPanel({ schoolId }: { schoolId: number }) {
+  const [comunicados, setComunicados] = useState<AdminComunicado[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [titulo, setTitulo] = useState("");
+  const [conteudo, setConteudo] = useState("");
+  const [prioridade, setPrioridade] = useState<"normal" | "informativo" | "urgente">("normal");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/comunicados`);
+      if (r.ok) setComunicados(await r.json());
+    } finally { setLoading(false); }
+  }, [schoolId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!titulo.trim() || !conteudo.trim()) {
+      setFormError("Título e conteúdo são obrigatórios.");
+      return;
+    }
+    setSaving(true); setFormError("");
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/comunicados`, {
+        method: "POST",
+        body: JSON.stringify({ titulo, conteudo, prioridade }),
+      });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro"); }
+      setTitulo(""); setConteudo(""); setPrioridade("normal"); setShowForm(false);
+      await load();
+    } catch (e: any) { setFormError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeleting(id);
+    try {
+      await api(`/admin/comunicados/${id}`, { method: "DELETE" });
+      setComunicados(prev => prev.filter(c => c.id !== id));
+    } finally { setDeleting(null); }
+  };
+
+  const prioColor = (p: string) =>
+    p === "urgente" ? "bg-red-100 text-red-700" :
+    p === "informativo" ? "bg-blue-100 text-blue-700" :
+    "bg-slate-100 text-slate-600";
+  const prioLabel = (p: string) =>
+    p === "urgente" ? "Urgente" : p === "informativo" ? "Informativo" : "Normal";
+
+  return (
+    <div className="space-y-4">
+      {/* Header action */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-slate-400"/>
+          <p className="text-sm text-slate-500">{comunicados.length} comunicado{comunicados.length !== 1 ? "s" : ""} publicado{comunicados.length !== 1 ? "s" : ""}</p>
+        </div>
+        <button onClick={() => { setShowForm(v => !v); setFormError(""); }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors">
+          <Plus className="w-4 h-4"/>
+          Novo Comunicado
+        </button>
+      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
+          <h4 className="font-semibold text-slate-800 text-sm">Novo Comunicado</h4>
+          {formError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</p>
+          )}
+          <input value={titulo} onChange={e => setTitulo(e.target.value)}
+            placeholder="Título do comunicado"
+            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+          <textarea value={conteudo} onChange={e => setConteudo(e.target.value)}
+            placeholder="Conteúdo da mensagem para os encarregados..."
+            rows={4}
+            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-medium text-slate-600">Prioridade:</label>
+            {(["normal", "informativo", "urgente"] as const).map(p => (
+              <button key={p} onClick={() => setPrioridade(p)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${prioridade === p ? prioColor(p) + " ring-2 ring-offset-1 ring-current" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                {prioLabel(p)}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button onClick={handleCreate} disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : <Send className="w-3.5 h-3.5"/>}
+              {saving ? "A publicar..." : "Publicar"}
+            </button>
+            <button onClick={() => setShowForm(false)}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* List */}
+      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <RefreshCw className="w-5 h-5 animate-spin text-primary"/>
+          </div>
+        ) : comunicados.length === 0 ? (
+          <div className="py-12 text-center">
+            <MessageSquare className="w-8 h-8 mx-auto mb-2 text-slate-200"/>
+            <p className="text-slate-400 text-sm font-medium">Sem comunicados publicados</p>
+            <p className="text-slate-300 text-xs mt-1">Crie um comunicado para os encarregados desta escola.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {comunicados.map(c => (
+              <div key={c.id} className="p-4 flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2 flex-wrap mb-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-slate-800 text-sm">{c.titulo}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${prioColor(c.prioridade)}`}>
+                        {prioLabel(c.prioridade)}
+                      </span>
+                    </div>
+                    <button onClick={() => handleDelete(c.id)} disabled={deleting === c.id}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
+                      {deleting === c.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : <Trash2 className="w-3.5 h-3.5"/>}
+                    </button>
+                  </div>
+                  <p className="text-slate-600 text-sm leading-relaxed mb-2">{c.conteudo}</p>
+                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3"/>
+                      {new Date(c.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" })}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Eye className="w-3 h-3"/>
+                      {c.total_lidos} {c.total_lidos === 1 ? "leitura" : "leituras"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/*══════════════════════════════════════════════════════════════════
    DDManagementPanel — Painel de Débito Direto por Escola (Admin)
 ══════════════════════════════════════════════════════════════════ */
 interface DDSub {
@@ -3796,10 +3960,20 @@ function DDManagementPanel({ schoolId }: { schoolId: number }) {
 }
 
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicados">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
+  const [pendingDDCount, setPendingDDCount] = useState(0);
+
+  useEffect(() => {
+    api(`/admin/colegios/${school.id}/direct-debit/subscriptions`).then(async r => {
+      if (r.ok) {
+        const subs: { status: string }[] = await r.json();
+        setPendingDDCount(subs.filter(s => s.status === "cancellation_requested").length);
+      }
+    }).catch(() => {});
+  }, [school.id]);
 
   const toggleUsaPacotes = async () => {
     setTogglingPacotes(true);
@@ -3820,7 +3994,8 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
-    { id: "debito_direto" as const, label: "Débito Direto", icon: <ArrowLeftRight className="w-4 h-4" /> },
+    { id: "debito_direto" as const, label: "Débito Direto", icon: <ArrowLeftRight className="w-4 h-4" />, badge: pendingDDCount > 0 ? pendingDDCount : undefined },
+    { id: "comunicados" as const, label: "Comunicados", icon: <MessageSquare className="w-4 h-4" /> },
     { id: "configuracoes" as const, label: "Configurações", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ];
 
@@ -3855,6 +4030,11 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
                 tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}>
               {t.icon}{t.label}
+              {"badge" in t && t.badge ? (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white leading-none">
+                  {t.badge}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -4007,6 +4187,19 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
             </div>
           </div>
           <DDManagementPanel schoolId={currentSchool.id} />
+        </div>
+      )}
+
+      {tab === "comunicados" && (
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <MessageSquare className="w-5 h-5 text-primary"/>
+            <div>
+              <h3 className="font-semibold text-slate-900">Comunicados</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Publique avisos e mensagens visíveis para os encarregados desta escola no portal.</p>
+            </div>
+          </div>
+          <ComunicadosPanel schoolId={currentSchool.id} />
         </div>
       )}
 

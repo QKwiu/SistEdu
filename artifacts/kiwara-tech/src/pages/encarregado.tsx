@@ -1189,10 +1189,13 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     finally { setLoadingOcorrencias(false); }
   }, [token]);
 
-  const loadComunicados = useCallback(async () => {
+  const loadComunicados = useCallback(async (schoolId?: number) => {
     setLoadingComunicados(true);
     try {
-      const res = await fetch(`${API}/guardian/comunicados`, {headers});
+      const url = schoolId
+        ? `${API}/guardian/comunicados?school_id=${schoolId}`
+        : `${API}/guardian/comunicados`;
+      const res = await fetch(url, {headers});
       if (!res.ok) return;
       setComunicados(await res.json());
     } catch {}
@@ -1243,11 +1246,12 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     setOcorrencias([]);
     loadPropinas(selectedStudent.id);
 
-    // If school changed, reload payment methods + DD subscription for new school context
+    // If school changed, reload payment methods, DD subscription, and comunicados
     if (selectedStudent.school_id !== currentSchoolId) {
       setCurrentSchoolId(selectedStudent.school_id);
       loadAvailableMethods(selectedStudent.school_id);
       loadDDSubscription(selectedStudent.school_id);
+      loadComunicados(selectedStudent.school_id);
     }
   }, [selectedStudent?.id]);
 

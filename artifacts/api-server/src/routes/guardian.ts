@@ -466,15 +466,33 @@ router.get("/guardian/comunicados", async (req, res) => {
   const guardian = await getGuardianFromToken(token);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
-  // Get the school_id from the guardian's students
-  const schoolRes = await pool.query(
-    `SELECT DISTINCT s.school_id FROM students s
-     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
-     WHERE ea.encarregado_id = $1 LIMIT 1`,
-    [guardian.id]
-  );
-  if (schoolRes.rows.length === 0) return res.json([]);
-  const escola_id = schoolRes.rows[0].school_id;
+  let escola_id: number | null = null;
+
+  // If school_id provided, validate guardian has a student there
+  if (req.query.school_id) {
+    const schoolRes = await pool.query(
+      `SELECT sc.id FROM schools sc
+       JOIN students s ON s.school_id = sc.id
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE sc.id = $1 AND ea.encarregado_id = $2 LIMIT 1`,
+      [Number(req.query.school_id), guardian.id]
+    );
+    if (schoolRes.rows.length > 0) escola_id = schoolRes.rows[0].id;
+  }
+
+  // Fallback: first school by lowest id (deterministic)
+  if (!escola_id) {
+    const schoolRes = await pool.query(
+      `SELECT sc.id FROM schools sc
+       JOIN students s ON s.school_id = sc.id
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE ea.encarregado_id = $1
+       ORDER BY sc.id ASC LIMIT 1`,
+      [guardian.id]
+    );
+    if (schoolRes.rows.length === 0) return res.json([]);
+    escola_id = schoolRes.rows[0].id;
+  }
 
   const result = await pool.query(
     `SELECT c.id, c.titulo, c.conteudo, c.prioridade, c.created_at,
