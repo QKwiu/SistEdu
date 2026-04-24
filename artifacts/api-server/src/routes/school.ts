@@ -140,7 +140,8 @@ async function applyFinesForSchool(schoolId: number): Promise<void> {
 /* ─── Auth helpers ─── */
 async function getSchoolFromToken(token: string) {
   const res = await pool.query(
-    `SELECT sc.id AS school_id, sc.name AS school_name
+    `SELECT sc.id AS school_id, sc.name AS school_name,
+            sc.institution_type, sc.portal_nomenclatura
      FROM sessions s
      JOIN schools sc ON sc.id = s.school_id
      WHERE s.token = $1 AND s.expires_at > NOW()`,

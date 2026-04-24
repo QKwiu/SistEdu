@@ -1,0 +1,28 @@
+Checkout Inteligente e Gestão de Irregularidades (Portal do Encarregado)
+Objetivo: Implementar a interface de checkout para liquidação de propinas, com suporte a seleção múltipla e lógica condicional de bloqueio/desbloqueio para utilizadores com Débito Direto (DD).
+
+1. Interface de Seleção e Checkout (UI/UX)
+Listagem de Débitos: Exibir todos os meses (propinas) e emolumentos com detalhes de valor base, multas acumuladas e estado da fatura.
+
+Seleção Granular: Permitir a seleção de um ou múltiplos meses através de checkboxes.
+
+Somatório em Tempo Real: Apresentar o valor total atualizado conforme o utilizador seleciona os itens.
+
+Escolha de Método: Após a seleção, o utilizador deve poder escolher entre GPO (Multicaixa Online) ou Referência Bancária.
+
+2. Lógica de Restrição para Débito Direto (Regra de Negócio)
+Nota Crítica de Fluxo: * Utilizadores com DD Ativo e Regular: O sistema deve manter as propinas futuras "bloqueadas" para seleção manual, uma vez que estas serão processadas automaticamente pelo banco.
+
+Exceção por Irregularidade: A funcionalidade de selecionar propinas manualmente deve ser habilitada para utilizadores de DD apenas quando existir uma situação irregular (ex: falha na cobrança automática anterior, meses vencidos não liquidados ou saldo insuficiente no processamento).
+
+Objetivo: Evitar pagamentos duplicados (manual + automático), permitindo a intervenção manual apenas para regularizar a conta.
+
+3. Backend e Identificação de Contexto
+Validação de Status: O endpoint GET /payments/due-items deve retornar um campo is_selectable baseado no método de pagamento preferencial e no estado financeiro do aluno.
+
+Criação de Checkout: O backend deve agrupar os itens selecionados num Transaction_ID único, garantindo que a reconciliação automática posterior identifique exatamente quais meses foram liquidados nessa transação manual.
+
+4. Identidade Visual e Multi-Instituição
+Identificação da Escola: Exibir obrigatoriamente o Nome da Instituição e o Logótipo no topo do ecrã de pagamento e em cada "card" de filho.
+
+Contexto Dinâmico: Garantir que as opções de GPO/Referência exibidas são as parametrizadas pela instituição específica daquele filho.

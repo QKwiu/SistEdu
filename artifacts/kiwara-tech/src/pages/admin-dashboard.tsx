@@ -40,11 +40,25 @@ interface Stats {
   propinas_pagas: number; propinas_vencidas: number; divida_total: number;
   total_encarregados: number; total_turmas: number;
 }
+const INSTITUTION_TYPES = [
+  { value: "colegio_geral",    label: "Colégio / Escola de Ensino Geral",   portal: "encarregado" },
+  { value: "centro_infantil",  label: "Centro Infantil / Creche",            portal: "encarregado" },
+  { value: "centro_formacao",  label: "Centro de Formação",                  portal: "aluno"       },
+  { value: "universidade",     label: "Universidade / Ensino Superior",      portal: "aluno"       },
+  { value: "politecnico",      label: "Instituto Politécnico",               portal: "aluno"       },
+] as const;
+
+function derivePortalNomenclatura(institutionType: string): "encarregado" | "aluno" {
+  return ["universidade","centro_formacao","politecnico"].includes(institutionType) ? "aluno" : "encarregado";
+}
+
 interface Colegio {
   id: number; school_id: string; name: string; nif?: string; phone?: string;
   email: string; iban?: string; created_at: string;
   total_alunos: number; total_turmas: number; usa_pacotes: boolean;
   commission_rate?: number;
+  institution_type?: string;
+  portal_nomenclatura?: string;
 }
 interface PacoteItem { nome: string; tipo: string; valor: number; }
 interface PacoteEmolumento {
@@ -87,11 +101,12 @@ const inputCls = "w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-s
 const selectCls = inputCls;
 const labelCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1";
 
-function Field({ label, children, required }: { label: string; children: React.ReactNode; required?: boolean }) {
+function Field({ label, children, required, desc }: { label: string; children: React.ReactNode; required?: boolean; desc?: string }) {
   return (
     <div>
       <label className={labelCls}>{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
       {children}
+      {desc && <p className="text-xs text-slate-400 mt-1">{desc}</p>}
     </div>
   );
 }
@@ -208,6 +223,8 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
 
   const [activeTab, setActiveTab] = useState<CTab>("basico");
   const [form, setForm] = useState({ name: "", nif: "", phone: "", email: "", password: "", iban: "", commission_rate: "0" });
+  const [institutionType, setInstitutionType] = useState("colegio_geral");
+  const [portalNomenclatura, setPortalNomenclatura] = useState<"encarregado"|"aluno">("encarregado");
   const [usaPacotes, setUsaPacotes] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -231,11 +248,11 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
     try {
       const res = await api("/admin/colegios", {
         method: "POST",
-        body: JSON.stringify({ ...form, commission_rate: Number(form.commission_rate || 0), usa_pacotes: usaPacotes, settings }),
+        body: JSON.stringify({ ...form, commission_rate: Number(form.commission_rate || 0), usa_pacotes: usaPacotes, settings, institution_type: institutionType, portal_nomenclatura: portalNomenclatura }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao criar colégio.");
-      onCreated({ ...data, total_alunos: 0, total_turmas: 0, usa_pacotes: !!data.usa_pacotes });
+      onCreated({ ...data, total_alunos: 0, total_turmas: 0, usa_pacotes: !!data.usa_pacotes, institution_type: data.institution_type, portal_nomenclatura: data.portal_nomenclatura });
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -326,6 +343,29 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
                   <input type="number" min={0} max={100} step={0.1} className={inp} value={form.commission_rate} onChange={f("commission_rate")} />
                 </Field>
               </div>
+              <Field label="Tipo de Instituição *" desc="Determina o foco operacional e a nomenclatura padrão do portal.">
+                <select className={inp} value={institutionType} onChange={e => {
+                  const t = e.target.value;
+                  setInstitutionType(t);
+                  setPortalNomenclatura(derivePortalNomenclatura(t));
+                }}>
+                  {INSTITUTION_TYPES.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Nomenclatura do Portal do Utilizador Final *" desc="Define o nome visível no portal de acesso.">
+                <div className="flex gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="portal_nom_modal" value="encarregado" checked={portalNomenclatura === "encarregado"} onChange={() => setPortalNomenclatura("encarregado")} className="accent-primary"/>
+                    <span className="text-sm text-slate-700">Portal do Encarregado</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="portal_nom_modal" value="aluno" checked={portalNomenclatura === "aluno"} onChange={() => setPortalNomenclatura("aluno")} className="accent-primary"/>
+                    <span className="text-sm text-slate-700">Portal do Aluno</span>
+                  </label>
+                </div>
+              </Field>
               <Field label="IBAN (opcional)">
                 <input className={inp} placeholder="AO06004400006729503010102" value={form.iban} onChange={f("iban")} />
               </Field>
@@ -2937,6 +2977,8 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
     phone: school.phone || "",
     email: school.email,
     commission_rate: String(school.commission_rate ?? 0),
+    institution_type: school.institution_type || "colegio_geral",
+    portal_nomenclatura: (school.portal_nomenclatura || "encarregado") as "encarregado" | "aluno",
   });
   const [savingBasic, setSavingBasic] = useState(false);
   const [savedBasic, setSavedBasic] = useState(false);
@@ -2951,7 +2993,7 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
-      onUpdated({ name: d.school.name, nif: d.school.nif, phone: d.school.phone, email: d.school.email, commission_rate: Number(d.school.commission_rate) });
+      onUpdated({ name: d.school.name, nif: d.school.nif, phone: d.school.phone, email: d.school.email, commission_rate: Number(d.school.commission_rate), institution_type: d.school.institution_type, portal_nomenclatura: d.school.portal_nomenclatura });
       setSavedBasic(true); setTimeout(() => setSavedBasic(false), 2500);
     } catch (e: any) { setErrBasic(e.message); }
     finally { setSavingBasic(false); }
@@ -3066,6 +3108,30 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">ID da escola</label>
               <input className={inp} value={school.school_id} readOnly disabled style={{ opacity: 0.6, cursor: "not-allowed" }}/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Tipo de Instituição</label>
+              <select className={inp} value={basic.institution_type} onChange={e => {
+                const t = e.target.value;
+                setBasic(p => ({ ...p, institution_type: t, portal_nomenclatura: derivePortalNomenclatura(t) }));
+              }}>
+                {INSTITUTION_TYPES.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nomenclatura do Portal</label>
+              <div className="flex gap-5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name={`pn_${school.id}`} value="encarregado" checked={basic.portal_nomenclatura === "encarregado"} onChange={() => setBasic(p => ({ ...p, portal_nomenclatura: "encarregado" }))} className="accent-primary"/>
+                  <span className="text-sm text-slate-700">Portal do Encarregado</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name={`pn_${school.id}`} value="aluno" checked={basic.portal_nomenclatura === "aluno"} onChange={() => setBasic(p => ({ ...p, portal_nomenclatura: "aluno" }))} className="accent-primary"/>
+                  <span className="text-sm text-slate-700">Portal do Aluno</span>
+                </label>
+              </div>
             </div>
           </div>
           {/* Turmas info */}

@@ -18,6 +18,7 @@ interface Guardian { id: number; nome: string; telefone: string; first_login: bo
 interface Student {
   id: number; nome: string; bilhete: string;
   school_id: number; school_name: string; school_logo_url: string | null;
+  institution_type?: string; portal_nomenclatura?: string;
   turma: string | null; turno: string | null;
   divida_total: number; total_multas: number;
   propinas_vencidas: number; propinas_pendentes: number;
@@ -1114,6 +1115,8 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<ActiveMenu>("facturas");
 
+  const portalLabel = selectedStudent?.portal_nomenclatura === "aluno" ? "Portal do Aluno" : "Portal do Encarregado";
+
   // Comunicados
   const [comunicados, setComunicados] = useState<Comunicado[]>([]);
   const [loadingComunicados, setLoadingComunicados] = useState(false);
@@ -1341,7 +1344,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
         <div className="h-16 px-6 border-b border-white/10 flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>
           <div>
-            <p className="font-semibold text-sm">Portal do Encarregado</p>
+            <p className="font-semibold text-sm">{portalLabel}</p>
             <p className="text-xs text-slate-400">Kiwara Tech</p>
           </div>
         </div>
@@ -1380,7 +1383,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>
                   <div>
-                    <p className="font-semibold text-sm">Portal do Encarregado</p>
+                    <p className="font-semibold text-sm">{portalLabel}</p>
                     <p className="text-xs text-slate-400">Kiwara Tech</p>
                   </div>
                 </div>
@@ -1892,7 +1895,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
         </>}{/* end comunicados screen */}
 
         <div className="text-center pt-2">
-          <p className="text-xs text-gray-300">Kiwara Escolar — Portal do Encarregado</p>
+          <p className="text-xs text-gray-300">Kiwara Escolar — {portalLabel}</p>
         </div>
       </div>
       </div>{/* end flex-1 min-w-0 */}

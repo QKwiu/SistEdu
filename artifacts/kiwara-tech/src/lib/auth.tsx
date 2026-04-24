@@ -5,6 +5,8 @@ export interface SchoolSession {
   schoolName: string;
   adminEmail: string;
   isNew: boolean;
+  institutionType?: string;
+  portalNomenclatura?: string;
 }
 
 interface AuthContextType {

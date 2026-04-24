@@ -11,6 +11,17 @@ import { useAuth, generateSchoolId } from "@/lib/auth";
 type Step = "form" | "creating" | "done";
 type Mode = "signup" | "login";
 
+const INSTITUTION_TYPES = [
+  { value: "colegio_geral",    label: "Colégio / Escola (Geral)" },
+  { value: "centro_infantil",  label: "Centro Infantil / Jardim de Infância" },
+  { value: "centro_formacao",  label: "Centro de Formação Profissional" },
+  { value: "universidade",     label: "Universidade / Instituto Superior" },
+  { value: "politecnico",      label: "Politécnico" },
+] as const;
+
+const derivePortalNomenclatura = (type: string) =>
+  ["universidade", "centro_formacao", "politecnico"].includes(type) ? "aluno" : "encarregado";
+
 const CREATION_STEPS = [
   "A criar o perfil do colégio...",
   "A gerar o seu ID único...",
@@ -28,6 +39,7 @@ export default function Signup() {
 
   const [signupForm, setSignupForm] = useState({
     schoolName: "", nif: "", phone: "", email: "", password: "",
+    institution_type: "colegio_geral",
   });
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
 
@@ -58,7 +70,10 @@ export default function Signup() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupForm),
+        body: JSON.stringify({
+          ...signupForm,
+          portal_nomenclatura: derivePortalNomenclatura(signupForm.institution_type),
+        }),
       });
       const data = await res.json();
       clearInterval(interval);
@@ -137,7 +152,21 @@ export default function Signup() {
                 <form onSubmit={handleSignup} className="space-y-4">
                   <div className="relative">
                     <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <Input name="schoolName" required placeholder="Nome do Colégio" className="pl-11" value={signupForm.schoolName} onChange={handleSignupChange} />
+                    <Input name="schoolName" required placeholder="Nome da Instituição" className="pl-11" value={signupForm.schoolName} onChange={handleSignupChange} />
+                  </div>
+                  <div>
+                    <select
+                      value={signupForm.institution_type}
+                      onChange={e => setSignupForm(f => ({ ...f, institution_type: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-700"
+                    >
+                      {INSTITUTION_TYPES.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1 pl-1">
+                      Tipo de instituição — determina a nomenclatura do portal de acesso dos utentes.
+                    </p>
                   </div>
                   <div className="relative">
                     <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />

@@ -19,7 +19,7 @@ function generateToken(): string {
 
 router.post("/auth/signup", async (req, res) => {
   try {
-    const { schoolName, nif, phone, email, password } = req.body;
+    const { schoolName, nif, phone, email, password, institution_type, portal_nomenclatura } = req.body;
     if (!schoolName || !nif || !phone || !email || !password) {
       return res.status(400).json({ error: "Todos os campos são obrigatórios." });
     }
@@ -31,6 +31,8 @@ router.post("/auth/signup", async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const schoolId = generateSchoolId();
+    const instType = institution_type || "colegio_geral";
+    const portalNom = portal_nomenclatura || (["universidade","centro_formacao","politecnico"].includes(instType) ? "aluno" : "encarregado");
 
     const [school] = await db.insert(schoolsTable).values({
       schoolId,
@@ -39,6 +41,8 @@ router.post("/auth/signup", async (req, res) => {
       phone,
       email,
       passwordHash,
+      institutionType: instType,
+      portalNomenclatura: portalNom,
     }).returning();
 
     const token = generateToken();
@@ -57,6 +61,8 @@ router.post("/auth/signup", async (req, res) => {
         schoolName: school.name,
         adminEmail: school.email,
         isNew: true,
+        institutionType: school.institutionType,
+        portalNomenclatura: school.portalNomenclatura,
       },
     });
   } catch (err) {
@@ -98,6 +104,8 @@ router.post("/auth/login", async (req, res) => {
         schoolName: school.name,
         adminEmail: school.email,
         isNew: false,
+        institutionType: school.institutionType,
+        portalNomenclatura: school.portalNomenclatura,
       },
     });
   } catch (err) {
@@ -135,6 +143,8 @@ router.get("/auth/me", async (req, res) => {
         schoolName: school.name,
         adminEmail: school.email,
         isNew: false,
+        institutionType: school.institutionType,
+        portalNomenclatura: school.portalNomenclatura,
       },
     });
   } catch (err) {

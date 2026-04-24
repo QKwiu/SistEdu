@@ -11,6 +11,8 @@ export const schoolsTable = pgTable("schools", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  institutionType: text("institution_type").notNull().default("colegio_geral"),
+  portalNomenclatura: text("portal_nomenclatura").notNull().default("encarregado"),
 });
 
 export const insertSchoolSchema = createInsertSchema(schoolsTable).omit({

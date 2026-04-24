@@ -77,6 +77,7 @@ router.get("/admin/stats", adminAuth, async (_req, res) => {
 router.get("/admin/colegios", adminAuth, async (_req, res) => {
   const r = await pool.query(`
     SELECT s.id, s.school_id, s.name, s.nif, s.phone, s.email, s.iban, s.created_at,
+           s.institution_type, s.portal_nomenclatura,
            COUNT(DISTINCT st.id)::int AS total_alunos,
            COUNT(DISTINCT t.id)::int  AS total_turmas
     FROM schools s
@@ -90,7 +91,8 @@ router.get("/admin/colegios", adminAuth, async (_req, res) => {
 
 /* ─── POST /admin/colegios — create school ─── */
 router.post("/admin/colegios", adminAuth, async (req, res) => {
-  const { name, nif, phone, email, password, iban, usa_pacotes, commission_rate, settings } = req.body;
+  const { name, nif, phone, email, password, iban, usa_pacotes, commission_rate, settings,
+          institution_type, portal_nomenclatura } = req.body;
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: "Nome e email são obrigatórios." });
   }
@@ -99,10 +101,15 @@ router.post("/admin/colegios", adminAuth, async (req, res) => {
   const hash = await bcrypt.hash(password || "Kiwara@2025", 10);
   const schoolId = `SCH-${Date.now()}`;
 
+  const instType = institution_type || "colegio_geral";
+  const portalNom = portal_nomenclatura || (
+    ["universidade","centro_formacao","politecnico"].includes(instType) ? "aluno" : "encarregado"
+  );
+
   const r = await pool.query(
-    `INSERT INTO schools (school_id, name, nif, phone, email, password_hash, iban, usa_pacotes, commission_rate)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, school_id, name, nif, phone, email, iban, usa_pacotes, commission_rate, created_at`,
-    [schoolId, name.trim(), nif?.trim() || "", phone?.trim() || "", email.trim(), hash, iban?.trim() || null, !!usa_pacotes, Number(commission_rate ?? 0)]
+    `INSERT INTO schools (school_id, name, nif, phone, email, password_hash, iban, usa_pacotes, commission_rate, institution_type, portal_nomenclatura)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, school_id, name, nif, phone, email, iban, usa_pacotes, commission_rate, institution_type, portal_nomenclatura, created_at`,
+    [schoolId, name.trim(), nif?.trim() || "", phone?.trim() || "", email.trim(), hash, iban?.trim() || null, !!usa_pacotes, Number(commission_rate ?? 0), instType, portalNom]
   );
   const school = r.rows[0];
 
@@ -158,15 +165,20 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
 
 /* ─── PUT /admin/colegios/:id — edit basic school info ─── */
 router.put("/admin/colegios/:id", adminAuth, async (req, res) => {
-  const { name, nif, phone, email, commission_rate } = req.body;
+  const { name, nif, phone, email, commission_rate, institution_type, portal_nomenclatura } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
+
+  const instType = institution_type || "colegio_geral";
+  const portalNom = portal_nomenclatura || (
+    ["universidade","centro_formacao","politecnico"].includes(instType) ? "aluno" : "encarregado"
+  );
 
   const r = await pool.query(
     `UPDATE schools
-     SET name=$1, nif=$2, phone=$3, email=$4, commission_rate=$5
-     WHERE id=$6
-     RETURNING id, school_id, name, nif, phone, email, iban, commission_rate, usa_pacotes, created_at`,
-    [name.trim(), nif?.trim() ?? "", phone?.trim() ?? "", email?.trim(), Number(commission_rate ?? 0), req.params.id]
+     SET name=$1, nif=$2, phone=$3, email=$4, commission_rate=$5, institution_type=$6, portal_nomenclatura=$7
+     WHERE id=$8
+     RETURNING id, school_id, name, nif, phone, email, iban, commission_rate, usa_pacotes, institution_type, portal_nomenclatura, created_at`,
+    [name.trim(), nif?.trim() ?? "", phone?.trim() ?? "", email?.trim(), Number(commission_rate ?? 0), instType, portalNom, req.params.id]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
   res.json({ ok: true, school: r.rows[0] });

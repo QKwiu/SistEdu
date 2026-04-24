@@ -945,6 +945,9 @@ function InicioView({ token, alunos, propinas, turmas, onOpenCriarTurma, onOpenA
   onOpenGerarPropina: () => void; onOpenGerarRef: () => void; onOpenGerarLote: () => void;
   schoolId: string; schoolName: string;
 }) {
+  const { session: iSession } = useAuth();
+  const portalNomInicio = iSession?.portalNomenclatura ?? "encarregado";
+  const portalLabelInicio = portalNomInicio === "aluno" ? "Portal do Aluno" : "Portal do Encarregado";
   const totalDivida = alunos.reduce((s, a) => s + Number(a.divida), 0);
   const propPendentes = propinas.filter(p => p.status === "pendente").length;
   const pago = propinas.filter(p => p.status === "pago").reduce((s, p) => s + Number(p.montante), 0);
@@ -1063,8 +1066,8 @@ function InicioView({ token, alunos, propinas, turmas, onOpenCriarTurma, onOpenA
               <GraduationCap className="w-6 h-6 text-white"/>
             </div>
             <div className="flex-1 min-w-0">
-              <h4 className="font-bold text-slate-900 mb-1">Portal do Encarregado</h4>
-              <p className="text-sm text-slate-500 mb-3">Partilhe este link com os encarregados.</p>
+              <h4 className="font-bold text-slate-900 mb-1">{portalLabelInicio}</h4>
+              <p className="text-sm text-slate-500 mb-3">Partilhe este link com os utilizadores do portal.</p>
               <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 max-w-sm">
                 <span className="text-xs text-slate-500 font-mono truncate flex-1">{link}</span>
                 <button onClick={copy} className="shrink-0 text-primary hover:text-primary/70 transition-colors">
@@ -3655,6 +3658,7 @@ export default function Dashboard() {
   const schoolName = session?.schoolName ?? "Colégio";
   const schoolId = session?.schoolId ?? "";
   const initials = schoolName.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const portalLabel = (session?.portalNomenclatura === "aluno") ? "Portal do Aluno" : "Portal do Encarregado";
 
   const headers: Record<string, string> = token
     ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
@@ -3732,7 +3736,7 @@ export default function Dashboard() {
             <Settings className="w-5 h-5"/> Configurações
           </a>
           <Link href="/encarregado" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-emerald-400 hover:text-emerald-300" onClick={onNav}>
-            <GraduationCap className="w-5 h-5"/> Portal Encarregado
+            <GraduationCap className="w-5 h-5"/> {portalLabel}
           </Link>
         </div>
       </nav>

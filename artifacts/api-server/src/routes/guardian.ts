@@ -135,6 +135,8 @@ router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
       s.school_id,
       sc.name AS school_name,
       sc.logo_url AS school_logo_url,
+      sc.institution_type,
+      sc.portal_nomenclatura,
       t.nome AS turma,
       t.turno,
       COALESCE(SUM(CASE WHEN p.status != 'pago' THEN (p.montante + p.multa) ELSE 0 END), 0) AS divida_total,
@@ -147,7 +149,7 @@ router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
     LEFT JOIN turmas t ON t.id = s.turma_id
     LEFT JOIN propinas p ON p.student_id = s.id
     WHERE ea.encarregado_id = $1
-    GROUP BY s.id, s.nome, s.bilhete, s.school_id, sc.name, sc.logo_url, t.nome, t.turno
+    GROUP BY s.id, s.nome, s.bilhete, s.school_id, sc.name, sc.logo_url, sc.institution_type, sc.portal_nomenclatura, t.nome, t.turno
     ORDER BY sc.name, s.nome
   `, [guardian.id]);
 
