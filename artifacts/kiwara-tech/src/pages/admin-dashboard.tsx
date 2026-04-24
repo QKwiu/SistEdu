@@ -2777,6 +2777,241 @@ function AlunosComMultasAdmin({ schoolId }: { schoolId: number }) {
 }
 
 /* ─── School Detail View ─── */
+/* ─── AlunoFichaSlideOver ─── */
+interface AlunoFicha {
+  id: number; nome: string; bilhete?: string; numero_processo?: string;
+  data_nascimento?: string; sexo?: string; estado?: string;
+  turma_id?: number | null; turma_nome?: string; turno?: string;
+  nome_encarregado?: string; telefone_encarregado?: string;
+  encarregado?: { id: number; nome: string; telefone: string; email?: string; first_login: boolean; created_at: string } | null;
+  turmas?: { id: number; nome: string; turno?: string }[];
+}
+
+function AlunoFichaSlideOver({
+  schoolId, alunoId, onClose, onSaved,
+}: { schoolId: number; alunoId: number; onClose: () => void; onSaved?: (nome: string) => void }) {
+  const [ficha, setFicha] = useState<AlunoFicha | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+
+  const [nome, setNome] = useState("");
+  const [bilhete, setBilhete] = useState("");
+  const [numProcesso, setNumProcesso] = useState("");
+  const [dataNascimento, setDataNascimento] = useState("");
+  const [sexo, setSexo] = useState("");
+  const [estado, setEstado] = useState("activo");
+  const [turmaId, setTurmaId] = useState<number | "">(""); 
+  const [nomeEnc, setNomeEnc] = useState("");
+  const [telEnc, setTelEnc] = useState("");
+  const [emailEnc, setEmailEnc] = useState("");
+  const [novaPassword, setNovaPassword] = useState("");
+  const [showPass, setShowPass] = useState(false);
+
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+
+  useEffect(() => {
+    setLoading(true);
+    api(`/admin/colegios/${schoolId}/alunos/${alunoId}`)
+      .then(r => r.json())
+      .then((d: AlunoFicha) => {
+        setFicha(d);
+        setNome(d.nome || "");
+        setBilhete(d.bilhete || "");
+        setNumProcesso(d.numero_processo || "");
+        setDataNascimento(d.data_nascimento?.slice(0, 10) || "");
+        setSexo(d.sexo || "");
+        setEstado(d.estado || "activo");
+        setTurmaId(d.turma_id ?? "");
+        setNomeEnc(d.encarregado?.nome || d.nome_encarregado || "");
+        setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
+        setEmailEnc(d.encarregado?.email || "");
+      })
+      .finally(() => setLoading(false));
+  }, [schoolId, alunoId]);
+
+  const save = async () => {
+    if (!nome.trim()) { setErr("Nome do aluno é obrigatório."); return; }
+    setSaving(true); setErr(""); setSaved(false);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/alunos/${alunoId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          nome: nome.trim(), bilhete: bilhete.trim(), numero_processo: numProcesso.trim(),
+          data_nascimento: dataNascimento || null, sexo: sexo || null, estado,
+          turma_id: turmaId || null,
+          nome_encarregado: nomeEnc.trim(), telefone_encarregado: telEnc.trim(),
+          encarregado_email: emailEnc.trim() || null,
+          nova_password: novaPassword.trim() || null,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+      onSaved?.(d.nome);
+    } catch (e: any) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const Label = ({ children }: { children: React.ReactNode }) => (
+    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{children}</label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"/>
+      <div className="relative w-full max-w-lg bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+              <User className="w-5 h-5 text-primary"/>
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900 text-base">{loading ? "A carregar…" : ficha?.nome}</h2>
+              <p className="text-xs text-slate-400">Ficha do Aluno</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors">
+            <X className="w-5 h-5"/>
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-6 h-6 animate-spin text-primary"/></div>
+        ) : (
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+            {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2">{err}</div>}
+
+            {/* Dados pessoais */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <User className="w-3.5 h-3.5"/> Dados do Aluno
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label>Nome completo *</Label>
+                  <input className={inp} value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do aluno"/>
+                </div>
+                <div>
+                  <Label>Nº do BI / Bilhete</Label>
+                  <input className={inp} value={bilhete} onChange={e => setBilhete(e.target.value)} placeholder="000000000LA000"/>
+                </div>
+                <div>
+                  <Label>Nº de Processo</Label>
+                  <input className={inp} value={numProcesso} onChange={e => setNumProcesso(e.target.value)} placeholder="Nº processo"/>
+                </div>
+                <div>
+                  <Label>Data de Nascimento</Label>
+                  <input type="date" className={inp} value={dataNascimento} onChange={e => setDataNascimento(e.target.value)}/>
+                </div>
+                <div>
+                  <Label>Sexo</Label>
+                  <select className={inp} value={sexo} onChange={e => setSexo(e.target.value)}>
+                    <option value="">— não definido —</option>
+                    <option value="M">Masculino</option>
+                    <option value="F">Feminino</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Turma</Label>
+                  <select className={inp} value={turmaId} onChange={e => setTurmaId(e.target.value ? Number(e.target.value) : "")}>
+                    <option value="">— sem turma —</option>
+                    {(ficha?.turmas ?? []).map(t => (
+                      <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` (${t.turno})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Estado</Label>
+                  <select className={inp} value={estado} onChange={e => setEstado(e.target.value)}>
+                    <option value="activo">Activo</option>
+                    <option value="inactivo">Inactivo</option>
+                    <option value="transferido">Transferido</option>
+                    <option value="desistente">Desistente</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Dados do encarregado */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Users className="w-3.5 h-3.5"/> Dados do Encarregado de Educação
+              </h3>
+              {ficha?.encarregado && (
+                <div className="mb-3 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0"/>
+                  Encarregado com acesso ao portal. Login: <strong className="font-mono">{ficha.encarregado.telefone}</strong>
+                  {ficha.encarregado.first_login && <span className="ml-1 text-amber-600">(nunca fez login)</span>}
+                </div>
+              )}
+              {!ficha?.encarregado && (
+                <div className="mb-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0"/>
+                  Sem encarregado associado. Ao guardar com nome e telefone, será criado acesso ao portal.
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label>Nome do encarregado</Label>
+                  <input className={inp} value={nomeEnc} onChange={e => setNomeEnc(e.target.value)} placeholder="Nome completo"/>
+                </div>
+                <div>
+                  <Label>Telefone (login portal)</Label>
+                  <input className={inp} value={telEnc} onChange={e => setTelEnc(e.target.value)} placeholder="9XX XXX XXX"/>
+                </div>
+                <div>
+                  <Label>Email (opcional)</Label>
+                  <input type="email" className={inp} value={emailEnc} onChange={e => setEmailEnc(e.target.value)} placeholder="email@exemplo.ao"/>
+                </div>
+              </div>
+            </div>
+
+            {/* Redefinir password */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5"/> Acesso ao Portal do Encarregado
+              </h3>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <Label>Nova palavra-passe (deixar em branco para não alterar)</Label>
+                <div className="relative mt-1">
+                  <input type={showPass ? "text" : "password"} className={inp}
+                    value={novaPassword} onChange={e => setNovaPassword(e.target.value)}
+                    placeholder={ficha?.encarregado ? "Deixar em branco = sem alteração" : "Senha inicial (padrão: 1234)"}/>
+                  <button type="button" onClick={() => setShowPass(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  {ficha?.encarregado
+                    ? "O encarregado usa o nº de telefone como utilizador e a senha definida aqui para aceder ao portal."
+                    : "Se não definir senha, será criada com a senha padrão «1234» que deverá ser alterada no primeiro acesso."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="shrink-0 px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+          <button onClick={onClose} className="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+            Cancelar
+          </button>
+          <button onClick={save} disabled={saving || loading}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+            {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+            {saved ? "Guardado!" : "Guardar alterações"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── AlunosListAdminPanel: Lista de alunos com atribuição de pacote inline ─── */
 function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes: PacoteEmolumento[] }) {
   const token = localStorage.getItem(TOKEN_KEY);
@@ -2793,6 +3028,7 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fichaAlunoId, setFichaAlunoId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2851,6 +3087,18 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
           className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"/>
       </div>
 
+      {fichaAlunoId !== null && (
+        <AlunoFichaSlideOver
+          schoolId={schoolId}
+          alunoId={fichaAlunoId}
+          onClose={() => setFichaAlunoId(null)}
+          onSaved={(nome) => {
+            setAlunos(prev => prev.map(a => a.id === fichaAlunoId ? { ...a, nome } : a));
+            setFichaAlunoId(null);
+          }}
+        />
+      )}
+
       {filtered.length === 0 ? (
         <div className="text-center py-10 text-slate-400"><Users className="w-10 h-10 mx-auto mb-2 opacity-40"/><p>Sem alunos encontrados</p></div>
       ) : (
@@ -2862,6 +3110,7 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
                 <th className="px-4 py-3">Turma</th>
                 <th className="px-4 py-3">Propinas</th>
                 <th className="px-4 py-3 min-w-[200px]">Pacote de Propinas</th>
+                <th className="px-4 py-3 w-24">Acções</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -2905,6 +3154,13 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
                           {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary shrink-0"/>}
                         </div>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setFichaAlunoId(a.id)}
+                        className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 border border-primary/30 hover:border-primary/60 rounded-lg px-2.5 py-1.5 bg-primary/5 hover:bg-primary/10 transition-colors font-medium whitespace-nowrap">
+                        <Pencil className="w-3 h-3"/> Ver ficha
+                      </button>
                     </td>
                   </tr>
                 );

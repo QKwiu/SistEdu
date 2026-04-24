@@ -975,6 +975,163 @@ router.post("/admin/colegios/:id/alunos", adminAuth, (req, res, next) => {
   }
 });
 
+/* ─── GET /admin/colegios/:schoolId/alunos/:studentId — ficha completa ─── */
+router.get("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.schoolId);
+  const studentId = Number(req.params.studentId);
+
+  const sr = await pool.query(
+    `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.data_nascimento, s.sexo, s.estado,
+            s.nome_encarregado, s.telefone_encarregado,
+            s.is_transferencia, s.escola_anterior, s.ano_classe_anterior,
+            s.turma_id, COALESCE(t.nome,'Sem turma') AS turma_nome, t.turno,
+            m.pacote_id, m.ano_lectivo
+     FROM students s
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
+     WHERE s.id=$1 AND s.school_id=$2`,
+    [studentId, schoolId]
+  );
+  if (!sr.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+  const student = sr.rows[0];
+
+  // Linked guardian via encarregado_aluno
+  const er = await pool.query(
+    `SELECT e.id, e.nome, e.telefone, e.email, e.first_login, e.created_at
+     FROM encarregados e
+     JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+     WHERE ea.aluno_id = $1
+     LIMIT 1`,
+    [studentId]
+  );
+
+  // All turmas for this school (for dropdown)
+  const tr = await pool.query(
+    "SELECT id, nome, turno FROM turmas WHERE school_id=$1 ORDER BY nome",
+    [schoolId]
+  );
+
+  return res.json({
+    ...student,
+    encarregado: er.rows[0] ?? null,
+    turmas: tr.rows,
+  });
+});
+
+/* ─── PUT /admin/colegios/:schoolId/alunos/:studentId — actualizar ficha ─── */
+router.put("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req, res) => {
+  const schoolId = Number(req.params.schoolId);
+  const studentId = Number(req.params.studentId);
+  const b = req.body;
+
+  const check = await pool.query(
+    "SELECT id FROM students WHERE id=$1 AND school_id=$2", [studentId, schoolId]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+
+  // Resolve turma
+  let turmaId: number | null = b.turma_id ? Number(b.turma_id) : null;
+  if (!turmaId && b.turma_nome?.trim()) {
+    const existing = await pool.query(
+      "SELECT id FROM turmas WHERE school_id=$1 AND LOWER(nome)=LOWER($2)", [schoolId, b.turma_nome.trim()]
+    );
+    if (existing.rows[0]) {
+      turmaId = existing.rows[0].id;
+    } else {
+      const nt = await pool.query(
+        "INSERT INTO turmas (school_id, nome, ano, turno) VALUES ($1,$2,'2025/2026',$3) RETURNING id",
+        [schoolId, b.turma_nome.trim(), b.turno || "Manhã"]
+      );
+      turmaId = nt.rows[0].id;
+    }
+  }
+
+  // Update student
+  await pool.query(
+    `UPDATE students SET
+       nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
+       nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9
+     WHERE id=$10 AND school_id=$11`,
+    [
+      b.nome?.trim() || null,
+      b.bilhete?.trim() || null,
+      b.numero_processo?.trim() || null,
+      b.data_nascimento || null,
+      b.sexo || null,
+      b.nome_encarregado?.trim() || null,
+      b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
+      b.estado || "activo",
+      turmaId,
+      studentId,
+      schoolId,
+    ]
+  );
+
+  // Update matricula turma if changed
+  if (turmaId) {
+    await pool.query(
+      `UPDATE matriculas SET turma_id=$1 WHERE student_id=$2 AND estado='activa'`,
+      [turmaId, studentId]
+    );
+  }
+
+  // Guardian upsert
+  const telefoneEnc = b.telefone_encarregado?.toString().replace(/\D/g, "").trim();
+  if (telefoneEnc && b.nome_encarregado?.trim()) {
+    const existingEnc = await pool.query(
+      `SELECT e.id FROM encarregados e
+       JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+       WHERE ea.aluno_id = $1 LIMIT 1`,
+      [studentId]
+    );
+
+    if (existingEnc.rows[0]) {
+      // Update existing guardian
+      const encId = existingEnc.rows[0].id;
+      const updateFields: string[] = ["nome=$1", "telefone=$2"];
+      const updateVals: any[] = [b.nome_encarregado.trim(), telefoneEnc];
+      if (b.encarregado_email !== undefined) {
+        updateFields.push(`email=$${updateVals.length + 1}`);
+        updateVals.push(b.encarregado_email?.trim() || null);
+      }
+      if (b.nova_password?.trim()) {
+        const bcrypt = await import("bcryptjs");
+        const hash = await bcrypt.hash(b.nova_password.trim(), 10);
+        updateFields.push(`password=$${updateVals.length + 1}`, `first_login=FALSE`);
+        updateVals.push(hash);
+      }
+      updateVals.push(encId);
+      await pool.query(
+        `UPDATE encarregados SET ${updateFields.join(",")} WHERE id=$${updateVals.length}`,
+        updateVals
+      );
+    } else {
+      // Create new guardian and link
+      const bcrypt = await import("bcryptjs");
+      const hash = await bcrypt.hash("1234", 10);
+      const ne = await pool.query(
+        `INSERT INTO encarregados (nome, telefone, email, password, first_login) VALUES ($1,$2,$3,$4,TRUE) RETURNING id`,
+        [b.nome_encarregado.trim(), telefoneEnc, b.encarregado_email?.trim() || null, hash]
+      );
+      await pool.query(
+        `INSERT INTO encarregado_aluno (encarregado_id, aluno_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [ne.rows[0].id, studentId]
+      );
+    }
+  }
+
+  // Return updated student
+  const updated = await pool.query(
+    `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.data_nascimento, s.sexo, s.estado,
+            s.nome_encarregado, s.telefone_encarregado, s.turma_id,
+            COALESCE(t.nome,'Sem turma') AS turma_nome, t.turno
+     FROM students s LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.id=$1`,
+    [studentId]
+  );
+  return res.json(updated.rows[0]);
+});
+
 /* ─── DELETE /admin/colegios/:id ─── */
 router.delete("/admin/colegios/:id", adminAuth, async (req, res) => {
   await pool.query("DELETE FROM schools WHERE id=$1", [req.params.id]);
