@@ -3930,7 +3930,7 @@ function SettingsView({ schoolId }: { schoolId: number }) {
    ComunicarAdminPanel — Comunicação unificada (portal + SMS) — Admin
 ══════════════════════════════════════════════════════════════════ */
 function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: { id: number; nome: string; turno: string }[] }) {
-  type AdminComunicarTab = "compor" | "publicados";
+  type AdminComunicarTab = "compor" | "publicados" | "sms_config" | "historico";
   const [tab, setTab] = useState<AdminComunicarTab>("compor");
 
   // ── Compor ──
@@ -3938,6 +3938,7 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
   const [conteudo, setConteudo] = useState("");
   const [prioridade, setPrioridade] = useState<"normal" | "alta" | "urgente">("normal");
   const [canal, setCanal] = useState<"portal" | "sms" | "ambos">("portal");
+  const [pickedTemplate, setPickedTemplate] = useState("");
   const [audienciaModo, setAudienciaModo] = useState<"todos" | "turma" | "devedores">("todos");
   const [audienciaTurmaId, setAudienciaTurmaId] = useState<number | null>(null);
   const [audiencia, setAudiencia] = useState<{ registados: any[]; nao_registados: any[] }>({ registados: [], nao_registados: [] });
@@ -3953,12 +3954,37 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
   const [loadingComuns, setLoadingComuns] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  // ── Config. SMS ──
+  const [schoolSettings, setSchoolSettings] = useState<any>(null);
+  const [smsActivo, setSmsActivo] = useState(false);
+  const [smsFallback, setSmsFallback] = useState(false);
+  const [smsProvider, setSmsProvider] = useState("mock");
+  const [smsApiUrl, setSmsApiUrl] = useState("");
+  const [smsApiKey, setSmsApiKey] = useState("");
+  const [smsSenderName, setSmsSenderName] = useState("KiwaraEsc");
+  const [eventos, setEventos] = useState<Record<string, boolean>>({ nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
+  const [templates, setTemplates] = useState<Record<string, string>>({ ...ADMIN_DEFAULT_TEMPLATES });
+  const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [savedConfig, setSavedConfig] = useState(false);
+
+  // ── Histórico ──
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterEvento, setFilterEvento] = useState("");
+  const [logsStats, setLogsStats] = useState<{ sent: number; failed: number; total: number } | null>(null);
+
   useEffect(() => {
     loadComunicados();
     loadAudiencia();
+    loadSchoolSettings();
   }, [schoolId]);
 
   useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
+  useEffect(() => { if (tab === "historico") fetchLogs(1); }, [tab, filterStatus, filterEvento]);
 
   const loadAudiencia = () => {
     setLoadingAudiencia(true);
@@ -3972,6 +3998,50 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
     setLoadingComuns(true);
     api(`/admin/colegios/${schoolId}/comunicados`)
       .then(r => r.ok ? r.json() : []).then(d => setComunicados(d)).finally(() => setLoadingComuns(false));
+  };
+
+  const loadSchoolSettings = () => {
+    api(`/admin/colegios/${schoolId}/settings`).then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
+      setSchoolSettings(d.settings);
+      const c = d.settings?.comunicacao ?? {};
+      setSmsActivo(c.sms_activo ?? false);
+      setSmsFallback(c.sms_fallback ?? false);
+      setSmsProvider(c.sms_provider ?? "mock");
+      setSmsApiUrl(c.sms_api_url ?? "");
+      setSmsApiKey(c.sms_api_key ?? "");
+      setSmsSenderName(c.sms_sender_name ?? "KiwaraEsc");
+      setEventos(c.eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
+      setTemplates({ ...ADMIN_DEFAULT_TEMPLATES, ...(c.sms_templates ?? {}) });
+    });
+  };
+
+  const saveSchoolSettings = async () => {
+    if (!schoolSettings) return;
+    setSavingConfig(true);
+    const comunicacao = {
+      ...(schoolSettings.comunicacao ?? {}),
+      sms_activo: smsActivo, sms_fallback: smsFallback,
+      sms_provider: smsProvider, sms_api_url: smsApiUrl, sms_api_key: smsApiKey,
+      sms_sender_name: smsSenderName, eventos, sms_templates: templates,
+    };
+    await api(`/admin/colegios/${schoolId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ settings: { comunicacao } }),
+    });
+    setSavingConfig(false); setSavedConfig(true);
+    setTimeout(() => setSavedConfig(false), 2500);
+  };
+
+  const fetchLogs = (page: number) => {
+    setLogsLoading(true); setLogsPage(page);
+    const qs = new URLSearchParams({ school_id: String(schoolId), page: String(page), limit: "20", ...(filterStatus ? { status: filterStatus } : {}), ...(filterEvento ? { evento: filterEvento } : {}) });
+    api(`/admin/sms/logs?${qs}`).then(r => r.json()).then(d => {
+      setLogs(d.logs ?? []); setLogsTotal(d.total ?? 0);
+      const sentR = (d.logs ?? []).filter((l: any) => l.status === "sent").length;
+      const failR = (d.logs ?? []).filter((l: any) => l.status !== "sent").length;
+      setLogsStats(prev => prev ?? { sent: sentR, failed: failR, total: d.total ?? 0 });
+    }).finally(() => setLogsLoading(false));
   };
 
   const allEncs = [
@@ -4009,7 +4079,7 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setPublishResult(d); setTitulo(""); setConteudo(""); setPrioridade("normal");
-      setCanal("portal"); setSelectedPhones([]); setSelectAll(false);
+      setCanal("portal"); setSelectedPhones([]); setSelectAll(false); setPickedTemplate("");
       if (d.comunicado_id) loadComunicados();
     } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setPublishing(false); }
   };
@@ -4028,6 +4098,13 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
     return <span className={`px-2 py-0.5 rounded text-xs font-medium border ${cls[p] ?? cls.normal}`}>{lbl[p] ?? p}</span>;
   };
 
+  const statusBadge = (s: string) => s === "sent"
+    ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Enviado</span>
+    : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Falhou</span>;
+
+  const eventLabel = (key: string) => ADMIN_SMS_EVENTS.find(e => e.key === key)?.label ?? key;
+  const totalLogPages = Math.ceil(logsTotal / 20);
+
   const CANAL_OPTIONS = [
     { key: "portal" as const, icon: <Megaphone className="w-4 h-4"/>, label: "Portal", desc: "Visível no portal do encarregado" },
     { key: "sms" as const, icon: <Smartphone className="w-4 h-4"/>, label: "SMS", desc: "Enviado por mensagem SMS" },
@@ -4037,10 +4114,12 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
   return (
     <div className="space-y-5">
       {/* Tab bar */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
         {([
           { k: "compor" as AdminComunicarTab, label: "Compor" },
           { k: "publicados" as AdminComunicarTab, label: `Publicados${comunicados.length ? ` (${comunicados.length})` : ""}` },
+          { k: "sms_config" as AdminComunicarTab, label: "Config. SMS" },
+          { k: "historico" as AdminComunicarTab, label: "Histórico" },
         ]).map(({ k, label }) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
@@ -4068,7 +4147,26 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
           </div>
 
           {/* Message */}
-          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Mensagem</h3>
+            {(canal === "sms" || canal === "ambos") && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar template SMS</p>
+                <div className="flex flex-wrap gap-2">
+                  {ADMIN_SMS_EVENTS.map(ev => (
+                    <button key={ev.key}
+                      onClick={() => { setConteudo(templates[ev.key] ?? ADMIN_DEFAULT_TEMPLATES[ev.key] ?? ""); setPickedTemplate(ev.key); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${pickedTemplate === ev.key ? "bg-primary text-white border-primary" : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40"}`}>
+                      {ev.label}
+                    </button>
+                  ))}
+                  {pickedTemplate && (
+                    <button onClick={() => { setConteudo(""); setPickedTemplate(""); }}
+                      className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-400 hover:text-red-500">Limpar</button>
+                  )}
+                </div>
+              </div>
+            )}
             {(canal === "portal" || canal === "ambos") && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
@@ -4079,9 +4177,9 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
             )}
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">
-                {canal === "sms" ? "Mensagem SMS *" : canal === "portal" ? "Conteúdo *" : "Conteúdo / Mensagem *"}
+                {canal === "sms" ? "Mensagem SMS *" : canal === "portal" ? "Conteúdo *" : "Conteúdo / Mensagem SMS *"}
               </label>
-              <textarea value={conteudo} onChange={e => setConteudo(e.target.value)} rows={4}
+              <textarea value={conteudo} onChange={e => { setConteudo(e.target.value); setPickedTemplate(""); }} rows={4}
                 placeholder={canal === "sms" ? "Texto da mensagem SMS…" : "Escreva o comunicado para os encarregados…"}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
               {(canal === "sms" || canal === "ambos") && (
@@ -4089,18 +4187,20 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
               )}
             </div>
             {(canal === "portal" || canal === "ambos") && (
-              <div className="flex gap-2 items-center">
-                <span className="text-xs font-medium text-slate-600">Prioridade:</span>
-                {(["normal", "alta", "urgente"] as const).map(p => (
-                  <button key={p} onClick={() => setPrioridade(p)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all capitalize ${
-                      prioridade === p
-                        ? p === "urgente" ? "bg-red-600 border-red-600 text-white" : p === "alta" ? "bg-amber-500 border-amber-500 text-white" : "bg-primary border-primary text-white"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                    }`}>
-                    {p === "normal" ? "Normal" : p === "alta" ? "Alta" : "Urgente"}
-                  </button>
-                ))}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Prioridade</label>
+                <div className="flex gap-2">
+                  {(["normal", "alta", "urgente"] as const).map(p => (
+                    <button key={p} onClick={() => setPrioridade(p)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border capitalize transition-all ${
+                        prioridade === p
+                          ? p === "urgente" ? "bg-red-600 border-red-600 text-white" : p === "alta" ? "bg-amber-500 border-amber-500 text-white" : "bg-primary border-primary text-white"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`}>
+                      {p === "normal" ? "Normal" : p === "alta" ? "Alta" : "Urgente"}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -4240,6 +4340,200 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── CONFIG SMS ── */}
+      {tab === "sms_config" && (
+        <div className="space-y-5">
+          {/* Toggles */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900">Notificações SMS automáticas</p>
+                <p className="text-sm text-slate-500">SMS enviados nos eventos de propinas desta escola</p>
+              </div>
+              <button onClick={() => setSmsActivo(v => !v)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${smsActivo ? "bg-primary text-white" : "bg-slate-100 text-slate-600"}`}>
+                {smsActivo ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {smsActivo ? "Activado" : "Desactivado"}
+              </button>
+            </div>
+            <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900">SMS Fallback</p>
+                <p className="text-sm text-slate-500">Ao publicar no portal, envia SMS a encarregados sem conta</p>
+              </div>
+              <button onClick={() => setSmsFallback(v => !v)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${smsFallback ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-600"}`}>
+                {smsFallback ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {smsFallback ? "Activo" : "Inactivo"}
+              </button>
+            </div>
+          </div>
+
+          {/* Provider */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Provedor SMS</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Provedor</label>
+                <select value={smsProvider} onChange={e => setSmsProvider(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <option value="mock">Simulação (Mock)</option>
+                  <option value="africastalking">Africa's Talking</option>
+                  <option value="twilio">Twilio</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nome Remetente</label>
+                <input value={smsSenderName} onChange={e => setSmsSenderName(e.target.value)} maxLength={11}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="KiwaraEsc"/>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint</label>
+                <input value={smsApiUrl} onChange={e => setSmsApiUrl(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="https://api.provedor.com/sms/send"/>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">API Key</label>
+                <input value={smsApiKey} onChange={e => setSmsApiKey(e.target.value)} type="password"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="••••••••••••••••"/>
+              </div>
+            </div>
+          </div>
+
+          {/* Events + Templates */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Eventos automáticos</h3>
+            <div className="space-y-3">
+              {ADMIN_SMS_EVENTS.map(ev => (
+                <div key={ev.key} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{ev.label}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setEditingTemplate(editingTemplate === ev.key ? null : ev.key)}
+                      className="text-xs text-primary hover:underline">
+                      {editingTemplate === ev.key ? "Fechar" : "Template"}
+                    </button>
+                    <button onClick={() => setEventos(prev => ({ ...prev, [ev.key]: !prev[ev.key] }))}
+                      className={`w-10 h-5 rounded-full transition-colors relative ${eventos[ev.key] ? "bg-primary" : "bg-slate-300"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${eventos[ev.key] ? "translate-x-5" : ""}`}/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {editingTemplate && (() => {
+            const evVars = ADMIN_TEMPLATE_VARS.filter(v => v.events.includes(editingTemplate));
+            const preview = adminPreviewTemplate(templates[editingTemplate] ?? "");
+            return (
+              <div className="bg-blue-50 rounded-2xl border border-blue-200 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-blue-900 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4"/> Template: {ADMIN_SMS_EVENTS.find(e => e.key === editingTemplate)?.label}
+                  </h3>
+                  <button onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate]: ADMIN_DEFAULT_TEMPLATES[editingTemplate] }))}
+                    className="text-xs text-blue-600 hover:underline font-medium">↩ Repor padrão</button>
+                </div>
+                <textarea value={templates[editingTemplate] ?? ""}
+                  onChange={e => setTemplates(prev => ({ ...prev, [editingTemplate!]: e.target.value }))} rows={3}
+                  className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none font-mono"/>
+                <div className="flex flex-wrap gap-1.5">
+                  {evVars.map(v => (
+                    <button key={v.key}
+                      onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate!]: (prev[editingTemplate!] ?? "") + v.key }))}
+                      className="text-xs bg-white border border-blue-300 text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-100 font-mono">{v.key}</button>
+                  ))}
+                </div>
+                <div className="bg-white rounded-xl border border-blue-200 p-3">
+                  <p className="text-xs font-semibold text-slate-500 mb-1">Pré-visualização:</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{preview}</p>
+                  <p className="text-xs text-slate-400 mt-1">{preview.length} car. · {Math.ceil(preview.length / 160)} SMS</p>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="flex justify-end">
+            <button onClick={saveSchoolSettings} disabled={savingConfig}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+              {savingConfig ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedConfig ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+              {savedConfig ? "Guardado!" : "Guardar Configurações"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── HISTÓRICO ── */}
+      {tab === "historico" && (
+        <div className="space-y-4">
+          <div className="flex gap-3 flex-wrap items-center">
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none">
+              <option value="">Todos os estados</option>
+              <option value="sent">Enviado</option>
+              <option value="failed">Falhou</option>
+            </select>
+            <select value={filterEvento} onChange={e => setFilterEvento(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none">
+              <option value="">Todos os eventos</option>
+              {ADMIN_SMS_EVENTS.map(e => <option key={e.key} value={e.key}>{e.label}</option>)}
+            </select>
+            <button onClick={() => fetchLogs(1)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
+              <RefreshCw className="w-3.5 h-3.5"/> Actualizar
+            </button>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900">Histórico de SMS ({logsTotal})</h3>
+            </div>
+            {logsLoading ? (
+              <div className="flex justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+                <p className="text-sm">Nenhum SMS enviado ainda.</p>
+              </div>
+            ) : (
+              <>
+                <div className="divide-y divide-slate-100">
+                  {logs.map((log: any) => (
+                    <div key={log.id} className="px-5 py-3 flex items-start gap-4">
+                      <div className="mt-0.5">{statusBadge(log.status)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-xs font-medium text-slate-700">{log.telefone}</span>
+                          {log.evento && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{eventLabel(log.evento)}</span>}
+                        </div>
+                        <p className="text-sm text-slate-600 line-clamp-2">{log.mensagem}</p>
+                      </div>
+                      <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+                        {new Date(log.data_envio).toLocaleString("pt-AO", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {totalLogPages > 1 && (
+                  <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
+                    <button onClick={() => fetchLogs(logsPage - 1)} disabled={logsPage <= 1}
+                      className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                      <ChevronLeft className="w-4 h-4"/> Anterior
+                    </button>
+                    <span className="text-xs text-slate-500">{logsPage} / {totalLogPages}</span>
+                    <button onClick={() => fetchLogs(logsPage + 1)} disabled={logsPage >= totalLogPages}
+                      className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                      Próximo <ChevronRight className="w-4 h-4"/>
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
