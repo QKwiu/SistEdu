@@ -178,7 +178,7 @@ const INIT_SETTINGS = {
     propinas: { frequencia: "mensal", vencimento_dia: 15, permite_pagamento_parcial: false, valor_padrao: 0 },
     multas: { tipo: "percentagem", valor: 5, tolerancia_dias: 5, progressiva: false, limite_percentagem: 20, aplica_automatico: true },
     emolumentos: { obrigatorios: false, tipos: ["Seguro Escolar", "Exame", "Material Didático"] },
-    split_payment: { activo: false, comissao_percentagem: 0, conta_destino_escola: "", conta_destino_plataforma: "" },
+    split_payment: { activo: false, tipo_comissao: "percentagem", comissao_percentagem: 0, comissao_valor_fixo: 0, conta_destino_escola: "", conta_destino_plataforma: "" },
   },
   pagamento: {
     middleware_url: "", middleware_api_key: "", referencia_prefixo: "",
@@ -222,7 +222,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
   ];
 
   const [activeTab, setActiveTab] = useState<CTab>("basico");
-  const [form, setForm] = useState({ name: "", nif: "", phone: "", email: "", password: "", iban: "", commission_rate: "0" });
+  const [form, setForm] = useState({ name: "", nif: "", phone: "", email: "", password: "", iban: "" });
   const [institutionType, setInstitutionType] = useState("colegio_geral");
   const [portalNomenclatura, setPortalNomenclatura] = useState<"encarregado"|"aluno">("encarregado");
   const [usaPacotes, setUsaPacotes] = useState(false);
@@ -248,7 +248,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
     try {
       const res = await api("/admin/colegios", {
         method: "POST",
-        body: JSON.stringify({ ...form, commission_rate: Number(form.commission_rate || 0), usa_pacotes: usaPacotes, settings, institution_type: institutionType, portal_nomenclatura: portalNomenclatura }),
+        body: JSON.stringify({ ...form, usa_pacotes: usaPacotes, settings, institution_type: institutionType, portal_nomenclatura: portalNomenclatura }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao criar colégio.");
@@ -328,21 +328,16 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
               <Field label="Email" required>
                 <input type="email" className={inp} placeholder="secretaria@colegio.ao" value={form.email} onChange={f("email")} required />
               </Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Palavra-passe inicial">
-                  <div className="relative">
-                    <input type={showPass ? "text" : "password"} className={`${inp} pr-10`}
-                      placeholder="Kiwara@2025 (padrão)" value={form.password} onChange={f("password")} />
-                    <button type="button" onClick={() => setShowPass(s => !s)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </Field>
-                <Field label="Comissão da plataforma (%)">
-                  <input type="number" min={0} max={100} step={0.1} className={inp} value={form.commission_rate} onChange={f("commission_rate")} />
-                </Field>
-              </div>
+              <Field label="Palavra-passe inicial">
+                <div className="relative">
+                  <input type={showPass ? "text" : "password"} className={`${inp} pr-10`}
+                    placeholder="Kiwara@2025 (padrão)" value={form.password} onChange={f("password")} />
+                  <button type="button" onClick={() => setShowPass(s => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </Field>
               <Field label="Tipo de Instituição *" desc="Determina o foco operacional e a nomenclatura padrão do portal.">
                 <select className={inp} value={institutionType} onChange={e => {
                   const t = e.target.value;
@@ -2365,8 +2360,6 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
   const [recResult, setRecResult] = useState<any>(null);
   const [recError, setRecError] = useState("");
   const [commRate, setCommRate] = useState(initialRate ?? 0);
-  const [savingComm, setSavingComm] = useState(false);
-  const [commInput, setCommInput] = useState(String(initialRate ?? 0));
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas">("faturas");
 
   const load = useCallback(async () => {
@@ -2379,17 +2372,6 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
   }, [schoolId, filterStatus]);
 
   useEffect(() => { load(); }, [load]);
-
-  const saveComm = async () => {
-    setSavingComm(true);
-    try {
-      const r = await api(`/admin/colegios/${schoolId}/comissao`, {
-        method: "PUT",
-        body: JSON.stringify({ commission_rate: Number(commInput) }),
-      });
-      if (r.ok) { const d = await r.json(); setCommRate(d.commission_rate); }
-    } finally { setSavingComm(false); }
-  };
 
   const handleReconciliar = async () => {
     if (!recModal || !recValor) return;
@@ -2495,27 +2477,6 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
         </div>
       )}
 
-      {/* Commission config */}
-      {recSubTab === "faturas" && <div className="bg-white border border-slate-100 rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <ArrowLeftRight className="w-4 h-4 text-primary"/>
-          <h3 className="font-semibold text-slate-900">Configuração de Comissão (Split Payment)</h3>
-        </div>
-        <div className="flex items-end gap-3 flex-wrap">
-          <div className="flex-1 min-w-40">
-            <label className="text-xs font-semibold text-slate-500 mb-1 block">Taxa de comissão da plataforma (%)</label>
-            <input type="number" min={0} max={100} step={0.5} value={commInput}
-              onChange={e => setCommInput(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
-          </div>
-          <button onClick={saveComm} disabled={savingComm}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap">
-            {savingComm ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4"/>}
-            Guardar
-          </button>
-        </div>
-        <p className="text-xs text-slate-400 mt-2">Taxa actual: <strong className="text-primary">{commRate}%</strong> — aplicada automaticamente em todos os pagamentos reconciliados.</p>
-      </div>}
 
       {/* Stats */}
       {recSubTab === "faturas" && stats && (
@@ -2976,7 +2937,6 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
     nif: school.nif || "",
     phone: school.phone || "",
     email: school.email,
-    commission_rate: String(school.commission_rate ?? 0),
     institution_type: school.institution_type || "colegio_geral",
     portal_nomenclatura: (school.portal_nomenclatura || "encarregado") as "encarregado" | "aluno",
   });
@@ -2989,11 +2949,11 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
     try {
       const r = await api(`/admin/colegios/${school.id}`, {
         method: "PUT",
-        body: JSON.stringify({ ...basic, commission_rate: Number(basic.commission_rate) }),
+        body: JSON.stringify({ ...basic }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
-      onUpdated({ name: d.school.name, nif: d.school.nif, phone: d.school.phone, email: d.school.email, commission_rate: Number(d.school.commission_rate), institution_type: d.school.institution_type, portal_nomenclatura: d.school.portal_nomenclatura });
+      onUpdated({ name: d.school.name, nif: d.school.nif, phone: d.school.phone, email: d.school.email, institution_type: d.school.institution_type, portal_nomenclatura: d.school.portal_nomenclatura });
       setSavedBasic(true); setTimeout(() => setSavedBasic(false), 2500);
     } catch (e: any) { setErrBasic(e.message); }
     finally { setSavingBasic(false); }
@@ -3100,10 +3060,6 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Email</label>
               <input type="email" className={inp} value={basic.email} onChange={e => setBasic(p => ({ ...p, email: e.target.value }))} placeholder="secretaria@colegio.ao"/>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Comissão da plataforma (%)</label>
-              <input type="number" min={0} max={100} step={0.1} className={num} value={basic.commission_rate} onChange={e => setBasic(p => ({ ...p, commission_rate: e.target.value }))}/>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">ID da escola</label>
@@ -3434,13 +3390,43 @@ function SettingsView({ schoolId }: { schoolId: number }) {
             </SettingRow>
           </SectionCard>
 
-          <SectionCard title="Split Payment" icon={<ArrowLeftRight className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
+          <SectionCard title="Comissão da Plataforma (Split Payment)" icon={<ArrowLeftRight className="w-4 h-4"/>} onSave={() => saveSection("financeiro")} saving={isSaving("financeiro")} saved={isSaved("financeiro")}>
             <SettingRow label="Split activo" desc="Dividir automaticamente o pagamento entre escola e plataforma.">
               <Toggle value={!!F.split_payment?.activo} onChange={v => set(["financeiro","split_payment","activo"], v)}/>
             </SettingRow>
-            <SettingRow label="Comissão da plataforma (%)" desc="Percentagem retida pela plataforma em cada pagamento.">
-              <input type="number" min={0} max={100} step={0.5} className={num} value={F.split_payment?.comissao_percentagem ?? 0} onChange={e => set(["financeiro","split_payment","comissao_percentagem"], Number(e.target.value))} disabled={!F.split_payment?.activo}/>
+            <SettingRow label="Tipo de cobrança da comissão" desc="Define como a comissão da plataforma é calculada em cada pagamento.">
+              <div className="flex gap-4">
+                <label className={`flex items-center gap-2 cursor-pointer ${!F.split_payment?.activo ? "opacity-40 pointer-events-none" : ""}`}>
+                  <input type="radio" name={`tipo_comm_${schoolId}`} value="percentagem"
+                    checked={(F.split_payment?.tipo_comissao ?? "percentagem") === "percentagem"}
+                    onChange={() => set(["financeiro","split_payment","tipo_comissao"], "percentagem")}
+                    className="accent-primary"/>
+                  <span className="text-sm text-slate-700">Percentagem (%)</span>
+                </label>
+                <label className={`flex items-center gap-2 cursor-pointer ${!F.split_payment?.activo ? "opacity-40 pointer-events-none" : ""}`}>
+                  <input type="radio" name={`tipo_comm_${schoolId}`} value="fixa"
+                    checked={F.split_payment?.tipo_comissao === "fixa"}
+                    onChange={() => set(["financeiro","split_payment","tipo_comissao"], "fixa")}
+                    className="accent-primary"/>
+                  <span className="text-sm text-slate-700">Valor Fixo (AOA)</span>
+                </label>
+              </div>
             </SettingRow>
+            {(F.split_payment?.tipo_comissao ?? "percentagem") === "percentagem" ? (
+              <SettingRow label="Taxa de comissão (%)" desc="Percentagem do valor de cada pagamento retida pela plataforma.">
+                <input type="number" min={0} max={100} step={0.5} className={num}
+                  value={F.split_payment?.comissao_percentagem ?? 0}
+                  onChange={e => set(["financeiro","split_payment","comissao_percentagem"], Number(e.target.value))}
+                  disabled={!F.split_payment?.activo}/>
+              </SettingRow>
+            ) : (
+              <SettingRow label="Valor fixo por transacção (AOA)" desc="Montante fixo em kwanzas retido pela plataforma em cada pagamento.">
+                <input type="number" min={0} step={1} className={num}
+                  value={F.split_payment?.comissao_valor_fixo ?? 0}
+                  onChange={e => set(["financeiro","split_payment","comissao_valor_fixo"], Number(e.target.value))}
+                  disabled={!F.split_payment?.activo}/>
+              </SettingRow>
+            )}
             <SettingRow label="IBAN da escola" desc="Conta de destino para a parte da escola.">
               <input className={inp} style={{width:260}} value={F.split_payment?.conta_destino_escola ?? ""} placeholder="AO06.0044.0000.0000.0000.0000.0" onChange={e => set(["financeiro","split_payment","conta_destino_escola"], e.target.value)} disabled={!F.split_payment?.activo}/>
             </SettingRow>
