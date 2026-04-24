@@ -1374,15 +1374,13 @@ function AlunoFichaSlideOver({
   const [novaPassword, setNovaPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
 
-  const BASE = import.meta.env.BASE_URL ?? "/";
-  const API_BASE = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
 
   useEffect(() => {
     setLoading(true);
-    fetch(`${API_BASE}/api/school/alunos/${alunoId}`, { headers })
+    fetch(`${API}/school/alunos/${alunoId}`, { headers })
       .then(r => r.json())
       .then((d: AlunoFichaData) => {
         setFicha(d);
@@ -1404,7 +1402,7 @@ function AlunoFichaSlideOver({
     if (!nome.trim()) { setErr("Nome do aluno é obrigatório."); return; }
     setSaving(true); setErr(""); setSaved(false);
     try {
-      const r = await fetch(`${API_BASE}/api/school/alunos/${alunoId}`, {
+      const r = await fetch(`${API}/school/alunos/${alunoId}`, {
         method: "PUT", headers,
         body: JSON.stringify({
           nome: nome.trim(), bilhete: bilhete.trim(), numero_processo: numProcesso.trim(),

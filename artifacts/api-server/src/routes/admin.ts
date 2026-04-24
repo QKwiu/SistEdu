@@ -1067,11 +1067,14 @@ router.put("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req,
     ]
   );
 
-  // Update matricula turma if changed
+  // Upsert matricula with new turma
   if (turmaId) {
     await pool.query(
-      `UPDATE matriculas SET turma_id=$1 WHERE student_id=$2 AND estado='activa'`,
-      [turmaId, studentId]
+      `INSERT INTO matriculas (student_id, turma_id, ano_lectivo, estado)
+       VALUES ($1, $2, '2025/2026', 'activa')
+       ON CONFLICT (student_id, turma_id, ano_lectivo)
+       DO UPDATE SET turma_id = EXCLUDED.turma_id`,
+      [studentId, turmaId]
     );
   }
 
