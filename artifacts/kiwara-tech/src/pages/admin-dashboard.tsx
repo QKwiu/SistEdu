@@ -10,6 +10,7 @@ import {
   ArrowLeftRight, ShieldCheck, Filter, ChevronDown,
   SlidersHorizontal, Save, MessageSquare, Mail, Smartphone, Globe, Lock,
   Zap, BarChart3, CheckSquare, ToggleLeft, Send, ChevronLeft, ToggleRight, ListFilter,
+  Megaphone, CheckCheck,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -3926,6 +3927,326 @@ function SettingsView({ schoolId }: { schoolId: number }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   ComunicarAdminPanel — Comunicação unificada (portal + SMS) — Admin
+══════════════════════════════════════════════════════════════════ */
+function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: { id: number; nome: string; turno: string }[] }) {
+  type AdminComunicarTab = "compor" | "publicados";
+  const [tab, setTab] = useState<AdminComunicarTab>("compor");
+
+  // ── Compor ──
+  const [titulo, setTitulo] = useState("");
+  const [conteudo, setConteudo] = useState("");
+  const [prioridade, setPrioridade] = useState<"normal" | "alta" | "urgente">("normal");
+  const [canal, setCanal] = useState<"portal" | "sms" | "ambos">("portal");
+  const [audienciaModo, setAudienciaModo] = useState<"todos" | "turma" | "devedores">("todos");
+  const [audienciaTurmaId, setAudienciaTurmaId] = useState<number | null>(null);
+  const [audiencia, setAudiencia] = useState<{ registados: any[]; nao_registados: any[] }>({ registados: [], nao_registados: [] });
+  const [loadingAudiencia, setLoadingAudiencia] = useState(false);
+  const [encSearch, setEncSearch] = useState("");
+  const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<{ comunicado_id?: number; sms_sent?: number; sms_failed?: number } | null>(null);
+
+  // ── Publicados ──
+  const [comunicados, setComunicados] = useState<any[]>([]);
+  const [loadingComuns, setLoadingComuns] = useState(false);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  useEffect(() => {
+    loadComunicados();
+    loadAudiencia();
+  }, [schoolId]);
+
+  useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
+
+  const loadAudiencia = () => {
+    setLoadingAudiencia(true);
+    let url = `/admin/colegios/${schoolId}/comunicar/audiencia?modo=${audienciaModo}`;
+    if (audienciaModo === "turma" && audienciaTurmaId) url += `&turma_id=${audienciaTurmaId}`;
+    api(url).then(r => r.ok ? r.json() : { registados: [], nao_registados: [] })
+      .then(d => setAudiencia(d)).finally(() => setLoadingAudiencia(false));
+  };
+
+  const loadComunicados = () => {
+    setLoadingComuns(true);
+    api(`/admin/colegios/${schoolId}/comunicados`)
+      .then(r => r.ok ? r.json() : []).then(d => setComunicados(d)).finally(() => setLoadingComuns(false));
+  };
+
+  const allEncs = [
+    ...audiencia.registados.map(e => ({ ...e, tem_portal: true })),
+    ...audiencia.nao_registados.map(e => ({ ...e, tem_portal: false })),
+  ].filter(e => e.telefone);
+
+  const filteredEncs = encSearch.trim()
+    ? allEncs.filter(e =>
+        e.nome?.toLowerCase().includes(encSearch.toLowerCase()) ||
+        e.telefone?.includes(encSearch) ||
+        e.alunos?.some((a: string) => a?.toLowerCase().includes(encSearch.toLowerCase())))
+    : allEncs;
+
+  const handleSelectAll = (checked: boolean) => {
+    setSelectAll(checked);
+    if (checked) setSelectedPhones(filteredEncs.map(e => e.telefone)); else setSelectedPhones([]);
+  };
+
+  const togglePhone = (phone: string) => {
+    setSelectedPhones(prev => prev.includes(phone) ? prev.filter(p => p !== phone) : [...prev, phone]);
+    setSelectAll(false);
+  };
+
+  const handlePublish = async () => {
+    if (!conteudo.trim()) return;
+    if ((canal === "portal" || canal === "ambos") && !titulo.trim()) { alert("Preencha o título para publicar no portal."); return; }
+    if ((canal === "sms" || canal === "ambos") && selectedPhones.length === 0) { alert("Selecione pelo menos um destinatário para enviar SMS."); return; }
+    setPublishing(true); setPublishResult(null);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/comunicar/publicar`, {
+        method: "POST",
+        body: JSON.stringify({ titulo: titulo.trim() || undefined, conteudo: conteudo.trim(), prioridade, canal, phones: canal !== "portal" ? selectedPhones : undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setPublishResult(d); setTitulo(""); setConteudo(""); setPrioridade("normal");
+      setCanal("portal"); setSelectedPhones([]); setSelectAll(false);
+      if (d.comunicado_id) loadComunicados();
+    } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setPublishing(false); }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeleteId(id);
+    try {
+      await api(`/admin/comunicados/${id}`, { method: "DELETE" });
+      setComunicados(prev => prev.filter(c => c.id !== id));
+    } catch { alert("Erro ao eliminar."); } finally { setDeleteId(null); }
+  };
+
+  const prioridadeBadge = (p: string) => {
+    const cls: Record<string, string> = { urgente: "bg-red-100 text-red-700 border-red-200", alta: "bg-amber-100 text-amber-700 border-amber-200", normal: "bg-slate-100 text-slate-600 border-slate-200" };
+    const lbl: Record<string, string> = { urgente: "Urgente", alta: "Alta", normal: "Normal" };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium border ${cls[p] ?? cls.normal}`}>{lbl[p] ?? p}</span>;
+  };
+
+  const CANAL_OPTIONS = [
+    { key: "portal" as const, icon: <Megaphone className="w-4 h-4"/>, label: "Portal", desc: "Visível no portal do encarregado" },
+    { key: "sms" as const, icon: <Smartphone className="w-4 h-4"/>, label: "SMS", desc: "Enviado por mensagem SMS" },
+    { key: "ambos" as const, icon: <Send className="w-4 h-4"/>, label: "Portal + SMS", desc: "Portal e SMS simultâneo" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        {([
+          { k: "compor" as AdminComunicarTab, label: "Compor" },
+          { k: "publicados" as AdminComunicarTab, label: `Publicados${comunicados.length ? ` (${comunicados.length})` : ""}` },
+        ]).map(({ k, label }) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── COMPOR ── */}
+      {tab === "compor" && (
+        <div className="space-y-4">
+          {/* Canal */}
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Canal de envio</p>
+            <div className="grid grid-cols-3 gap-2">
+              {CANAL_OPTIONS.map(({ key, icon, label, desc }) => (
+                <button key={key} onClick={() => setCanal(key)}
+                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${canal === key ? "bg-primary/10 border-primary text-primary" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}>
+                  {icon}
+                  <span className="text-xs font-semibold">{label}</span>
+                  <span className="text-[10px] text-slate-400 leading-tight">{desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Message */}
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-3">
+            {(canal === "portal" || canal === "ambos") && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+                <input value={titulo} onChange={e => setTitulo(e.target.value)}
+                  placeholder="Ex: Reunião de encarregados — 30 de Abril"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                {canal === "sms" ? "Mensagem SMS *" : canal === "portal" ? "Conteúdo *" : "Conteúdo / Mensagem *"}
+              </label>
+              <textarea value={conteudo} onChange={e => setConteudo(e.target.value)} rows={4}
+                placeholder={canal === "sms" ? "Texto da mensagem SMS…" : "Escreva o comunicado para os encarregados…"}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+              {(canal === "sms" || canal === "ambos") && (
+                <p className="text-xs text-slate-400 mt-1">{conteudo.length} car. · {Math.ceil(Math.max(1, conteudo.length) / 160)} SMS</p>
+              )}
+            </div>
+            {(canal === "portal" || canal === "ambos") && (
+              <div className="flex gap-2 items-center">
+                <span className="text-xs font-medium text-slate-600">Prioridade:</span>
+                {(["normal", "alta", "urgente"] as const).map(p => (
+                  <button key={p} onClick={() => setPrioridade(p)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all capitalize ${
+                      prioridade === p
+                        ? p === "urgente" ? "bg-red-600 border-red-600 text-white" : p === "alta" ? "bg-amber-500 border-amber-500 text-white" : "bg-primary border-primary text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}>
+                    {p === "normal" ? "Normal" : p === "alta" ? "Alta" : "Urgente"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Audiência — SMS only */}
+          {(canal === "sms" || canal === "ambos") && (
+            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-3">
+              <h4 className="text-sm font-semibold text-slate-800">Audiência</h4>
+              <div className="flex flex-wrap gap-2 items-center">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-full">Filtro rápido</p>
+                {([{ k: "todos" as const, label: "Todos" }, { k: "devedores" as const, label: "Devedores" }]).map(({ k, label }) => (
+                  <button key={k} onClick={() => { setAudienciaModo(k); setAudienciaTurmaId(null); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === k ? "bg-primary text-white border-primary" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}>
+                    {label}
+                  </button>
+                ))}
+                {turmas.length > 0 && (
+                  <select
+                    value={audienciaModo === "turma" ? (audienciaTurmaId ?? "") : ""}
+                    onChange={e => { if (e.target.value) { setAudienciaModo("turma"); setAudienciaTurmaId(Number(e.target.value)); } }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === "turma" ? "bg-primary text-white border-primary" : "border-slate-200 bg-white text-slate-600"}`}>
+                    <option value="">Por Turma…</option>
+                    {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` — ${t.turno}` : ""}</option>)}
+                  </select>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">
+                    {loadingAudiencia ? "A carregar…" : `${allEncs.length} encarregados (${audiencia.registados.length} portal · ${audiencia.nao_registados.length} só SMS)`}
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} className="rounded"/>
+                    Todos ({filteredEncs.length})
+                  </label>
+                </div>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                  <input value={encSearch} onChange={e => setEncSearch(e.target.value)}
+                    placeholder="Pesquisar por nome, telefone ou aluno…"
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 bg-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                </div>
+                {loadingAudiencia ? (
+                  <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                ) : filteredEncs.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400">
+                    <Users className="w-7 h-7 mx-auto mb-1.5 opacity-30"/>
+                    <p className="text-xs">Nenhum encarregado neste segmento.</p>
+                  </div>
+                ) : (
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                    {filteredEncs.map((enc, i) => {
+                      const sel = selectedPhones.includes(enc.telefone);
+                      return (
+                        <label key={`${enc.telefone}-${i}`}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                          <input type="checkbox" checked={sel} onChange={() => togglePhone(enc.telefone)} className="rounded text-primary"/>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium text-slate-800 truncate">{enc.nome ?? "Sem nome"}</p>
+                              {enc.tem_portal
+                                ? <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Portal</span>
+                                : <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">Só SMS</span>
+                              }
+                            </div>
+                            <p className="text-xs text-slate-400 truncate">{enc.telefone}{enc.alunos?.length ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {selectedPhones.length > 0 && (
+                  <p className="text-xs text-primary font-medium">{selectedPhones.length} seleccionado(s)</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {publishResult && (
+            <div className="rounded-xl p-3 flex items-center gap-3 bg-emerald-50 border border-emerald-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0"/>
+              <p className="text-sm font-medium text-emerald-800">
+                {publishResult.comunicado_id ? "Comunicado publicado no portal. " : ""}
+                {(publishResult.sms_sent ?? 0) > 0 ? `${publishResult.sms_sent} SMS enviado(s).` : ""}
+                {(publishResult.sms_failed ?? 0) > 0 ? ` ${publishResult.sms_failed} falha(s).` : ""}
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button onClick={handlePublish} disabled={publishing || !conteudo.trim()}
+              className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              {publishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+              {publishing ? "A processar…" : canal === "portal" ? "Publicar no Portal" : canal === "sms" ? `Enviar SMS (${selectedPhones.length})` : `Publicar + Enviar SMS (${selectedPhones.length})`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PUBLICADOS ── */}
+      {tab === "publicados" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-500">{comunicados.length} comunicado(s) publicado(s)</p>
+            <button onClick={() => setTab("compor")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors">
+              <Plus className="w-3.5 h-3.5"/> Novo
+            </button>
+          </div>
+          {loadingComuns ? (
+            <div className="flex justify-center py-10"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+          ) : comunicados.length === 0 ? (
+            <div className="py-10 text-center">
+              <Megaphone className="w-8 h-8 mx-auto mb-2 text-slate-200"/>
+              <p className="text-slate-400 text-sm">Nenhum comunicado publicado ainda.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50 bg-white border border-slate-100 rounded-2xl overflow-hidden">
+              {comunicados.map((c: any) => (
+                <div key={c.id} className="p-4 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      {prioridadeBadge(c.prioridade)}
+                      <span className="text-xs text-slate-400">{new Date(c.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                      <span className="text-xs text-slate-400 flex items-center gap-1"><CheckCheck className="w-3.5 h-3.5"/>{c.total_lidos} lido(s)</span>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-900">{c.titulo}</p>
+                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{c.conteudo}</p>
+                  </div>
+                  <button onClick={() => handleDelete(c.id)} disabled={deleteId === c.id}
+                    className="flex-shrink-0 p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40">
+                    <Trash2 className="w-3.5 h-3.5"/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
    ComunicadosPanel — Gerir comunicados por Escola (Admin)
 ══════════════════════════════════════════════════════════════════ */
 interface AdminComunicado {
@@ -4268,7 +4589,7 @@ function DDManagementPanel({ schoolId }: { schoolId: number }) {
 }
 
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicados">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -4303,7 +4624,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
     { id: "debito_direto" as const, label: "Débito Direto", icon: <ArrowLeftRight className="w-4 h-4" />, badge: pendingDDCount > 0 ? pendingDDCount : undefined },
-    { id: "comunicados" as const, label: "Comunicados", icon: <MessageSquare className="w-4 h-4" /> },
+    { id: "comunicar" as const, label: "Comunicar", icon: <Megaphone className="w-4 h-4" /> },
     { id: "configuracoes" as const, label: "Configurações", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ];
 
@@ -4498,16 +4819,16 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
         </div>
       )}
 
-      {tab === "comunicados" && (
+      {tab === "comunicar" && (
         <div>
           <div className="flex items-center gap-2 mb-4">
-            <MessageSquare className="w-5 h-5 text-primary"/>
+            <Megaphone className="w-5 h-5 text-primary"/>
             <div>
-              <h3 className="font-semibold text-slate-900">Comunicados</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Publique avisos e mensagens visíveis para os encarregados desta escola no portal.</p>
+              <h3 className="font-semibold text-slate-900">Comunicar</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Publique comunicados no portal e envie SMS em massa para os encarregados desta escola.</p>
             </div>
           </div>
-          <ComunicadosPanel schoolId={currentSchool.id} />
+          <ComunicarAdminPanel schoolId={currentSchool.id} turmas={currentSchool.turmas} />
         </div>
       )}
 

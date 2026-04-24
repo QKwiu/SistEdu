@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { randomBytes } from "crypto";
 import { pool } from "@workspace/db";
+import { sendBulkSMS } from "../services/sms.service";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -1185,6 +1186,97 @@ router.post("/admin/colegios/:id/comunicados", adminAuth, async (req, res) => {
 router.delete("/admin/comunicados/:id", adminAuth, async (req, res) => {
   await pool.query("DELETE FROM comunicados WHERE id = $1", [req.params.id]);
   res.status(204).end();
+});
+
+/* ─── GET /admin/colegios/:id/comunicar/audiencia ─── */
+router.get("/admin/colegios/:id/comunicar/audiencia", adminAuth, async (req, res) => {
+  const schoolId = parseInt(req.params.id);
+  const modo = (req.query.modo as string) ?? "todos";
+  const turmaId = req.query.turma_id ? parseInt(req.query.turma_id as string) : null;
+
+  const params: any[] = [schoolId];
+  let extraWhere = "";
+  if (modo === "turma" && turmaId) {
+    extraWhere = ` AND s.turma_id = $2`;
+    params.push(turmaId);
+  } else if (modo === "devedores") {
+    extraWhere = ` AND EXISTS (SELECT 1 FROM propinas p WHERE p.student_id = s.id AND p.status != 'pago')`;
+  }
+
+  const registados = await pool.query(
+    `SELECT DISTINCT ON (e.id) e.id, e.nome, e.telefone,
+            array_agg(DISTINCT s.nome) FILTER (WHERE s.nome IS NOT NULL) AS alunos,
+            array_agg(DISTINCT t.nome) FILTER (WHERE t.nome IS NOT NULL) AS turmas
+     FROM encarregados e
+     JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+     JOIN students s ON s.id = ea.aluno_id
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.school_id = $1 AND s.estado = 'activo'${extraWhere}
+     GROUP BY e.id ORDER BY e.nome`,
+    params
+  );
+
+  const naoRegistados = await pool.query(
+    `SELECT DISTINCT ON (s.telefone_encarregado)
+            NULL::integer AS id, s.nome_encarregado AS nome,
+            s.telefone_encarregado AS telefone,
+            array_agg(DISTINCT s.nome) AS alunos,
+            array_agg(DISTINCT t.nome) FILTER (WHERE t.nome IS NOT NULL) AS turmas
+     FROM students s LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.school_id = $1 AND s.estado = 'activo'
+       AND s.telefone_encarregado IS NOT NULL AND s.telefone_encarregado != ''
+       AND s.telefone_encarregado NOT IN (
+           SELECT e.telefone FROM encarregados e
+           JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+           JOIN students st ON st.id = ea.aluno_id WHERE st.school_id = $1
+       )${extraWhere}
+     GROUP BY s.telefone_encarregado, s.nome_encarregado
+     ORDER BY s.telefone_encarregado`,
+    params
+  );
+
+  return res.json({
+    registados: registados.rows,
+    nao_registados: naoRegistados.rows,
+    total: registados.rows.length + naoRegistados.rows.length,
+  });
+});
+
+/* ─── POST /admin/colegios/:id/comunicar/publicar ─── */
+router.post("/admin/colegios/:id/comunicar/publicar", adminAuth, async (req, res) => {
+  const schoolId = parseInt(req.params.id);
+  const { titulo, conteudo, prioridade, canal, phones } = req.body;
+  if (!conteudo?.trim()) return res.status(400).json({ error: "Conteúdo obrigatório." });
+
+  let comunicadoId: number | null = null;
+  let smsSent = 0, smsFailed = 0;
+
+  const settingsR = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [schoolId]);
+  const comm = settingsR.rows[0]?.settings?.comunicacao ?? {};
+  const smsConfig = {
+    provider: comm.sms_provider || "mock",
+    api_url: comm.sms_api_url,
+    api_key: comm.sms_api_key,
+    sender_name: comm.sms_sender_name || "KiwaraEsc",
+  };
+
+  if (canal === "portal" || canal === "ambos") {
+    if (!titulo?.trim()) return res.status(400).json({ error: "Título obrigatório para publicar no portal." });
+    const r = await pool.query(
+      `INSERT INTO comunicados (escola_id, titulo, conteudo, prioridade) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [schoolId, titulo.trim(), conteudo.trim(), prioridade ?? "normal"]
+    );
+    comunicadoId = r.rows[0].id;
+  }
+
+  if ((canal === "sms" || canal === "ambos") && Array.isArray(phones) && phones.length > 0) {
+    const recipients = phones.map((p: string) => ({ phone: p, name: "" }));
+    const smsResult = await sendBulkSMS(recipients, conteudo.trim(), smsConfig, schoolId);
+    smsSent += smsResult.sent;
+    smsFailed += smsResult.failed;
+  }
+
+  return res.json({ comunicado_id: comunicadoId, sms_sent: smsSent, sms_failed: smsFailed });
 });
 
 /* ─── GET /admin/pending-dd-cancellations ─── */
