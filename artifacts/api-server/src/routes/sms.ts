@@ -71,6 +71,27 @@ async function getSchoolSMSConfig(schoolId: number): Promise<SMSConfig> {
    SCHOOL ENDPOINTS
 ════════════════════════════════════ */
 
+/* GET /school/comunicar/templates — merged global + school templates (school auth) */
+router.get("/school/comunicar/templates", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const globalR = await pool.query(
+    "SELECT value FROM platform_settings WHERE key='sms_templates' LIMIT 1"
+  ).catch(() => ({ rows: [] as any[] }));
+  const globalTemplates: Record<string, string> = globalR.rows[0]?.value ?? {};
+
+  const schoolR = await pool.query(
+    "SELECT settings FROM school_settings WHERE school_id=$1",
+    [school.id]
+  ).catch(() => ({ rows: [] as any[] }));
+  const schoolTemplates: Record<string, string> =
+    schoolR.rows[0]?.settings?.comunicacao?.sms_templates ?? {};
+
+  const merged = { ...DEFAULT_TEMPLATES, ...globalTemplates, ...schoolTemplates };
+  return res.json(merged);
+});
+
 /* GET /school/sms/logs — list SMS logs for this school */
 router.get("/school/sms/logs", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
