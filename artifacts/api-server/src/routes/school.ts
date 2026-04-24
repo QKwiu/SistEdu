@@ -500,6 +500,126 @@ router.delete("/school/alunos/:id", schoolAuth, async (req: any, res) => {
   res.status(204).end();
 });
 
+/* ─── GET /school/alunos/:id — ficha completa do aluno ─── */
+router.get("/school/alunos/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const studentId = Number(req.params.id);
+  const sr = await pool.query(
+    `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.data_nascimento, s.sexo, s.estado,
+            s.nome_encarregado, s.telefone_encarregado,
+            s.turma_id, COALESCE(t.nome,'Sem turma') AS turma_nome, t.turno,
+            m.pacote_id, m.ano_lectivo
+     FROM students s
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
+     WHERE s.id=$1 AND s.school_id=$2`,
+    [studentId, school.school_id]
+  );
+  if (!sr.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+
+  const er = await pool.query(
+    `SELECT e.id, e.nome, e.telefone, e.email, e.first_login, e.created_at
+     FROM encarregados e
+     JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+     WHERE ea.aluno_id = $1 LIMIT 1`,
+    [studentId]
+  );
+
+  const tr = await pool.query(
+    "SELECT id, nome, turno FROM turmas WHERE school_id=$1 ORDER BY nome",
+    [school.school_id]
+  );
+
+  return res.json({ ...sr.rows[0], encarregado: er.rows[0] ?? null, turmas: tr.rows });
+});
+
+/* ─── PUT /school/alunos/:id — actualizar ficha do aluno ─── */
+router.put("/school/alunos/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const studentId = Number(req.params.id);
+  const b = req.body;
+
+  const check = await pool.query(
+    "SELECT id FROM students WHERE id=$1 AND school_id=$2", [studentId, school.school_id]
+  );
+  if (!check.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+
+  let turmaId: number | null = b.turma_id ? Number(b.turma_id) : null;
+
+  await pool.query(
+    `UPDATE students SET
+       nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
+       nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9
+     WHERE id=$10 AND school_id=$11`,
+    [
+      b.nome?.trim() || null, b.bilhete?.trim() || null,
+      b.numero_processo?.trim() || null, b.data_nascimento || null, b.sexo || null,
+      b.nome_encarregado?.trim() || null,
+      b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
+      b.estado || "activo", turmaId, studentId, school.school_id,
+    ]
+  );
+
+  if (turmaId) {
+    await pool.query(
+      `UPDATE matriculas SET turma_id=$1 WHERE student_id=$2 AND estado='activa'`,
+      [turmaId, studentId]
+    );
+  }
+
+  // Guardian upsert
+  const telefoneEnc = b.telefone_encarregado?.toString().replace(/\D/g, "").trim();
+  if (telefoneEnc && b.nome_encarregado?.trim()) {
+    const existingEnc = await pool.query(
+      `SELECT e.id FROM encarregados e
+       JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+       WHERE ea.aluno_id = $1 LIMIT 1`,
+      [studentId]
+    );
+    if (existingEnc.rows[0]) {
+      const encId = existingEnc.rows[0].id;
+      const upFields: string[] = ["nome=$1", "telefone=$2"];
+      const upVals: any[] = [b.nome_encarregado.trim(), telefoneEnc];
+      if (b.encarregado_email !== undefined) {
+        upFields.push(`email=$${upVals.length + 1}`);
+        upVals.push(b.encarregado_email?.trim() || null);
+      }
+      if (b.nova_password?.trim()) {
+        const bcrypt = await import("bcryptjs");
+        const hash = await bcrypt.hash(b.nova_password.trim(), 10);
+        upFields.push(`password=$${upVals.length + 1}`, `first_login=FALSE`);
+        upVals.push(hash);
+      }
+      upVals.push(encId);
+      await pool.query(`UPDATE encarregados SET ${upFields.join(",")} WHERE id=$${upVals.length}`, upVals);
+    } else {
+      const bcrypt = await import("bcryptjs");
+      const hash = await bcrypt.hash("1234", 10);
+      const ne = await pool.query(
+        `INSERT INTO encarregados (nome, telefone, email, password, first_login) VALUES ($1,$2,$3,$4,TRUE) RETURNING id`,
+        [b.nome_encarregado.trim(), telefoneEnc, b.encarregado_email?.trim() || null, hash]
+      );
+      await pool.query(
+        `INSERT INTO encarregado_aluno (encarregado_id, aluno_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [ne.rows[0].id, studentId]
+      );
+    }
+  }
+
+  const updated = await pool.query(
+    `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.data_nascimento, s.sexo, s.estado,
+            s.nome_encarregado, s.telefone_encarregado, s.turma_id,
+            COALESCE(t.nome,'Sem turma') AS turma_nome, t.turno
+     FROM students s LEFT JOIN turmas t ON t.id = s.turma_id WHERE s.id=$1`,
+    [studentId]
+  );
+  return res.json(updated.rows[0]);
+});
+
 /* ─── Propinas ─── */
 router.get("/school/propinas", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);

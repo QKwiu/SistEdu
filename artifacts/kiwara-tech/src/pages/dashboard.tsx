@@ -13,6 +13,7 @@ import {
   Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
   ChevronLeft, ChevronRight, ListFilter,
   Megaphone, CheckCheck, XCircle, Info,
+  Pencil, Lock, Save, EyeOff,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -1341,6 +1342,242 @@ function SchoolUploadAlunosPanel({ token, onSuccess }: {
   );
 }
 
+/* ─── AlunoFichaSlideOver (portal da escola) ─── */
+interface AlunoFichaData {
+  id: number; nome: string; bilhete?: string; numero_processo?: string;
+  data_nascimento?: string; sexo?: string; estado?: string;
+  turma_id?: number | null; turma_nome?: string; turno?: string;
+  nome_encarregado?: string; telefone_encarregado?: string;
+  encarregado?: { id: number; nome: string; telefone: string; email?: string; first_login: boolean } | null;
+  turmas?: { id: number; nome: string; turno?: string }[];
+}
+
+function AlunoFichaSlideOver({
+  token, alunoId, onClose, onSaved,
+}: { token: string | null; alunoId: number; onClose: () => void; onSaved?: (patch: Partial<Aluno>) => void }) {
+  const [ficha, setFicha] = useState<AlunoFichaData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+
+  const [nome, setNome] = useState("");
+  const [bilhete, setBilhete] = useState("");
+  const [numProcesso, setNumProcesso] = useState("");
+  const [dataNascimento, setDataNascimento] = useState("");
+  const [sexo, setSexo] = useState("");
+  const [estado, setEstado] = useState("activo");
+  const [turmaId, setTurmaId] = useState<number | "">(""); 
+  const [nomeEnc, setNomeEnc] = useState("");
+  const [telEnc, setTelEnc] = useState("");
+  const [emailEnc, setEmailEnc] = useState("");
+  const [novaPassword, setNovaPassword] = useState("");
+  const [showPass, setShowPass] = useState(false);
+
+  const BASE = import.meta.env.BASE_URL ?? "/";
+  const API_BASE = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API_BASE}/api/school/alunos/${alunoId}`, { headers })
+      .then(r => r.json())
+      .then((d: AlunoFichaData) => {
+        setFicha(d);
+        setNome(d.nome || "");
+        setBilhete(d.bilhete || "");
+        setNumProcesso(d.numero_processo || "");
+        setDataNascimento(d.data_nascimento?.slice(0, 10) || "");
+        setSexo(d.sexo || "");
+        setEstado(d.estado || "activo");
+        setTurmaId(d.turma_id ?? "");
+        setNomeEnc(d.encarregado?.nome || d.nome_encarregado || "");
+        setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
+        setEmailEnc(d.encarregado?.email || "");
+      })
+      .finally(() => setLoading(false));
+  }, [alunoId]);
+
+  const save = async () => {
+    if (!nome.trim()) { setErr("Nome do aluno é obrigatório."); return; }
+    setSaving(true); setErr(""); setSaved(false);
+    try {
+      const r = await fetch(`${API_BASE}/api/school/alunos/${alunoId}`, {
+        method: "PUT", headers,
+        body: JSON.stringify({
+          nome: nome.trim(), bilhete: bilhete.trim(), numero_processo: numProcesso.trim(),
+          data_nascimento: dataNascimento || null, sexo: sexo || null, estado,
+          turma_id: turmaId || null,
+          nome_encarregado: nomeEnc.trim(), telefone_encarregado: telEnc.trim(),
+          encarregado_email: emailEnc.trim() || null,
+          nova_password: novaPassword.trim() || null,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+      setSaved(true);
+      onSaved?.({ id: alunoId, nome: d.nome, bilhete: d.bilhete, numero_processo: d.numero_processo,
+        data_nascimento: d.data_nascimento, sexo: d.sexo, estado: d.estado,
+        nome_encarregado: d.nome_encarregado, telefone_encarregado: d.telefone_encarregado,
+        turma_id: d.turma_id, turma: d.turma_nome, turno: d.turno });
+      setTimeout(() => { setSaved(false); onClose(); }, 1200);
+    } catch (e: any) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const Lbl = ({ children }: { children: React.ReactNode }) => (
+    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{children}</label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"/>
+      <div className="relative w-full max-w-lg bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+              <User className="w-5 h-5 text-primary"/>
+            </div>
+            <div>
+              <h2 className="font-bold text-slate-900 text-base">{loading ? "A carregar…" : ficha?.nome}</h2>
+              <p className="text-xs text-slate-400">Ficha do Aluno</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors">
+            <X className="w-5 h-5"/>
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-6 h-6 animate-spin text-primary"/></div>
+        ) : (
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+            {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2">{err}</div>}
+
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <User className="w-3.5 h-3.5"/> Dados do Aluno
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Lbl>Nome completo *</Lbl>
+                  <input className={inp} value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do aluno"/>
+                </div>
+                <div>
+                  <Lbl>Nº do BI / Bilhete</Lbl>
+                  <input className={inp} value={bilhete} onChange={e => setBilhete(e.target.value)} placeholder="000000000LA000"/>
+                </div>
+                <div>
+                  <Lbl>Nº de Processo</Lbl>
+                  <input className={inp} value={numProcesso} onChange={e => setNumProcesso(e.target.value)} placeholder="Nº processo"/>
+                </div>
+                <div>
+                  <Lbl>Data de Nascimento</Lbl>
+                  <input type="date" className={inp} value={dataNascimento} onChange={e => setDataNascimento(e.target.value)}/>
+                </div>
+                <div>
+                  <Lbl>Sexo</Lbl>
+                  <select className={inp} value={sexo} onChange={e => setSexo(e.target.value)}>
+                    <option value="">— não definido —</option>
+                    <option value="M">Masculino</option>
+                    <option value="F">Feminino</option>
+                  </select>
+                </div>
+                <div>
+                  <Lbl>Turma</Lbl>
+                  <select className={inp} value={turmaId} onChange={e => setTurmaId(e.target.value ? Number(e.target.value) : "")}>
+                    <option value="">— sem turma —</option>
+                    {(ficha?.turmas ?? []).map(t => (
+                      <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` (${t.turno})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Lbl>Estado</Lbl>
+                  <select className={inp} value={estado} onChange={e => setEstado(e.target.value)}>
+                    <option value="activo">Activo</option>
+                    <option value="inactivo">Inactivo</option>
+                    <option value="transferido">Transferido</option>
+                    <option value="desistente">Desistente</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Users className="w-3.5 h-3.5"/> Dados do Encarregado de Educação
+              </h3>
+              {ficha?.encarregado ? (
+                <div className="mb-3 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0"/>
+                  Encarregado com acesso ao portal. Login: <strong className="font-mono">{ficha.encarregado.telefone}</strong>
+                  {ficha.encarregado.first_login && <span className="ml-1 text-amber-600">(nunca fez login)</span>}
+                </div>
+              ) : (
+                <div className="mb-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0"/>
+                  Sem encarregado associado. Ao guardar com nome e telefone, será criado acesso ao portal.
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Lbl>Nome do encarregado</Lbl>
+                  <input className={inp} value={nomeEnc} onChange={e => setNomeEnc(e.target.value)} placeholder="Nome completo"/>
+                </div>
+                <div>
+                  <Lbl>Telefone (login portal)</Lbl>
+                  <input className={inp} value={telEnc} onChange={e => setTelEnc(e.target.value)} placeholder="9XX XXX XXX"/>
+                </div>
+                <div>
+                  <Lbl>Email (opcional)</Lbl>
+                  <input type="email" className={inp} value={emailEnc} onChange={e => setEmailEnc(e.target.value)} placeholder="email@exemplo.ao"/>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5"/> Acesso ao Portal do Encarregado
+              </h3>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <Lbl>Nova palavra-passe (deixar em branco para não alterar)</Lbl>
+                <div className="relative mt-1">
+                  <input type={showPass ? "text" : "password"} className={inp}
+                    value={novaPassword} onChange={e => setNovaPassword(e.target.value)}
+                    placeholder={ficha?.encarregado ? "Deixar em branco = sem alteração" : "Padrão: 1234"}/>
+                  <button type="button" onClick={() => setShowPass(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  {ficha?.encarregado
+                    ? "O encarregado usa o nº de telefone como utilizador e a senha definida aqui."
+                    : "Se não definir senha, será criada com a senha padrão «1234» a alterar no primeiro acesso."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="shrink-0 px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
+          <button onClick={onClose} className="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+            Cancelar
+          </button>
+          <button onClick={save} disabled={saving || loading}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+            {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+            {saved ? "Guardado!" : "Guardar alterações"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOpenCriarTurma, onDeleteAluno, onDeleteTurma, onRefresh }: {
   token: string | null; alunos: Aluno[]; turmas: Turma[]; pacotes: Pacote[];
   onOpenAdicionarAluno: () => void; onOpenCriarTurma: () => void;
@@ -1352,6 +1589,7 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
   const [search, setSearch] = useState("");
   const [soMultas, setSoMultas] = useState(false);
   const [assigningPacote, setAssigningPacote] = useState<number | null>(null);
+  const [fichaAlunoId, setFichaAlunoId] = useState<number | null>(null);
 
   const handleAssignPacote = async (alunoId: number, pacoteId: number | null) => {
     if (!token) return;
@@ -1376,6 +1614,14 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
 
   return (
     <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
+      {fichaAlunoId !== null && (
+        <AlunoFichaSlideOver
+          token={token}
+          alunoId={fichaAlunoId}
+          onClose={() => setFichaAlunoId(null)}
+          onSaved={() => { setFichaAlunoId(null); onRefresh(); }}
+        />
+      )}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div><h2 className="text-2xl font-bold text-slate-900">Alunos & Turmas</h2></div>
         <Button variant="outline" className="bg-white gap-2" onClick={onOpenCriarTurma}><School className="w-4 h-4"/> Criar Turma</Button>
@@ -1542,10 +1788,18 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
                           </div>
                         </td>
                         <td className="px-5 py-3">
-                          <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
-                            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
-                            <Trash2 className="w-4 h-4"/>
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => setFichaAlunoId(a.id)}
+                              title="Editar ficha do aluno"
+                              className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
+                              <Pencil className="w-4 h-4"/>
+                            </button>
+                            <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
+                              title="Eliminar aluno"
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
+                              <Trash2 className="w-4 h-4"/>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
