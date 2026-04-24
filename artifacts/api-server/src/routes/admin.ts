@@ -1204,7 +1204,7 @@ router.get("/admin/colegios/:id/comunicar/audiencia", adminAuth, async (req, res
   }
 
   const registados = await pool.query(
-    `SELECT DISTINCT ON (e.id) e.id, e.nome, e.telefone,
+    `SELECT e.id, e.nome, e.telefone,
             array_agg(DISTINCT s.nome) FILTER (WHERE s.nome IS NOT NULL) AS alunos,
             array_agg(DISTINCT t.nome) FILTER (WHERE t.nome IS NOT NULL) AS turmas
      FROM encarregados e
@@ -1212,7 +1212,7 @@ router.get("/admin/colegios/:id/comunicar/audiencia", adminAuth, async (req, res
      JOIN students s ON s.id = ea.aluno_id
      LEFT JOIN turmas t ON t.id = s.turma_id
      WHERE s.school_id = $1 AND s.estado = 'activo'${extraWhere}
-     GROUP BY e.id ORDER BY e.nome`,
+     GROUP BY e.id, e.nome, e.telefone ORDER BY e.nome`,
     params
   );
 
