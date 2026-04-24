@@ -1081,16 +1081,24 @@ router.put("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req,
   // Guardian upsert
   const telefoneEnc = b.telefone_encarregado?.toString().replace(/\D/g, "").trim();
   if (telefoneEnc && b.nome_encarregado?.trim()) {
-    const existingEnc = await pool.query(
+    // 1. Find guardian already linked to this student
+    const linkedEnc = await pool.query(
       `SELECT e.id FROM encarregados e
        JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
        WHERE ea.aluno_id = $1 LIMIT 1`,
       [studentId]
     );
 
-    if (existingEnc.rows[0]) {
+    // 2. Or find any guardian with this phone (avoids unique constraint error)
+    const phoneEnc = await pool.query(
+      `SELECT id FROM encarregados WHERE telefone=$1 LIMIT 1`, [telefoneEnc]
+    );
+
+    const encId: number | null = linkedEnc.rows[0]?.id ?? phoneEnc.rows[0]?.id ?? null;
+
+    const bcrypt = await import("bcryptjs");
+    if (encId) {
       // Update existing guardian
-      const encId = existingEnc.rows[0].id;
       const updateFields: string[] = ["nome=$1", "telefone=$2"];
       const updateVals: any[] = [b.nome_encarregado.trim(), telefoneEnc];
       if (b.encarregado_email !== undefined) {
@@ -1098,7 +1106,6 @@ router.put("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req,
         updateVals.push(b.encarregado_email?.trim() || null);
       }
       if (b.nova_password?.trim()) {
-        const bcrypt = await import("bcryptjs");
         const hash = await bcrypt.hash(b.nova_password.trim(), 10);
         updateFields.push(`password=$${updateVals.length + 1}`, `first_login=FALSE`);
         updateVals.push(hash);
@@ -1108,13 +1115,19 @@ router.put("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req,
         `UPDATE encarregados SET ${updateFields.join(",")} WHERE id=$${updateVals.length}`,
         updateVals
       );
+      // Ensure the link exists
+      await pool.query(
+        `INSERT INTO encarregado_aluno (encarregado_id, aluno_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [encId, studentId]
+      );
     } else {
-      // Create new guardian and link
-      const bcrypt = await import("bcryptjs");
-      const hash = await bcrypt.hash("1234", 10);
+      // Create brand-new guardian
+      const pwHash = await bcrypt.hash(b.nova_password?.trim() || "1234", 10);
       const ne = await pool.query(
-        `INSERT INTO encarregados (nome, telefone, email, password, first_login) VALUES ($1,$2,$3,$4,TRUE) RETURNING id`,
-        [b.nome_encarregado.trim(), telefoneEnc, b.encarregado_email?.trim() || null, hash]
+        `INSERT INTO encarregados (nome, telefone, email, password, first_login)
+         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [b.nome_encarregado.trim(), telefoneEnc, b.encarregado_email?.trim() || null,
+         pwHash, !b.nova_password?.trim()]
       );
       await pool.query(
         `INSERT INTO encarregado_aluno (encarregado_id, aluno_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
