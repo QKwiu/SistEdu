@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -48,7 +48,7 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicacao" | "comunicados" | "debito_direto";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto";
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -3068,6 +3068,615 @@ function previewTemplate(tpl: string): string {
   return Object.entries(SAMPLE_PAYLOAD).reduce((t, [k, v]) => t.replaceAll(k, v), tpl);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ComunicarView — unified communication hub (portal + SMS)
+   ═══════════════════════════════════════════════════════════════ */
+function ComunicarView({ token }: { token: string }) {
+  const authH = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  type ComunicarTab = "compor" | "publicados" | "sms_config" | "historico";
+  const [tab, setTab] = useState<ComunicarTab>("compor");
+
+  // ── Compor ──
+  const [titulo, setTitulo] = useState("");
+  const [conteudo, setConteudo] = useState("");
+  const [prioridade, setPrioridade] = useState<"normal" | "alta" | "urgente">("normal");
+  const [canal, setCanal] = useState<"portal" | "sms" | "ambos">("portal");
+  const [pickedTemplate, setPickedTemplate] = useState("");
+  const [audienciaModo, setAudienciaModo] = useState<"todos" | "turma" | "devedores">("todos");
+  const [audienciaTurmaId, setAudienciaTurmaId] = useState<number | null>(null);
+  const [turmas, setTurmas] = useState<any[]>([]);
+  const [audiencia, setAudiencia] = useState<{ registados: any[]; nao_registados: any[] }>({ registados: [], nao_registados: [] });
+  const [loadingAudiencia, setLoadingAudiencia] = useState(false);
+  const [encSearch, setEncSearch] = useState("");
+  const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<{ comunicado_id?: number; sms_sent?: number; sms_failed?: number } | null>(null);
+
+  // ── Publicados ──
+  const [comunicados, setComunicados] = useState<any[]>([]);
+  const [loadingComuns, setLoadingComuns] = useState(false);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  // ── SMS Config ──
+  const [settings, setSettings] = useState<any>(null);
+  const [smsActivo, setSmsActivo] = useState(false);
+  const [smsFallback, setSmsFallback] = useState(false);
+  const [provider, setProvider] = useState("mock");
+  const [apiUrl, setApiUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [senderName, setSenderName] = useState("KiwaraEsc");
+  const [eventos, setEventos] = useState<Record<string, boolean>>({ nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
+  const [templates, setTemplates] = useState<Record<string, string>>({ ...DEFAULT_TEMPLATES });
+  const [editingTemplate, setEditingTemplate] = useState<SmsEventKey | null>(null);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [savedConfig, setSavedConfig] = useState(false);
+
+  // ── Histórico ──
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [stats, setStats] = useState<{ sent: number; failed: number } | null>(null);
+
+  // ── Effects ──
+  useEffect(() => {
+    loadSettings();
+    loadComunicados();
+    fetchStats();
+    fetch(`${API}/school/turmas`, { headers: authH })
+      .then(r => r.json()).then(d => setTurmas(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [token]);
+
+  useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
+  useEffect(() => { if (tab === "historico") fetchLogs(1); }, [tab]);
+
+  const loadSettings = () =>
+    fetch(`${API}/school/settings`, { headers: authH }).then(r => r.json()).then(data => {
+      setSettings(data);
+      const c = data?.comunicacao ?? {};
+      setSmsActivo(c.sms_activo ?? false); setSmsFallback(c.sms_fallback ?? false);
+      setProvider(c.sms_provider ?? "mock"); setApiUrl(c.sms_api_url ?? "");
+      setApiKey(c.sms_api_key ?? ""); setSenderName(c.sms_sender_name ?? "KiwaraEsc");
+      setEventos(c.eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
+      setTemplates({ ...DEFAULT_TEMPLATES, ...(c.sms_templates ?? {}) });
+    });
+
+  const loadAudiencia = () => {
+    setLoadingAudiencia(true);
+    let url = `${API}/school/comunicar/audiencia?modo=${audienciaModo}`;
+    if (audienciaModo === "turma" && audienciaTurmaId) url += `&turma_id=${audienciaTurmaId}`;
+    fetch(url, { headers: authH })
+      .then(r => r.ok ? r.json() : { registados: [], nao_registados: [] })
+      .then(d => setAudiencia(d)).finally(() => setLoadingAudiencia(false));
+  };
+
+  const loadComunicados = () => {
+    setLoadingComuns(true);
+    fetch(`${API}/school/comunicados`, { headers: authH })
+      .then(r => r.ok ? r.json() : []).then(d => setComunicados(d)).finally(() => setLoadingComuns(false));
+  };
+
+  const fetchStats = () =>
+    fetch(`${API}/school/sms/stats`, { headers: authH }).then(r => r.ok ? r.json() : null).then(d => d && setStats(d));
+
+  const fetchLogs = (page: number) => {
+    setLogsLoading(true); setLogsPage(page);
+    fetch(`${API}/school/sms/logs?page=${page}&limit=20`, { headers: authH })
+      .then(r => r.json()).then(d => { setLogs(d.logs ?? []); setLogsTotal(d.total ?? 0); })
+      .finally(() => setLogsLoading(false));
+  };
+
+  const allEncs = useMemo(() => [
+    ...audiencia.registados.map(e => ({ ...e, tem_portal: true })),
+    ...audiencia.nao_registados.map(e => ({ ...e, tem_portal: false })),
+  ].filter(e => e.telefone), [audiencia]);
+
+  const filteredEncs = useMemo(() => encSearch.trim()
+    ? allEncs.filter(e =>
+        e.nome?.toLowerCase().includes(encSearch.toLowerCase()) ||
+        e.telefone?.includes(encSearch) ||
+        e.alunos?.some((a: string) => a?.toLowerCase().includes(encSearch.toLowerCase())))
+    : allEncs, [allEncs, encSearch]);
+
+  const handleSelectAll = (checked: boolean) => {
+    setSelectAll(checked);
+    if (checked) setSelectedPhones(filteredEncs.map(e => e.telefone)); else setSelectedPhones([]);
+  };
+  const togglePhone = (phone: string) => {
+    setSelectedPhones(prev => prev.includes(phone) ? prev.filter(p => p !== phone) : [...prev, phone]);
+    setSelectAll(false);
+  };
+
+  const handlePublish = async () => {
+    if (!conteudo.trim()) return;
+    if ((canal === "portal" || canal === "ambos") && !titulo.trim()) { alert("Preencha o título para publicar no portal."); return; }
+    if ((canal === "sms" || canal === "ambos") && selectedPhones.length === 0) { alert("Selecione pelo menos um destinatário para enviar SMS."); return; }
+    setPublishing(true); setPublishResult(null);
+    try {
+      const r = await fetch(`${API}/school/comunicar/publicar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authH },
+        body: JSON.stringify({ titulo: titulo.trim() || undefined, conteudo: conteudo.trim(), prioridade, canal, phones: canal !== "portal" ? selectedPhones : undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setPublishResult(d); setTitulo(""); setConteudo(""); setPrioridade("normal");
+      setCanal("portal"); setSelectedPhones([]); setSelectAll(false); setPickedTemplate("");
+      if (d.comunicado_id) loadComunicados();
+      fetchStats();
+    } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setPublishing(false); }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeleteId(id);
+    try {
+      await fetch(`${API}/school/comunicados/${id}`, { method: "DELETE", headers: authH });
+      setComunicados(prev => prev.filter(c => c.id !== id));
+    } catch { alert("Erro ao eliminar."); } finally { setDeleteId(null); }
+  };
+
+  const saveConfig = async () => {
+    if (!settings) return;
+    setSavingConfig(true);
+    const patch = { ...settings, comunicacao: { ...(settings.comunicacao ?? {}), sms_activo: smsActivo, sms_fallback: smsFallback, sms_provider: provider, sms_api_url: apiUrl, sms_api_key: apiKey, sms_sender_name: senderName, eventos, sms_templates: templates } };
+    await fetch(`${API}/school/settings`, { method: "PUT", headers: { "Content-Type": "application/json", ...authH }, body: JSON.stringify(patch) });
+    setSettings(patch); setSavingConfig(false); setSavedConfig(true);
+    setTimeout(() => setSavedConfig(false), 2500);
+  };
+
+  const prioridadeBadge = (p: string) => {
+    const cls: Record<string, string> = { urgente: "bg-red-100 text-red-700 border-red-200", alta: "bg-amber-100 text-amber-700 border-amber-200", normal: "bg-slate-100 text-slate-600 border-slate-200" };
+    const lbl: Record<string, string> = { urgente: "Urgente", alta: "Alta", normal: "Normal" };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium border ${cls[p] ?? cls.normal}`}>{lbl[p] ?? p}</span>;
+  };
+  const statusBadge = (s: string) => s === "sent"
+    ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Enviado</span>
+    : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Falhou</span>;
+  const eventLabel = (e: string) => SMS_EVENTS.find(ev => ev.key === e)?.label ?? e;
+  const totalLogPages = Math.ceil(logsTotal / 20);
+
+  const CANAL_OPTIONS = [
+    { key: "portal" as const, icon: <Megaphone className="w-4 h-4"/>, label: "Portal", desc: "Visível no portal do encarregado" },
+    { key: "sms" as const, icon: <Smartphone className="w-4 h-4"/>, label: "SMS", desc: "Enviado por mensagem SMS" },
+    { key: "ambos" as const, icon: <Send className="w-4 h-4"/>, label: "Portal + SMS", desc: "Portal e SMS simultâneo" },
+  ];
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Megaphone className="w-6 h-6 text-primary"/> Comunicar
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">Portal, SMS e histórico de comunicações</p>
+        </div>
+        <div className="flex gap-2">
+          {stats && (
+            <div className="text-center px-3 py-1.5 bg-emerald-50 rounded-xl border border-emerald-100">
+              <div className="text-base font-bold text-emerald-700">{stats.sent}</div>
+              <div className="text-[10px] text-emerald-600">SMS Enviados</div>
+            </div>
+          )}
+          <div className="text-center px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="text-base font-bold text-slate-700">{comunicados.length}</div>
+            <div className="text-[10px] text-slate-500">Comunicados</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
+        {([
+          { k: "compor" as ComunicarTab, label: "Compor" },
+          { k: "publicados" as ComunicarTab, label: `Publicados${comunicados.length ? ` (${comunicados.length})` : ""}` },
+          { k: "sms_config" as ComunicarTab, label: "Config. SMS" },
+          { k: "historico" as ComunicarTab, label: "Histórico" },
+        ]).map(({ k, label }) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── COMPOR ── */}
+      {tab === "compor" && (
+        <div className="space-y-5">
+          {/* Canal */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Canal de envio</p>
+            <div className="grid grid-cols-3 gap-3">
+              {CANAL_OPTIONS.map(({ key, icon, label, desc }) => (
+                <button key={key} onClick={() => setCanal(key)}
+                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${canal === key ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                  {icon}
+                  <span className="text-sm font-semibold">{label}</span>
+                  <span className="text-[10px] text-slate-400 leading-tight">{desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Composer */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Mensagem</h3>
+            {(canal === "sms" || canal === "ambos") && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar template SMS</p>
+                <div className="flex flex-wrap gap-2">
+                  {SMS_EVENTS.map(ev => (
+                    <button key={ev.key}
+                      onClick={() => { setConteudo(templates[ev.key] ?? DEFAULT_TEMPLATES[ev.key] ?? ""); setPickedTemplate(ev.key); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${pickedTemplate === ev.key ? "bg-primary text-white border-primary" : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40"}`}>
+                      {ev.label}
+                    </button>
+                  ))}
+                  {pickedTemplate && (
+                    <button onClick={() => { setConteudo(""); setPickedTemplate(""); }}
+                      className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-400 hover:text-red-500">Limpar</button>
+                  )}
+                </div>
+              </div>
+            )}
+            {(canal === "portal" || canal === "ambos") && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+                <input value={titulo} onChange={e => setTitulo(e.target.value)}
+                  placeholder="Ex: Reunião de encarregados — 30 de Abril"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                {canal === "sms" ? "Mensagem SMS *" : canal === "portal" ? "Conteúdo *" : "Conteúdo / Mensagem SMS *"}
+              </label>
+              <textarea value={conteudo} onChange={e => { setConteudo(e.target.value); setPickedTemplate(""); }} rows={4}
+                placeholder={canal === "sms" ? "Texto da mensagem SMS…" : "Escreva o comunicado para os encarregados…"}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+              {(canal === "sms" || canal === "ambos") && (
+                <p className="text-xs text-slate-400 mt-1">{conteudo.length} car. · {Math.ceil(Math.max(1, conteudo.length) / 160)} SMS</p>
+              )}
+            </div>
+            {(canal === "portal" || canal === "ambos") && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Prioridade</label>
+                <div className="flex gap-2">
+                  {(["normal", "alta", "urgente"] as const).map(p => (
+                    <button key={p} onClick={() => setPrioridade(p)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border capitalize transition-all ${
+                        prioridade === p
+                          ? p === "urgente" ? "bg-red-600 border-red-600 text-white" : p === "alta" ? "bg-amber-500 border-amber-500 text-white" : "bg-primary border-primary text-white"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`}>
+                      {p === "normal" ? "Normal" : p === "alta" ? "Alta" : "Urgente"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Audiência — only for SMS/ambos */}
+          {(canal === "sms" || canal === "ambos") && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <h3 className="font-semibold text-slate-900">Audiência</h3>
+              <div className="flex flex-wrap gap-2 items-center">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-full">Filtro rápido</p>
+                {([{ k: "todos" as const, label: "Todos" }, { k: "devedores" as const, label: "Devedores" }]).map(({ k, label }) => (
+                  <button key={k} onClick={() => { setAudienciaModo(k); setAudienciaTurmaId(null); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === k ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                    {label}
+                  </button>
+                ))}
+                <select
+                  value={audienciaModo === "turma" ? (audienciaTurmaId ?? "") : ""}
+                  onChange={e => { if (e.target.value) { setAudienciaModo("turma"); setAudienciaTurmaId(Number(e.target.value)); } }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === "turma" ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600"}`}>
+                  <option value="">Por Turma…</option>
+                  {turmas.map((t: any) => <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` — ${t.turno}` : ""}</option>)}
+                </select>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">
+                    {loadingAudiencia ? "A carregar…" : `${allEncs.length} encarregados (${audiencia.registados.length} portal · ${audiencia.nao_registados.length} só SMS)`}
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} className="rounded"/>
+                    Todos ({filteredEncs.length})
+                  </label>
+                </div>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                  <input value={encSearch} onChange={e => setEncSearch(e.target.value)}
+                    placeholder="Pesquisar por nome, telefone ou aluno…"
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                </div>
+                {loadingAudiencia ? (
+                  <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                ) : filteredEncs.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    <Users className="w-8 h-8 mx-auto mb-2 opacity-30"/>
+                    <p className="text-sm">Nenhum encarregado neste segmento.</p>
+                  </div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-100">
+                    {filteredEncs.map((enc, i) => {
+                      const sel = selectedPhones.includes(enc.telefone);
+                      return (
+                        <label key={`${enc.telefone}-${i}`}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                          <input type="checkbox" checked={sel} onChange={() => togglePhone(enc.telefone)} className="rounded text-primary"/>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-medium text-slate-800 truncate">{enc.nome ?? "Sem nome"}</p>
+                              {enc.tem_portal
+                                ? <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Portal</span>
+                                : <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">Só SMS</span>
+                              }
+                            </div>
+                            <p className="text-xs text-slate-400 truncate">{enc.telefone}{enc.alunos?.length ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {selectedPhones.length > 0 && (
+                  <p className="text-xs text-primary font-medium">{selectedPhones.length} seleccionado(s)</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {publishResult && (
+            <div className="rounded-xl p-4 flex items-center gap-3 bg-emerald-50 border border-emerald-200">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0"/>
+              <p className="text-sm font-medium text-emerald-800">
+                {publishResult.comunicado_id ? "Comunicado publicado no portal. " : ""}
+                {(publishResult.sms_sent ?? 0) > 0 ? `${publishResult.sms_sent} SMS enviado(s).` : ""}
+                {(publishResult.sms_failed ?? 0) > 0 ? ` ${publishResult.sms_failed} falha(s).` : ""}
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button onClick={handlePublish} disabled={publishing || !conteudo.trim()}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              {publishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+              {publishing ? "A processar…" : canal === "portal" ? "Publicar no Portal" : canal === "sms" ? `Enviar SMS (${selectedPhones.length})` : `Publicar + Enviar SMS (${selectedPhones.length})`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PUBLICADOS ── */}
+      {tab === "publicados" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-500">{comunicados.length} comunicado(s) publicado(s) no portal dos encarregados</p>
+            <button onClick={() => setTab("compor")}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
+              <Plus className="w-4 h-4"/> Novo
+            </button>
+          </div>
+          {loadingComuns ? (
+            <div className="flex justify-center py-20"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+          ) : comunicados.length === 0 ? (
+            <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
+              <Megaphone className="w-8 h-8 opacity-40"/>
+              <p className="text-sm">Nenhum comunicado publicado ainda.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {comunicados.map((c: any) => (
+                <div key={c.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        {prioridadeBadge(c.prioridade)}
+                        <span className="text-xs text-slate-400">{new Date(c.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1"><CheckCheck className="w-3.5 h-3.5"/>{c.total_lidos} lido(s)</span>
+                      </div>
+                      <h3 className="font-semibold text-slate-900 text-sm">{c.titulo}</h3>
+                      <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{c.conteudo}</p>
+                    </div>
+                    <button onClick={() => handleDelete(c.id)} disabled={deleteId === c.id}
+                      className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40">
+                      <Trash2 className="w-4 h-4"/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── CONFIG SMS ── */}
+      {tab === "sms_config" && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900">Notificações SMS automáticas</p>
+                <p className="text-sm text-slate-500">SMS enviados nos eventos de propinas</p>
+              </div>
+              <button onClick={() => setSmsActivo(v => !v)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${smsActivo ? "bg-primary text-white" : "bg-slate-100 text-slate-600"}`}>
+                {smsActivo ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {smsActivo ? "Activado" : "Desactivado"}
+              </button>
+            </div>
+            <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900">SMS Fallback</p>
+                <p className="text-sm text-slate-500">Ao publicar no portal, envia SMS a encarregados sem conta</p>
+              </div>
+              <button onClick={() => setSmsFallback(v => !v)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${smsFallback ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-600"}`}>
+                {smsFallback ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {smsFallback ? "Activo" : "Inactivo"}
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Provedor SMS</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Provedor</label>
+                <select value={provider} onChange={e => setProvider(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <option value="mock">Simulação (Mock)</option>
+                  <option value="africastalking">Africa's Talking</option>
+                  <option value="twilio">Twilio</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nome Remetente</label>
+                <input value={senderName} onChange={e => setSenderName(e.target.value)} maxLength={11}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="KiwaraEsc"/>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint</label>
+                <input value={apiUrl} onChange={e => setApiUrl(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="https://api.provedor.com/sms/send"/>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">API Key</label>
+                <input value={apiKey} onChange={e => setApiKey(e.target.value)} type="password"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="••••••••••••••••"/>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Eventos automáticos</h3>
+            <div className="space-y-3">
+              {SMS_EVENTS.map(ev => (
+                <div key={ev.key} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{ev.label}</p>
+                    <p className="text-xs text-slate-500">{ev.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setEditingTemplate(editingTemplate === ev.key ? null : ev.key)}
+                      className="text-xs text-primary hover:underline">
+                      {editingTemplate === ev.key ? "Fechar" : "Template"}
+                    </button>
+                    <button onClick={() => setEventos(prev => ({ ...prev, [ev.key]: !prev[ev.key] }))}
+                      className={`w-10 h-5 rounded-full transition-colors relative ${eventos[ev.key] ? "bg-primary" : "bg-slate-300"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${eventos[ev.key] ? "translate-x-5" : ""}`}/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {editingTemplate && (() => {
+            const evVars = TEMPLATE_VARS.filter(v => v.events.includes(editingTemplate));
+            const preview = previewTemplate(templates[editingTemplate] ?? "");
+            return (
+              <div className="bg-blue-50 rounded-2xl border border-blue-200 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-blue-900 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4"/> Template: {SMS_EVENTS.find(e => e.key === editingTemplate)?.label}
+                  </h3>
+                  <button onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate]: DEFAULT_TEMPLATES[editingTemplate] }))}
+                    className="text-xs text-blue-600 hover:underline font-medium">↩ Repor padrão</button>
+                </div>
+                <textarea value={templates[editingTemplate]}
+                  onChange={e => setTemplates(prev => ({ ...prev, [editingTemplate!]: e.target.value }))} rows={3}
+                  className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none font-mono"/>
+                <div className="flex flex-wrap gap-1.5">
+                  {evVars.map(v => (
+                    <button key={v.key}
+                      onClick={() => setTemplates(prev => ({ ...prev, [editingTemplate!]: (prev[editingTemplate!] ?? "") + v.key }))}
+                      className="text-xs bg-white border border-blue-300 text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-100 font-mono">{v.key}</button>
+                  ))}
+                </div>
+                <div className="bg-white rounded-xl border border-blue-200 p-3">
+                  <p className="text-xs font-semibold text-slate-500 mb-1">Pré-visualização:</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{preview}</p>
+                  <p className="text-xs text-slate-400 mt-1">{preview.length} car. · {Math.ceil(preview.length / 160)} SMS</p>
+                </div>
+              </div>
+            );
+          })()}
+          <div className="flex justify-end">
+            <button onClick={saveConfig} disabled={savingConfig}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+              {savingConfig ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedConfig ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+              {savedConfig ? "Guardado!" : "Guardar Configurações"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── HISTÓRICO ── */}
+      {tab === "historico" && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-900">Histórico de SMS ({logsTotal})</h3>
+            <button onClick={() => fetchLogs(logsPage)} className="text-xs text-primary hover:underline flex items-center gap-1">
+              <RefreshCw className="w-3 h-3"/> Actualizar
+            </button>
+          </div>
+          {logsLoading ? (
+            <div className="flex justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+              <p className="text-sm">Nenhum SMS enviado ainda.</p>
+            </div>
+          ) : (
+            <>
+              <div className="divide-y divide-slate-100">
+                {logs.map((log: any) => (
+                  <div key={log.id} className="px-5 py-3 flex items-start gap-4">
+                    <div className="mt-0.5">{statusBadge(log.status)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-medium text-slate-700">{log.telefone}</span>
+                        {log.evento && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{eventLabel(log.evento)}</span>}
+                      </div>
+                      <p className="text-sm text-slate-600 line-clamp-2">{log.mensagem}</p>
+                    </div>
+                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                      {new Date(log.data_envio).toLocaleString("pt-AO", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {totalLogPages > 1 && (
+                <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
+                  <button onClick={() => fetchLogs(logsPage - 1)} disabled={logsPage <= 1}
+                    className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                    <ChevronLeft className="w-4 h-4"/> Anterior
+                  </button>
+                  <span className="text-xs text-slate-500">{logsPage} / {totalLogPages}</span>
+                  <button onClick={() => fetchLogs(logsPage + 1)} disabled={logsPage >= totalLogPages}
+                    className="flex items-center gap-1 text-sm text-slate-600 disabled:opacity-40 hover:text-primary">
+                    Próximo <ChevronRight className="w-4 h-4"/>
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ComunicacaoView — DEPRECATED (kept for reference, not used)
+   ═══════════════════════════════════════════════════════════════ */
 function ComunicacaoView({ token }: { token: string }) {
   const [settings, setSettings] = useState<any>(null);
   const [saving, setSaving] = useState(false);
@@ -3964,8 +4573,7 @@ export default function Dashboard() {
     { key: "propinas", icon: <FileText className="w-5 h-5"/>, label: "Propinas & Faturas" },
     { key: "reconciliacao", icon: <ShieldCheck className="w-5 h-5"/>, label: "Reconciliação" },
     { key: "ocorrencias", icon: <AlertTriangle className="w-5 h-5"/>, label: "Ocorrências" },
-    { key: "comunicacao", icon: <Smartphone className="w-5 h-5"/>, label: "Comunicação" },
-    { key: "comunicados", icon: <Megaphone className="w-5 h-5"/>, label: "Comunicados" },
+    { key: "comunicar", icon: <Megaphone className="w-5 h-5"/>, label: "Comunicar" },
     { key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>, label: "Débito Direto", badge: ddPendingCount },
   ];
 
@@ -4111,13 +4719,10 @@ export default function Dashboard() {
                 <OcorrenciasView token={token} schoolName={schoolName}/>
               </motion.div>
             )}
-            {view === "comunicacao" && (
-              <motion.div key="comunicacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
-                <ComunicacaoView token={token}/>
+            {view === "comunicar" && (
+              <motion.div key="comunicar" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
+                <ComunicarView token={token}/>
               </motion.div>
-            )}
-            {view === "comunicados" && (
-              <ComunicadosEscolaView key="comunicados" token={token}/>
             )}
             {view === "debito_direto" && (
               <DDCancelamentosView key="debito_direto" token={token}/>

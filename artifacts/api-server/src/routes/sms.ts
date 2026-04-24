@@ -224,6 +224,63 @@ router.get("/school/sms/encarregados", schoolAuth, async (req: any, res) => {
   });
 });
 
+/* GET /school/comunicar/audiencia — guardians filtered by audience mode */
+router.get("/school/comunicar/audiencia", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const modo = (req.query.modo as string) ?? "todos";
+  const turmaId = req.query.turma_id ? parseInt(req.query.turma_id as string) : null;
+
+  const params: any[] = [school.school_id];
+  let extraWhere = "";
+  if (modo === "turma" && turmaId) {
+    extraWhere = ` AND s.turma_id = $2`;
+    params.push(turmaId);
+  } else if (modo === "devedores") {
+    extraWhere = ` AND EXISTS (SELECT 1 FROM propinas p WHERE p.student_id = s.id AND p.status != 'pago')`;
+  }
+
+  const registados = await pool.query(
+    `SELECT DISTINCT ON (e.id) e.id, e.nome, e.telefone,
+            array_agg(DISTINCT s.nome) FILTER (WHERE s.nome IS NOT NULL) AS alunos,
+            array_agg(DISTINCT t.nome) FILTER (WHERE t.nome IS NOT NULL) AS turmas
+     FROM encarregados e
+     JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+     JOIN students s ON s.id = ea.aluno_id
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.school_id = $1 AND s.estado = 'activo'${extraWhere}
+     GROUP BY e.id ORDER BY e.nome`,
+    params
+  );
+
+  const naoRegistados = await pool.query(
+    `SELECT DISTINCT ON (s.telefone_encarregado)
+            NULL::integer AS id, s.nome_encarregado AS nome,
+            s.telefone_encarregado AS telefone,
+            array_agg(DISTINCT s.nome) AS alunos,
+            array_agg(DISTINCT t.nome) FILTER (WHERE t.nome IS NOT NULL) AS turmas
+     FROM students s LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.school_id = $1 AND s.estado = 'activo'
+       AND s.telefone_encarregado IS NOT NULL AND s.telefone_encarregado != ''
+       AND s.telefone_encarregado NOT IN (
+           SELECT e.telefone FROM encarregados e
+           JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+           JOIN students st ON st.id = ea.aluno_id
+           WHERE st.school_id = $1
+       )${extraWhere}
+     GROUP BY s.telefone_encarregado, s.nome_encarregado
+     ORDER BY s.telefone_encarregado`,
+    params
+  );
+
+  return res.json({
+    registados: registados.rows,
+    nao_registados: naoRegistados.rows,
+    total: registados.rows.length + naoRegistados.rows.length,
+  });
+});
+
 /* ════════════════════════════════════
    ADMIN ENDPOINTS
 ════════════════════════════════════ */

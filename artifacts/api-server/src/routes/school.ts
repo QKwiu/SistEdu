@@ -2,7 +2,7 @@ import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import { generateInternalReference } from "./reconciliation";
-import { sendEventSMS } from "../services/sms.service";
+import { sendEventSMS, sendBulkSMS } from "../services/sms.service";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -1015,6 +1015,70 @@ router.delete("/school/comunicados/:id", schoolAuth, async (req: any, res) => {
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query("DELETE FROM comunicados WHERE id = $1 AND escola_id = $2", [req.params.id, school.school_id]);
   res.status(204).end();
+});
+
+/* ─── POST /school/comunicar/publicar — unified: portal + SMS ─── */
+router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { titulo, conteudo, prioridade, canal, phones } = req.body;
+  if (!conteudo?.trim()) return res.status(400).json({ error: "Conteúdo obrigatório." });
+
+  let comunicadoId: number | null = null;
+  let smsSent = 0, smsFailed = 0;
+
+  // Fetch school SMS settings once for both portal fallback and explicit SMS send
+  const settingsR = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school.school_id]);
+  const comm = settingsR.rows[0]?.settings?.comunicacao ?? {};
+  const smsConfig = {
+    provider: comm.sms_provider || "mock",
+    api_url: comm.sms_api_url,
+    api_key: comm.sms_api_key,
+    sender_name: comm.sms_sender_name || "KiwaraEsc",
+  };
+
+  // Publish to guardian portal
+  if (canal === "portal" || canal === "ambos") {
+    if (!titulo?.trim()) return res.status(400).json({ error: "Título obrigatório para publicar no portal." });
+    const r = await pool.query(
+      `INSERT INTO comunicados (escola_id, titulo, conteudo, prioridade) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [school.school_id, titulo.trim(), conteudo.trim(), prioridade ?? "normal"]
+    );
+    comunicadoId = r.rows[0].id;
+
+    // SMS Fallback: auto-send to guardians without a portal account
+    if (canal === "portal" && comm.sms_fallback && comm.sms_activo) {
+      const naoReg = await pool.query(
+        `SELECT DISTINCT ON (s.telefone_encarregado) s.telefone_encarregado AS phone
+         FROM students s
+         WHERE s.school_id = $1 AND s.estado = 'activo'
+           AND s.telefone_encarregado IS NOT NULL AND s.telefone_encarregado != ''
+           AND s.telefone_encarregado NOT IN (
+               SELECT e.telefone FROM encarregados e
+               JOIN encarregado_aluno ea ON ea.encarregado_id = e.id
+               JOIN students st ON st.id = ea.aluno_id WHERE st.school_id = $1
+           )`,
+        [school.school_id]
+      );
+      if (naoReg.rows.length > 0) {
+        const fallbackMsg = titulo ? `${titulo.trim()}: ${conteudo.trim().substring(0, 130)}` : conteudo.trim().substring(0, 160);
+        const recipients = naoReg.rows.map((r: any) => ({ phone: r.phone, name: "" }));
+        const fbResult = await sendBulkSMS(recipients, fallbackMsg, smsConfig, school.school_id);
+        smsSent += fbResult.sent; smsFailed += fbResult.failed;
+      }
+    }
+  }
+
+  // Explicit SMS send (sms or ambos with selected phones)
+  if ((canal === "sms" || canal === "ambos") && Array.isArray(phones) && phones.length > 0) {
+    const recipients = phones.map((p: string) => ({ phone: p, name: "" }));
+    const smsResult = await sendBulkSMS(recipients, conteudo.trim(), smsConfig, school.school_id);
+    smsSent += smsResult.sent;
+    smsFailed += smsResult.failed;
+  }
+
+  return res.json({ comunicado_id: comunicadoId, sms_sent: smsSent, sms_failed: smsFailed });
 });
 
 /* ─── GET /school/direct-debit/subscriptions ─── */

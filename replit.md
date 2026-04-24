@@ -32,7 +32,12 @@ Every package extends a shared `tsconfig.base.json` with `composite: true`. The 
 -   **Pagamentos Híbridos**: Hybrid payment system supporting both manual (baixa manual) and automatic online payments (MCX Express / EMIS). Webhook endpoint `POST /payments/webhook` for automatic reconciliation. Idempotency via `transaction_id`. Online payments cannot be edited manually. DB columns: `transaction_id` (unique), `metodo_pagamento`, `pagamento_origem` (manual/online). Payment method filter in PropinasView. Transaction ID shown in detail modal.
 -   **Tuition Fee Adjustments**: Modal for adjustments: penalty forgiveness, value adjustment, rescheduling due date, justification. History of adjustments.
 -   **Incidents**: Register disciplinary or academic incidents per student (type, description, date).
--   **Announcements**: Create and publish announcements visible to guardians.
+-   **Comunicar** (unified module, formerly "Comunicação" + "Comunicados"):
+    -   **Compor tab**: Unified composer with canal selector (Portal / SMS / Portal+SMS), título+prioridade (portal), conteúdo/mensagem, audience filter (Todos/Por Turma/Devedores + individual search with guardian list), and publish/send button. Uses `POST /school/comunicar/publicar`.
+    -   **Publicados tab**: List of portal comunicados with read count and delete.
+    -   **Config. SMS tab**: SMS provider settings (mock/Africa's Talking/Twilio/custom), SMS active toggle, SMS Fallback toggle (auto-send to guardians without portal account on portal publish), events, and template editor.
+    -   **Histórico tab**: SMS send logs with pagination.
+    -   SMS Fallback: when publishing to portal-only and fallback is enabled, automatically sends SMS to guardians without portal accounts.
 -   **Fees (Emoluments)**: View generated fees for students.
 -   **Profile**: School details, bank IBAN for payments, access credentials.
 
