@@ -3756,10 +3756,10 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex overflow-x-hidden">
 
       {/* ── Desktop Sidebar (md+) ── */}
-      <aside className="bg-slate-900 text-slate-300 w-64 flex-shrink-0 hidden md:flex flex-col">
+      <aside className="bg-slate-900 text-slate-300 w-64 flex-shrink-0 hidden md:flex flex-col sticky top-0 h-screen overflow-y-auto">
         <div className="h-16 flex items-center px-6 border-b border-slate-800">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold mr-3 text-sm">K</div>
           <span className="font-display font-bold text-white text-base">Kiwara Escolar</span>
@@ -3800,7 +3800,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* Main */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <button

@@ -5128,7 +5128,7 @@ export default function AdminDashboard() {
       </AnimatePresence>
 
       {/* ── Main Content ── */}
-      <main className="w-full md:ml-64">
+      <main className="md:ml-64 min-h-[calc(100vh-3.5rem)] overflow-x-hidden">
         {selectedSchoolId ? (
           loadingDetail ? (
             <div className="flex items-center justify-center h-64">
