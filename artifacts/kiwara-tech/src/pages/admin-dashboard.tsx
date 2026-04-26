@@ -2368,7 +2368,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
     try {
       const qs = filterStatus ? `?status=${filterStatus}` : "";
       const r = await api(`/admin/colegios/${schoolId}/reconciliacao${qs}`);
-      if (r.ok) { const d = await r.json(); setData(d); setCommRate(Number(d.school?.commission_rate ?? 0)); setCommInput(String(Number(d.school?.commission_rate ?? 0))); }
+      if (r.ok) { const d = await r.json(); setData(d); setCommRate(Number(d.school?.commission_rate ?? 0)); }
     } finally { setLoading(false); }
   }, [schoolId, filterStatus]);
 
