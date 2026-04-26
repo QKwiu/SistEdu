@@ -48,7 +48,7 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos";
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -4352,6 +4352,366 @@ function DDCancelamentosView({ token }: { token: string }) {
   );
 }
 
+/* ─────────────────────────────────────────────
+   Emolumentos — helpers & view
+   ───────────────────────────────────────────── */
+interface Emolumento {
+  id: number; school_id: number; tipo: string; nome: string;
+  montante: number; ano_lectivo: string; created_at: string;
+}
+
+const TIPO_GRUPOS_SCH = [
+  {
+    grupo: "Obrigatórios (fixos)",
+    items: [
+      { value: "propina", label: "Propina (mensalidade)" },
+      { value: "matricula", label: "Matrícula (primeira inscrição)" },
+      { value: "confirmacao_matricula", label: "Confirmação de matrícula (renovação anual)" },
+      { value: "seguro", label: "Seguro escolar" },
+      { value: "cartao_estudante", label: "Cartão de estudante" },
+    ],
+  },
+  {
+    grupo: "Académicos (por serviço)",
+    items: [
+      { value: "declaracao", label: "Declarações" },
+      { value: "certificado", label: "Certificados" },
+      { value: "emissao_notas", label: "Emissão de notas" },
+      { value: "segunda_via", label: "Segunda via de documentos" },
+      { value: "pedido_especial", label: "Pedidos especiais (transferência, equivalência)" },
+      { value: "folha_prova", label: "Folha de prova" },
+      { value: "exame", label: "Exame" },
+    ],
+  },
+  {
+    grupo: "Operacionais / Serviços",
+    items: [
+      { value: "transporte", label: "Transporte escolar" },
+      { value: "alimentacao", label: "Alimentação" },
+      { value: "uniforme", label: "Uniforme" },
+      { value: "extracurricular", label: "Atividades extracurriculares" },
+    ],
+  },
+  {
+    grupo: "Punitivos (multas)",
+    items: [
+      { value: "multa_atraso", label: "Multa por atraso de propina" },
+      { value: "multa_dano", label: "Multa por dano material" },
+    ],
+  },
+  {
+    grupo: "Outros",
+    items: [
+      { value: "outro", label: "Outro (personalizado)" },
+    ],
+  },
+];
+
+const DESCRICAO_POR_TIPO_SCH: Record<string, string[]> = {
+  propina: ["Propina Mensal", "Propina Mensal — 1.ª a 4.ª Classe", "Propina Mensal — 5.ª a 9.ª Classe", "Propina Mensal — 10.ª a 13.ª Classe"],
+  matricula: ["Matrícula Escolar", "Matrícula Escolar — Ensino Primário", "Matrícula Escolar — I Ciclo", "Matrícula Escolar — II Ciclo"],
+  confirmacao_matricula: ["Confirmação de Matrícula", "Renovação de Matrícula — Ensino Primário", "Renovação de Matrícula — I Ciclo", "Renovação de Matrícula — II Ciclo"],
+  seguro: ["Seguro Escolar Anual", "Seguro Escolar Semestral", "Seguro de Acidentes Pessoais"],
+  cartao_estudante: ["Cartão de Estudante", "Segunda Via de Cartão de Estudante"],
+  declaracao: ["Declaração de Frequência", "Declaração de Notas", "Declaração de Matrícula", "Declaração para Bolsa", "Declaração de Conclusão de Ano Lectivo"],
+  certificado: ["Certificado de Habilitações", "Certificado de Conclusão — Ensino Primário", "Certificado de Conclusão — I Ciclo", "Certificado de Conclusão — II Ciclo"],
+  emissao_notas: ["Emissão de Notas — Boletim Completo", "Histórico de Notas"],
+  segunda_via: ["Segunda Via de Notas", "Segunda Via de Matrícula", "Segunda Via de Certificado", "Segunda Via de Diploma"],
+  pedido_especial: ["Transferência Escolar", "Equivalência de Disciplinas", "Reingresso Escolar"],
+  folha_prova: ["Folha de Prova Exame", "Folha de Prova Teste"],
+  exame: ["Taxa de Exame Nacional", "Taxa de Exame Interno", "Taxa de Exame de Recurso"],
+  transporte: ["Transporte Escolar — Ida e Volta", "Transporte Escolar — Só Ida", "Transporte Escolar — Só Volta"],
+  alimentacao: ["Refeição Escolar — Almoço", "Lanche Escolar", "ATL — Actividades de Tempos Livres"],
+  uniforme: ["Kit de Uniforme Completo", "Calças / Saia de Uniforme", "Camisa / Blusa de Uniforme"],
+  extracurricular: ["Actividades Extracurriculares — Desporto", "Actividades Extracurriculares — Arte e Cultura", "Clube de Informática", "Natação Escolar"],
+  multa_atraso: ["Multa por Atraso no Pagamento de Propina"],
+  multa_dano: ["Multa por Dano de Material Escolar", "Multa por Dano de Equipamento Informático", "Multa por Perda de Material da Escola"],
+  outro: [],
+};
+
+function tipoLabelSch(v: string) {
+  for (const g of TIPO_GRUPOS_SCH) {
+    const found = g.items.find(i => i.value === v);
+    if (found) return found.label;
+  }
+  return v;
+}
+
+const TIPO_COLOR_SCH: Record<string, string> = {
+  propina: "bg-blue-100 text-blue-700 border-blue-200",
+  matricula: "bg-violet-100 text-violet-700 border-violet-200",
+  confirmacao_matricula: "bg-purple-100 text-purple-700 border-purple-200",
+  seguro: "bg-cyan-100 text-cyan-700 border-cyan-200",
+  cartao_estudante: "bg-teal-100 text-teal-700 border-teal-200",
+  declaracao: "bg-amber-100 text-amber-700 border-amber-200",
+  certificado: "bg-orange-100 text-orange-700 border-orange-200",
+  emissao_notas: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  segunda_via: "bg-lime-100 text-lime-700 border-lime-200",
+  pedido_especial: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  folha_prova: "bg-pink-100 text-pink-700 border-pink-200",
+  exame: "bg-rose-100 text-rose-700 border-rose-200",
+  transporte: "bg-sky-100 text-sky-700 border-sky-200",
+  alimentacao: "bg-green-100 text-green-700 border-green-200",
+  uniforme: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  extracurricular: "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200",
+  multa_atraso: "bg-red-100 text-red-700 border-red-200",
+  multa_dano: "bg-red-100 text-red-700 border-red-200",
+  outro: "bg-slate-100 text-slate-600 border-slate-200",
+};
+
+function EmolumentosView({ token }: { token: string }) {
+  const [list, setList] = useState<Emolumento[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026" });
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0], montante: "", ano_lectivo: "2025/2026", nomeCustom: "" });
+  const [formErr, setFormErr] = useState("");
+
+  const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/school/emolumentos`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setList(await r.json());
+    } catch {}
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault(); setFormErr("");
+    const nome = form.tipo === "outro" ? form.nomeCustom.trim() : form.nome.trim();
+    if (!nome) return setFormErr("Introduza uma descrição.");
+    if (!form.montante || Number(form.montante) <= 0) return setFormErr("Introduza um montante válido.");
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/school/emolumentos`, {
+        method: "POST", headers: hdrs,
+        body: JSON.stringify({ tipo: form.tipo, nome, montante: Number(form.montante), ano_lectivo: form.ano_lectivo }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setList(prev => [data, ...prev]);
+      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0], montante: "", ano_lectivo: "2025/2026", nomeCustom: "" });
+      setShowForm(false);
+    } catch (err: any) { setFormErr(err.message); }
+    setSaving(false);
+  };
+
+  const startEdit = (em: Emolumento) => {
+    setEditId(em.id);
+    setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo });
+  };
+
+  const saveEdit = async (id: number) => {
+    if (!editForm.nome.trim() || !editForm.montante) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/school/emolumentos/${id}`, {
+        method: "PUT", headers: hdrs,
+        body: JSON.stringify({ nome: editForm.nome.trim(), montante: Number(editForm.montante), ano_lectivo: editForm.ano_lectivo }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setList(prev => prev.map(e => e.id === id ? data : e));
+      setEditId(null);
+    } catch (err: any) { alert(err.message); }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Eliminar este emolumento?")) return;
+    await fetch(`${API}/school/emolumentos/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    setList(prev => prev.filter(e => e.id !== id));
+  };
+
+  const grouped = useMemo(() => {
+    const map: Record<string, Emolumento[]> = {};
+    for (const em of list) {
+      if (!map[em.tipo]) map[em.tipo] = [];
+      map[em.tipo].push(em);
+    }
+    return map;
+  }, [list]);
+
+  const allTipos = Object.keys(grouped);
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Receipt className="w-5 h-5 text-primary"/> Emolumentos
+          </h1>
+          <p className="text-sm text-slate-500 mt-0.5">Tabela de custos e serviços da sua instituição</p>
+        </div>
+        <button onClick={() => { setShowForm(s => !s); setFormErr(""); }}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm">
+          <Plus className="w-4 h-4"/> {showForm ? "Cancelar" : "Adicionar emolumento"}
+        </button>
+      </div>
+
+      {/* Add form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden mb-6">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+              <h4 className="font-semibold text-slate-700 mb-4 text-sm">Novo Emolumento</h4>
+              <form onSubmit={handleAdd} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Tipo de emolumento <span className="text-red-500">*</span></label>
+                    <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      value={form.tipo}
+                      onChange={e => {
+                        const tipo = e.target.value;
+                        const first = (DESCRICAO_POR_TIPO_SCH[tipo] ?? [])[0] ?? "";
+                        setForm(f => ({ ...f, tipo, nome: first, nomeCustom: "" }));
+                      }}>
+                      {TIPO_GRUPOS_SCH.map(g => (
+                        <optgroup key={g.grupo} label={g.grupo}>
+                          {g.items.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Ano lectivo</label>
+                    <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Descrição <span className="text-red-500">*</span></label>
+                    {form.tipo === "outro" ? (
+                      <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Ex: Taxa de Passeio Anual"
+                        value={form.nomeCustom} onChange={e => setForm(f => ({ ...f, nomeCustom: e.target.value }))} />
+                    ) : (DESCRICAO_POR_TIPO_SCH[form.tipo] ?? []).length > 0 ? (
+                      <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}>
+                        {DESCRICAO_POR_TIPO_SCH[form.tipo].map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    ) : (
+                      <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        placeholder="Descrição do emolumento"
+                        value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Montante base (AOA) <span className="text-red-500">*</span></label>
+                    <input type="number" min="0" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
+                  </div>
+                </div>
+                {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
+                <div className="flex items-center gap-3">
+                  <button type="submit" disabled={saving}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Adicionar emolumento</>}
+                  </button>
+                  <button type="button" onClick={() => setShowForm(false)}
+                    className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
+        </div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-slate-400 gap-3">
+          <Receipt className="w-10 h-10 opacity-30"/>
+          <div className="text-center">
+            <p className="text-sm font-medium text-slate-500">Nenhum emolumento configurado</p>
+            <p className="text-xs text-slate-400 mt-1">Adicione os custos e serviços da sua instituição</p>
+          </div>
+          <button onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors mt-2">
+            <Plus className="w-4 h-4"/> Adicionar primeiro emolumento
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</p>}
+          {allTipos.map(tipo => (
+            <div key={tipo} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className={`flex items-center gap-2 px-5 py-3 border-b border-slate-100 ${(TIPO_COLOR_SCH[tipo] ?? "bg-slate-50 text-slate-700 border-slate-200").split(" ")[0]}/20`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TIPO_COLOR_SCH[tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                  {tipoLabelSch(tipo)}
+                </span>
+                <span className="text-xs text-slate-400 ml-auto">{grouped[tipo].length} item{grouped[tipo].length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {grouped[tipo].map(em => (
+                  <div key={em.id} className="px-5 py-3.5 flex items-center gap-3">
+                    {editId === em.id ? (
+                      <>
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <input className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
+                          <input type="number" min="0" className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
+                          <input className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                        </div>
+                        <button onClick={() => saveEdit(em.id)} disabled={saving}
+                          className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Guardar">
+                          <Save className="w-4 h-4"/>
+                        </button>
+                        <button onClick={() => setEditId(null)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors" title="Cancelar">
+                          <X className="w-4 h-4"/>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
+                          <p className="text-xs text-slate-400">{em.ano_lectivo}</p>
+                        </div>
+                        <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">
+                          {Number(em.montante).toLocaleString("pt-AO")} Kz
+                        </p>
+                        <button onClick={() => startEdit(em)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar">
+                          <Pencil className="w-3.5 h-3.5"/>
+                        </button>
+                        <button onClick={() => handleDelete(em.id)}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar">
+                          <Trash2 className="w-3.5 h-3.5"/>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs text-center text-slate-400 pb-4">
+            {list.length} emolumento{list.length !== 1 ? "s" : ""} configurado{list.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -4426,6 +4786,7 @@ export default function Dashboard() {
     { key: "ocorrencias", icon: <AlertTriangle className="w-5 h-5"/>, label: "Ocorrências" },
     { key: "comunicar", icon: <Megaphone className="w-5 h-5"/>, label: "Comunicar" },
     { key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>, label: "Débito Direto", badge: ddPendingCount },
+    { key: "emolumentos", icon: <Receipt className="w-5 h-5"/>, label: "Emolumentos" },
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -4577,6 +4938,9 @@ export default function Dashboard() {
             )}
             {view === "debito_direto" && (
               <DDCancelamentosView key="debito_direto" token={token}/>
+            )}
+            {view === "emolumentos" && token && (
+              <EmolumentosView key="emolumentos" token={token}/>
             )}
           </AnimatePresence>
         )}

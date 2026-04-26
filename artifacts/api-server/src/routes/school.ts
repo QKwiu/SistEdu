@@ -1081,6 +1081,65 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
   return res.json({ comunicado_id: comunicadoId, sms_sent: smsSent, sms_failed: smsFailed });
 });
 
+/* ─────────────────────────────────────────────
+   Emolumentos — school self-management
+   ───────────────────────────────────────────── */
+
+/* ─── GET /school/emolumentos ─── */
+router.get("/school/emolumentos", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    "SELECT * FROM emolumentos WHERE school_id=$1 ORDER BY tipo, ano_lectivo, nome",
+    [school.school_id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── POST /school/emolumentos ─── */
+router.post("/school/emolumentos", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { tipo, nome, montante, ano_lectivo } = req.body;
+  if (!tipo || !nome?.trim() || !montante) {
+    return res.status(400).json({ error: "Tipo, nome e montante são obrigatórios." });
+  }
+  const r = await pool.query(
+    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [school.school_id, tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026"]
+  );
+  return res.status(201).json(r.rows[0]);
+});
+
+/* ─── PUT /school/emolumentos/:id ─── */
+router.put("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, montante, ano_lectivo } = req.body;
+  if (!nome?.trim() || !montante) {
+    return res.status(400).json({ error: "Nome e montante são obrigatórios." });
+  }
+  const r = await pool.query(
+    `UPDATE emolumentos SET nome=$1, montante=$2, ano_lectivo=$3
+     WHERE id=$4 AND school_id=$5 RETURNING *`,
+    [nome.trim(), Number(montante), ano_lectivo || "2025/2026", req.params.id, school.school_id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Emolumento não encontrado." });
+  return res.json(r.rows[0]);
+});
+
+/* ─── DELETE /school/emolumentos/:id ─── */
+router.delete("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query(
+    "DELETE FROM emolumentos WHERE id=$1 AND school_id=$2",
+    [req.params.id, school.school_id]
+  );
+  return res.status(204).end();
+});
+
 /* ─── GET /school/direct-debit/subscriptions ─── */
 router.get("/school/direct-debit/subscriptions", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
