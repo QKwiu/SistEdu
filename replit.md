@@ -105,8 +105,18 @@ Full DD subscription lifecycle implemented:
 - **Cancellation flow**: Guardian submits cancel request → status becomes `cancellation_requested` → Admin approves via `PUT /admin/direct-debit/subscriptions/:id/approve-cancellation` → status becomes `cancelled`
 - **Transparency**: Subscription card shows masked IBAN, debit day, emoluments list, next 4 monthly debit dates
 
+## Emolumentos & Multas Module
+Per-emolumento fine rules are stored directly on the `emolumentos` table (distinct from the school-wide `multa_regras` for propinas):
+- `multa_ativo BOOLEAN` — enables/disables fine for this emolument
+- `multa_tipo VARCHAR(20)` — `'fixo'` (flat AOA amount) or `'percentual'` (% of montante)
+- `multa_valor_fixo NUMERIC(12,2)` — flat fine amount (used when multa_tipo='fixo')
+- `multa_percentagem NUMERIC(6,2)` — fine percentage (used when multa_tipo='percentual')
+- `juros_mora NUMERIC(6,4)` — daily late interest rate (%)
+- `dias_carencia INTEGER` — grace period days before fine starts
+Global emolumentos (school_id IS NULL, created by Superadmin) and school-local emolumentos both support these fields. School portal shows global ones read-only with fine badges; local ones are fully editable including fine config. Billing engine reads these fields dynamically from whichever emolument is active.
+
 ## Database Schema Highlights
-Key tables include `schools`, `sessions`, `encarregados`, `guardian_sessions`, `encarregado_aluno`, `turmas`, `students`, `matriculas`, `propinas`, `pagamentos`, `ocorrencias`, `multa_regras`, `propina_ajustes`, `sms_logs`, `comunicados`, `comunicados_lidos`, `payment_method_audit_log`, and `direct_debit_subscriptions`. Enum values are defined for `students.estado`, `students.sexo`, `propinas.status`, and `pagamentos.estado`.
+Key tables include `schools`, `sessions`, `encarregados`, `guardian_sessions`, `encarregado_aluno`, `turmas`, `students`, `matriculas`, `propinas`, `pagamentos`, `ocorrencias`, `multa_regras`, `propina_ajustes`, `sms_logs`, `comunicados`, `comunicados_lidos`, `payment_method_audit_log`, `direct_debit_subscriptions`, and `emolumentos` (with per-emolumento multa fields). Enum values are defined for `students.estado`, `students.sexo`, `propinas.status`, and `pagamentos.estado`.
 
 # External Dependencies
 -   **Monorepo Tool**: pnpm workspaces

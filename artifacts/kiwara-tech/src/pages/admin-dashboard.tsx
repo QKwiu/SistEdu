@@ -78,6 +78,9 @@ interface Emolumento {
   id: number; school_id: number | null; tipo: string; nome: string;
   montante: number; ano_lectivo: string; activo: boolean;
   is_global?: boolean;
+  multa_ativo: boolean; multa_tipo: string;
+  multa_valor_fixo: number | null; multa_percentagem: number | null;
+  juros_mora: number; dias_carencia: number;
 }
 interface Bracket { dia_inicio: number; dia_fim: number; percentagem: number; }
 interface MultaRegra {
@@ -5295,9 +5298,10 @@ function GlobalEmolumentosAdminView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026" });
+  const MULTA_INIT_A = { multa_ativo: false, multa_tipo: "fixo", multa_valor_fixo: "", multa_percentagem: "", juros_mora: "", dias_carencia: "0" };
+  const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026", ...MULTA_INIT_A });
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO["propina"][0], montante: "", ano_lectivo: "2025/2026" });
+  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO["propina"][0], montante: "", ano_lectivo: "2025/2026", ...MULTA_INIT_A });
   const [formErr, setFormErr] = useState("");
 
   const load = useCallback(async () => {
@@ -5318,12 +5322,12 @@ function GlobalEmolumentosAdminView() {
     setSaving(true);
     try {
       const r = await api("/admin/emolumentos/global", {
-        method: "POST", body: JSON.stringify({ tipo: form.tipo, nome: form.nome.trim(), montante: Number(form.montante), ano_lectivo: form.ano_lectivo }),
+        method: "POST", body: JSON.stringify({ tipo: form.tipo, nome: form.nome.trim(), montante: Number(form.montante), ano_lectivo: form.ano_lectivo, multa_ativo: form.multa_ativo, multa_tipo: form.multa_tipo, multa_valor_fixo: form.multa_valor_fixo ? Number(form.multa_valor_fixo) : null, multa_percentagem: form.multa_percentagem ? Number(form.multa_percentagem) : null, juros_mora: form.juros_mora ? Number(form.juros_mora) : 0, dias_carencia: Number(form.dias_carencia || 0) }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setList(prev => [...prev, data]);
-      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO["propina"][0], montante: "", ano_lectivo: "2025/2026" });
+      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO["propina"][0], montante: "", ano_lectivo: "2025/2026", ...MULTA_INIT_A });
       setShowForm(false);
     } catch (err: any) { setFormErr(err.message); }
     setSaving(false);
@@ -5334,7 +5338,7 @@ function GlobalEmolumentosAdminView() {
     setSaving(true);
     try {
       const r = await api(`/admin/emolumentos/global/${id}`, {
-        method: "PUT", body: JSON.stringify({ nome: editForm.nome.trim(), montante: Number(editForm.montante), ano_lectivo: editForm.ano_lectivo }),
+        method: "PUT", body: JSON.stringify({ nome: editForm.nome.trim(), montante: Number(editForm.montante), ano_lectivo: editForm.ano_lectivo, multa_ativo: editForm.multa_ativo, multa_tipo: editForm.multa_tipo, multa_valor_fixo: editForm.multa_valor_fixo ? Number(editForm.multa_valor_fixo) : null, multa_percentagem: editForm.multa_percentagem ? Number(editForm.multa_percentagem) : null, juros_mora: editForm.juros_mora ? Number(editForm.juros_mora) : 0, dias_carencia: Number(editForm.dias_carencia || 0) }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
@@ -5425,6 +5429,52 @@ function GlobalEmolumentosAdminView() {
                     <input type="number" min="0" className={inputCls} placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
                   </Field>
                 </div>
+                {/* ─── Admin Global Multa Config Panel ─── */}
+                <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700">Configuração de Multa</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Penalização por atraso de pagamento (aplicada a todas as instituições)</p>
+                    </div>
+                    <button type="button" onClick={() => setForm(f => ({ ...f, multa_ativo: !f.multa_ativo }))}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${form.multa_ativo ? "bg-emerald-500" : "bg-slate-300"}`}>
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${form.multa_ativo ? "translate-x-4" : "translate-x-1"}`}/>
+                    </button>
+                  </div>
+                  {form.multa_ativo && (
+                    <div className="space-y-3 pt-3 mt-3 border-t border-slate-100">
+                      <div>
+                        <Field label="Tipo de multa">
+                          <div className="flex gap-2">
+                            {(["fixo", "percentual"] as const).map(t => (
+                              <button key={t} type="button" onClick={() => setForm(f => ({ ...f, multa_tipo: t }))}
+                                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${form.multa_tipo === t ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+                                {t === "fixo" ? "Valor Fixo" : "Percentual"}
+                              </button>
+                            ))}
+                          </div>
+                        </Field>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {form.multa_tipo === "fixo" ? (
+                          <Field label="Valor fixo (AOA)">
+                            <input type="number" min="0" className={inputCls} placeholder="ex: 5000" value={form.multa_valor_fixo} onChange={e => setForm(f => ({ ...f, multa_valor_fixo: e.target.value }))} />
+                          </Field>
+                        ) : (
+                          <Field label="Percentagem (%)">
+                            <input type="number" min="0" max="100" step="0.1" className={inputCls} placeholder="ex: 5" value={form.multa_percentagem} onChange={e => setForm(f => ({ ...f, multa_percentagem: e.target.value }))} />
+                          </Field>
+                        )}
+                        <Field label="Juros de mora (% / dia)">
+                          <input type="number" min="0" step="0.01" className={inputCls} placeholder="ex: 0.1" value={form.juros_mora} onChange={e => setForm(f => ({ ...f, juros_mora: e.target.value }))} />
+                        </Field>
+                        <Field label="Dias de carência">
+                          <input type="number" min="0" className={inputCls} placeholder="ex: 5" value={form.dias_carencia} onChange={e => setForm(f => ({ ...f, dias_carencia: e.target.value }))} />
+                        </Field>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
                 <div className="flex items-center gap-3">
                   <button type="submit" disabled={saving}
@@ -5461,36 +5511,95 @@ function GlobalEmolumentosAdminView() {
                 </span>
                 <span className="text-xs text-slate-400 ml-auto">{items.length} item{items.length !== 1 ? "s" : ""}</span>
               </div>
-              <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-slate-100">
                 {items.map(em => (
-                  <div key={em.id} className={`px-5 py-3.5 flex items-center gap-3 transition-opacity ${em.activo ? "" : "opacity-50"}`}>
+                  <div key={em.id} className={`transition-opacity ${em.activo ? "" : "opacity-50"}`}>
                     {editId === em.id ? (
-                      <>
-                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <input className={`${inputCls} text-sm py-1.5`} value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
-                          <input type="number" min="0" className={`${inputCls} text-sm py-1.5`} value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
-                          <input className={`${inputCls} text-sm py-1.5`} value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                      <div className="px-5 py-4 space-y-3 bg-slate-50/70">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <Field label="Descrição">
+                            <input className={`${inputCls} text-sm py-1.5`} value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
+                          </Field>
+                          <Field label="Montante (AOA)">
+                            <input type="number" min="0" className={`${inputCls} text-sm py-1.5`} value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
+                          </Field>
+                          <Field label="Ano lectivo">
+                            <input className={`${inputCls} text-sm py-1.5`} value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                          </Field>
                         </div>
-                        <button onClick={() => saveEdit(em.id)} disabled={saving} className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Guardar"><Save className="w-4 h-4"/></button>
-                        <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors" title="Cancelar"><X className="w-4 h-4"/></button>
-                      </>
+                        {/* Edit multa panel */}
+                        <div className="border border-slate-200 rounded-xl p-3.5 bg-white">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-700">Configuração de Multa</p>
+                            <button type="button" onClick={() => setEditForm(f => ({ ...f, multa_ativo: !f.multa_ativo }))}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${editForm.multa_ativo ? "bg-emerald-500" : "bg-slate-300"}`}>
+                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${editForm.multa_ativo ? "translate-x-4" : "translate-x-1"}`}/>
+                            </button>
+                          </div>
+                          {editForm.multa_ativo && (
+                            <div className="space-y-3 pt-3 mt-2 border-t border-slate-100">
+                              <div className="flex gap-2">
+                                {(["fixo", "percentual"] as const).map(t => (
+                                  <button key={t} type="button" onClick={() => setEditForm(f => ({ ...f, multa_tipo: t }))}
+                                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${editForm.multa_tipo === t ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+                                    {t === "fixo" ? "Valor Fixo" : "Percentual"}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                {editForm.multa_tipo === "fixo" ? (
+                                  <Field label="Valor fixo (AOA)">
+                                    <input type="number" min="0" className={`${inputCls} text-sm py-1.5`} placeholder="ex: 5000" value={editForm.multa_valor_fixo} onChange={e => setEditForm(f => ({ ...f, multa_valor_fixo: e.target.value }))} />
+                                  </Field>
+                                ) : (
+                                  <Field label="Percentagem (%)">
+                                    <input type="number" min="0" max="100" step="0.1" className={`${inputCls} text-sm py-1.5`} placeholder="ex: 5" value={editForm.multa_percentagem} onChange={e => setEditForm(f => ({ ...f, multa_percentagem: e.target.value }))} />
+                                  </Field>
+                                )}
+                                <Field label="Juros de mora (% / dia)">
+                                  <input type="number" min="0" step="0.01" className={`${inputCls} text-sm py-1.5`} placeholder="ex: 0.1" value={editForm.juros_mora} onChange={e => setEditForm(f => ({ ...f, juros_mora: e.target.value }))} />
+                                </Field>
+                                <Field label="Dias de carência">
+                                  <input type="number" min="0" className={`${inputCls} text-sm py-1.5`} placeholder="ex: 5" value={editForm.dias_carencia} onChange={e => setEditForm(f => ({ ...f, dias_carencia: e.target.value }))} />
+                                </Field>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => saveEdit(em.id)} disabled={saving} className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : <Save className="w-3.5 h-3.5"/>} Guardar
+                          </button>
+                          <button onClick={() => setEditId(null)} className="px-4 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors">Cancelar</button>
+                        </div>
+                      </div>
                     ) : (
-                      <>
+                      <div className="px-5 py-3.5 flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
-                          <p className="text-xs text-slate-400">{em.ano_lectivo}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-xs text-slate-400">{em.ano_lectivo}</span>
+                            {em.multa_ativo && (
+                              <span className="text-xs bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full">
+                                {em.multa_tipo === "fixo"
+                                  ? `Multa ${Number(em.multa_valor_fixo ?? 0).toLocaleString("pt-AO")} Kz`
+                                  : `Multa ${em.multa_percentagem}%`}
+                                {Number(em.juros_mora) > 0 && ` + ${em.juros_mora}%/dia`}
+                                {Number(em.dias_carencia) > 0 && ` (carência ${em.dias_carencia}d)`}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
-                        {/* Toggle activo */}
                         <button onClick={() => toggleActivo(em)}
                           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${em.activo ? "bg-emerald-500" : "bg-slate-300"}`}
                           title={em.activo ? "Desactivar" : "Activar"}>
                           <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${em.activo ? "translate-x-4" : "translate-x-1"}`}/>
                         </button>
-                        <button onClick={() => { setEditId(em.id); setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo }); }}
+                        <button onClick={() => { setEditId(em.id); setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo, multa_ativo: !!em.multa_ativo, multa_tipo: em.multa_tipo || "fixo", multa_valor_fixo: em.multa_valor_fixo != null ? String(em.multa_valor_fixo) : "", multa_percentagem: em.multa_percentagem != null ? String(em.multa_percentagem) : "", juros_mora: em.juros_mora != null ? String(em.juros_mora) : "", dias_carencia: String(em.dias_carencia ?? 0) }); }}
                           className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar"><Pencil className="w-3.5 h-3.5"/></button>
                         <button onClick={() => handleDelete(em.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar"><Trash2 className="w-3.5 h-3.5"/></button>
-                      </>
+                      </div>
                     )}
                   </div>
                 ))}

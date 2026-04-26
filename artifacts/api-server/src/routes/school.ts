@@ -1159,14 +1159,18 @@ router.get("/school/emolumentos", schoolAuth, async (req: any, res) => {
 router.post("/school/emolumentos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { tipo, nome, montante, ano_lectivo } = req.body;
+  const { tipo, nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!tipo || !nome?.trim() || !montante) {
     return res.status(400).json({ error: "Tipo, nome e montante são obrigatórios." });
   }
   const r = await pool.query(
-    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [school.school_id, tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026"]
+    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [school.school_id, tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026",
+     !!multa_ativo, multa_tipo || "fixo",
+     multa_valor_fixo != null ? Number(multa_valor_fixo) : null,
+     multa_percentagem != null ? Number(multa_percentagem) : null,
+     Number(juros_mora ?? 0), Number(dias_carencia ?? 0)]
   );
   return res.status(201).json(r.rows[0]);
 });
@@ -1175,14 +1179,20 @@ router.post("/school/emolumentos", schoolAuth, async (req: any, res) => {
 router.put("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { nome, montante, ano_lectivo } = req.body;
+  const { nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!nome?.trim() || !montante) {
     return res.status(400).json({ error: "Nome e montante são obrigatórios." });
   }
   const r = await pool.query(
-    `UPDATE emolumentos SET nome=$1, montante=$2, ano_lectivo=$3
-     WHERE id=$4 AND school_id=$5 RETURNING *`,
-    [nome.trim(), Number(montante), ano_lectivo || "2025/2026", req.params.id, school.school_id]
+    `UPDATE emolumentos SET nome=$1, montante=$2, ano_lectivo=$3,
+       multa_ativo=$4, multa_tipo=$5, multa_valor_fixo=$6, multa_percentagem=$7, juros_mora=$8, dias_carencia=$9
+     WHERE id=$10 AND school_id=$11 RETURNING *`,
+    [nome.trim(), Number(montante), ano_lectivo || "2025/2026",
+     !!multa_ativo, multa_tipo || "fixo",
+     multa_valor_fixo != null ? Number(multa_valor_fixo) : null,
+     multa_percentagem != null ? Number(multa_percentagem) : null,
+     Number(juros_mora ?? 0), Number(dias_carencia ?? 0),
+     req.params.id, school.school_id]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Emolumento não encontrado." });
   return res.json(r.rows[0]);

@@ -541,28 +541,38 @@ router.get("/admin/emolumentos/global", adminAuth, async (req, res) => {
 
 /* ─── POST /admin/emolumentos/global — create global emolumento ─── */
 router.post("/admin/emolumentos/global", adminAuth, async (req, res) => {
-  const { tipo, nome, montante, ano_lectivo } = req.body;
+  const { tipo, nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!tipo || !nome?.trim() || !montante) {
     return res.status(400).json({ error: "Tipo, nome e montante são obrigatórios." });
   }
   const r = await pool.query(
-    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo, activo)
-     VALUES (NULL,$1,$2,$3,$4,TRUE) RETURNING *`,
-    [tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026"]
+    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo, activo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia)
+     VALUES (NULL,$1,$2,$3,$4,TRUE,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026",
+     !!multa_ativo, multa_tipo || "fixo",
+     multa_valor_fixo != null ? Number(multa_valor_fixo) : null,
+     multa_percentagem != null ? Number(multa_percentagem) : null,
+     Number(juros_mora ?? 0), Number(dias_carencia ?? 0)]
   );
   res.status(201).json(r.rows[0]);
 });
 
 /* ─── PUT /admin/emolumentos/global/:id — update global emolumento ─── */
 router.put("/admin/emolumentos/global/:id", adminAuth, async (req, res) => {
-  const { nome, montante, ano_lectivo } = req.body;
+  const { nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!nome?.trim() || !montante) {
     return res.status(400).json({ error: "Nome e montante são obrigatórios." });
   }
   const r = await pool.query(
-    `UPDATE emolumentos SET nome=$1, montante=$2, ano_lectivo=$3
-     WHERE id=$4 AND school_id IS NULL RETURNING *`,
-    [nome.trim(), Number(montante), ano_lectivo || "2025/2026", req.params.id]
+    `UPDATE emolumentos SET nome=$1, montante=$2, ano_lectivo=$3,
+       multa_ativo=$4, multa_tipo=$5, multa_valor_fixo=$6, multa_percentagem=$7, juros_mora=$8, dias_carencia=$9
+     WHERE id=$10 AND school_id IS NULL RETURNING *`,
+    [nome.trim(), Number(montante), ano_lectivo || "2025/2026",
+     !!multa_ativo, multa_tipo || "fixo",
+     multa_valor_fixo != null ? Number(multa_valor_fixo) : null,
+     multa_percentagem != null ? Number(multa_percentagem) : null,
+     Number(juros_mora ?? 0), Number(dias_carencia ?? 0),
+     req.params.id]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Emolumento global não encontrado." });
   res.json(r.rows[0]);
@@ -595,14 +605,18 @@ router.get("/admin/colegios/:id/emolumentos", adminAuth, async (req, res) => {
 
 /* ─── POST /admin/colegios/:id/emolumentos ─── */
 router.post("/admin/colegios/:id/emolumentos", adminAuth, async (req, res) => {
-  const { tipo, nome, montante, ano_lectivo } = req.body;
+  const { tipo, nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!tipo || !nome?.trim() || !montante) {
     return res.status(400).json({ error: "Tipo, nome e montante são obrigatórios." });
   }
   const r = await pool.query(
-    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [req.params.id, tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026"]
+    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [req.params.id, tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026",
+     !!multa_ativo, multa_tipo || "fixo",
+     multa_valor_fixo != null ? Number(multa_valor_fixo) : null,
+     multa_percentagem != null ? Number(multa_percentagem) : null,
+     Number(juros_mora ?? 0), Number(dias_carencia ?? 0)]
   );
   res.status(201).json(r.rows[0]);
 });
