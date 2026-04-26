@@ -4470,6 +4470,7 @@ function LocalEmolumentosTab({ token }: { token: string }) {
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const MULTA_INIT = { multa_ativo: false, multa_tipo: "fixo", multa_valor_fixo: "", multa_percentagem: "", juros_mora: "", dias_carencia: "0" };
+  const fieldLblCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1";
   const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026", ...MULTA_INIT });
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0] ?? "", montante: "", ano_lectivo: "2025/2026", nomeCustom: "", ...MULTA_INIT });
@@ -4562,11 +4563,12 @@ function LocalEmolumentosTab({ token }: { token: string }) {
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-5">
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <h4 className="font-semibold text-slate-700 mb-4">Adicionar emolumento</h4>
               <form onSubmit={handleAdd} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Tipo <span className="text-red-500">*</span></label>
+                    <label className={fieldLblCls}>Tipo de emolumento <span className="text-red-400">*</span></label>
                     <select className={inputCls} value={form.tipo} onChange={e => {
                       const tipo = e.target.value;
                       setForm(f => ({ ...f, tipo, nome: (DESCRICAO_POR_TIPO_SCH[tipo] ?? [])[0] ?? "", nomeCustom: "" }));
@@ -4579,13 +4581,13 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Ano lectivo</label>
+                    <label className={fieldLblCls}>Ano lectivo</label>
                     <input className={inputCls} value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Descrição <span className="text-red-500">*</span></label>
+                    <label className={fieldLblCls}>Descrição <span className="text-red-400">*</span></label>
                     {form.tipo === "outro" ? (
                       <input className={inputCls} placeholder="Ex: Taxa de Passeio Anual" value={form.nomeCustom} onChange={e => setForm(f => ({ ...f, nomeCustom: e.target.value }))} />
                     ) : (DESCRICAO_POR_TIPO_SCH[form.tipo] ?? []).length > 0 ? (
@@ -4597,7 +4599,7 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Montante (AOA) <span className="text-red-500">*</span></label>
+                    <label className={fieldLblCls}>Montante base (AOA) <span className="text-red-400">*</span></label>
                     <input type="number" min="0" className={inputCls} placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
                   </div>
                 </div>
@@ -4605,7 +4607,7 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                 <div className="border border-slate-200 rounded-xl p-3.5 bg-white">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold text-slate-700">Configuração de Multa</p>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Configuração de Multa</p>
                       <p className="text-xs text-slate-400 mt-0.5">Penalização por atraso de pagamento</p>
                     </div>
                     <button type="button" onClick={() => setForm(f => ({ ...f, multa_ativo: !f.multa_ativo }))}
@@ -4616,7 +4618,7 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                   {form.multa_ativo && (
                     <div className="space-y-3 pt-3 mt-3 border-t border-slate-100">
                       <div>
-                        <p className="text-xs font-medium text-slate-600 mb-1.5">Tipo de multa</p>
+                        <p className={fieldLblCls}>Tipo de multa</p>
                         <div className="flex gap-2">
                           {(["fixo", "percentual"] as const).map(t => (
                             <button key={t} type="button" onClick={() => setForm(f => ({ ...f, multa_tipo: t }))}
@@ -4629,21 +4631,21 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {form.multa_tipo === "fixo" ? (
                           <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1.5">Valor fixo (AOA)</label>
+                            <label className={fieldLblCls}>Valor fixo (AOA)</label>
                             <input type="number" min="0" className={inputCls} placeholder="ex: 5000" value={form.multa_valor_fixo} onChange={e => setForm(f => ({ ...f, multa_valor_fixo: e.target.value }))} />
                           </div>
                         ) : (
                           <div>
-                            <label className="block text-xs font-medium text-slate-600 mb-1.5">Percentagem (%)</label>
+                            <label className={fieldLblCls}>Percentagem (%)</label>
                             <input type="number" min="0" max="100" step="0.1" className={inputCls} placeholder="ex: 5" value={form.multa_percentagem} onChange={e => setForm(f => ({ ...f, multa_percentagem: e.target.value }))} />
                           </div>
                         )}
                         <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1.5">Juros de mora (% / dia)</label>
+                          <label className={fieldLblCls}>Juros de mora (% / dia)</label>
                           <input type="number" min="0" step="0.01" className={inputCls} placeholder="ex: 0.1" value={form.juros_mora} onChange={e => setForm(f => ({ ...f, juros_mora: e.target.value }))} />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-1.5">Dias de carência</label>
+                          <label className={fieldLblCls}>Dias de carência</label>
                           <input type="number" min="0" className={inputCls} placeholder="ex: 5" value={form.dias_carencia} onChange={e => setForm(f => ({ ...f, dias_carencia: e.target.value }))} />
                         </div>
                       </div>
@@ -4652,10 +4654,10 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                 </div>
                 {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
                 <div className="flex gap-3">
-                  <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
-                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Criar</>}
+                  <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors shadow-sm">
+                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Adicionar emolumento</>}
                   </button>
-                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
                 </div>
               </form>
             </div>
@@ -4688,22 +4690,22 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                       <div className="px-4 py-4 space-y-3 bg-slate-50/70">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Descrição</label>
+                            <label className={fieldLblCls}>Descrição</label>
                             <input className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Montante (AOA)</label>
+                            <label className={fieldLblCls}>Montante base (AOA)</label>
                             <input type="number" min="0" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Ano lectivo</label>
+                            <label className={fieldLblCls}>Ano lectivo</label>
                             <input className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
                           </div>
                         </div>
                         {/* Edit multa panel */}
                         <div className="border border-slate-200 rounded-xl p-3 bg-white">
                           <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold text-slate-700">Configuração de Multa</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Configuração de Multa</p>
                             <button type="button" onClick={() => setEditForm(f => ({ ...f, multa_ativo: !f.multa_ativo }))}
                               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${editForm.multa_ativo ? "bg-emerald-500" : "bg-slate-300"}`}>
                               <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${editForm.multa_ativo ? "translate-x-4" : "translate-x-1"}`}/>
@@ -4722,21 +4724,21 @@ function LocalEmolumentosTab({ token }: { token: string }) {
                               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                 {editForm.multa_tipo === "fixo" ? (
                                   <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Valor fixo (AOA)</label>
+                                    <label className={fieldLblCls}>Valor fixo (AOA)</label>
                                     <input type="number" min="0" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 5000" value={editForm.multa_valor_fixo} onChange={e => setEditForm(f => ({ ...f, multa_valor_fixo: e.target.value }))} />
                                   </div>
                                 ) : (
                                   <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Percentagem (%)</label>
+                                    <label className={fieldLblCls}>Percentagem (%)</label>
                                     <input type="number" min="0" max="100" step="0.1" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 5" value={editForm.multa_percentagem} onChange={e => setEditForm(f => ({ ...f, multa_percentagem: e.target.value }))} />
                                   </div>
                                 )}
                                 <div>
-                                  <label className="block text-xs font-medium text-slate-500 mb-1">Juros de mora (% / dia)</label>
+                                  <label className={fieldLblCls}>Juros de mora (% / dia)</label>
                                   <input type="number" min="0" step="0.01" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 0.1" value={editForm.juros_mora} onChange={e => setEditForm(f => ({ ...f, juros_mora: e.target.value }))} />
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-medium text-slate-500 mb-1">Dias de carência</label>
+                                  <label className={fieldLblCls}>Dias de carência</label>
                                   <input type="number" min="0" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 5" value={editForm.dias_carencia} onChange={e => setEditForm(f => ({ ...f, dias_carencia: e.target.value }))} />
                                 </div>
                               </div>
