@@ -1138,6 +1138,47 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
 });
 
 /* ─────────────────────────────────────────────
+   Multa Regra — school self-management
+   ───────────────────────────────────────────── */
+
+/* ─── GET /school/multa-regra ─── */
+router.get("/school/multa-regra", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query("SELECT * FROM multa_regras WHERE school_id=$1", [school.school_id]);
+  res.json(r.rows[0] ?? null);
+});
+
+/* ─── PUT /school/multa-regra — supports 3 models ─── */
+router.put("/school/multa-regra", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { modelo, dia_limite, aplica_automatico, percentagem, valor_fixo, brackets } = req.body;
+  if (!modelo || ![1, 2, 3].includes(Number(modelo)) || !dia_limite) {
+    return res.status(400).json({ error: "modelo (1-3) e dia_limite são obrigatórios." });
+  }
+  const m = Number(modelo);
+  const tipoCal = m === 3 ? "fixa" : "percentual";
+  const valor = m === 3 ? Number(valor_fixo ?? 0) : Number(percentagem ?? 0);
+  const r = await pool.query(
+    `INSERT INTO multa_regras
+       (school_id, modelo, dia_limite, aplica_automatico, percentagem, valor_fixo, brackets, tipo_calculo, valor)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (school_id) DO UPDATE
+       SET modelo=$2, dia_limite=$3, aplica_automatico=$4,
+           percentagem=$5, valor_fixo=$6, brackets=$7,
+           tipo_calculo=$8, valor=$9, updated_at=NOW()
+     RETURNING *`,
+    [
+      school.school_id, m, Number(dia_limite), Boolean(aplica_automatico),
+      Number(percentagem ?? 0), Number(valor_fixo ?? 0),
+      JSON.stringify(brackets ?? []), tipoCal, valor,
+    ]
+  );
+  res.json(r.rows[0]);
+});
+
+/* ─────────────────────────────────────────────
    Emolumentos — school self-management
    ───────────────────────────────────────────── */
 

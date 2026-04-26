@@ -13,7 +13,7 @@ import {
   Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
   ChevronLeft, ChevronRight, ListFilter,
   Megaphone, CheckCheck, XCircle, Info,
-  Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff,
+  Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -4359,10 +4359,18 @@ interface Emolumento {
   id: number; school_id: number | null; tipo: string; nome: string;
   montante: number; ano_lectivo: string; created_at: string;
   activo: boolean; is_global: boolean;
-  multa_ativo: boolean; multa_tipo: string;
-  multa_valor_fixo: number | null; multa_percentagem: number | null;
-  juros_mora: number; dias_carencia: number;
 }
+interface Bracket { dia_inicio: number; dia_fim: number; percentagem: number; }
+interface MultaRegra {
+  id?: number; school_id?: number; modelo: 1 | 2 | 3;
+  dia_limite: number; aplica_automatico: boolean;
+  percentagem: number; valor_fixo: number; brackets: Bracket[];
+}
+const DEFAULT_BRACKETS: Bracket[] = [
+  { dia_inicio: 1, dia_fim: 10, percentagem: 5 },
+  { dia_inicio: 11, dia_fim: 20, percentagem: 10 },
+  { dia_inicio: 21, dia_fim: 31, percentagem: 15 },
+];
 
 const TIPO_GRUPOS_SCH = [
   {
@@ -4464,27 +4472,236 @@ const TIPO_COLOR_SCH: Record<string, string> = {
 };
 
 /* ─── School Emolumentos sub-tab: local list with toggle & CRUD ─── */
+/* ─── School MultaRegras panel (mirrors admin MultaRegrasPanel) ─── */
+function SchoolMultaRegrasPanel({ token, initial, onSaved }: {
+  token: string; initial: MultaRegra | null; onSaved?: (r: MultaRegra) => void;
+}) {
+  const [modelo, setModelo] = useState<1|2|3>(initial?.modelo ?? 1);
+  const [diaLimite, setDiaLimite] = useState(String(initial?.dia_limite ?? 10));
+  const [aplica, setAplica] = useState(initial?.aplica_automatico ?? true);
+  const [percentagem, setPercentagem] = useState(String(initial?.percentagem ?? ""));
+  const [valorFixo, setValorFixo] = useState(String(initial?.valor_fixo ?? ""));
+  const [brackets, setBrackets] = useState<Bracket[]>(
+    initial?.brackets?.length ? initial.brackets : DEFAULT_BRACKETS
+  );
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+  const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  useEffect(() => {
+    if (!initial) return;
+    setModelo(initial.modelo ?? 1);
+    setDiaLimite(String(initial.dia_limite ?? 10));
+    setAplica(initial.aplica_automatico ?? true);
+    setPercentagem(String(initial.percentagem ?? ""));
+    setValorFixo(String(initial.valor_fixo ?? ""));
+    setBrackets(initial.brackets?.length ? initial.brackets : DEFAULT_BRACKETS);
+  }, [initial]);
+
+  const addBracket = () => {
+    const last = brackets[brackets.length - 1];
+    setBrackets(b => [...b, { dia_inicio: last ? last.dia_fim + 1 : 1, dia_fim: last ? last.dia_fim + 10 : 10, percentagem: 0 }]);
+  };
+  const removeBracket = (i: number) => setBrackets(b => b.filter((_, idx) => idx !== i));
+  const updateBracket = (i: number, field: keyof Bracket, val: string) =>
+    setBrackets(b => b.map((br, idx) => idx === i ? { ...br, [field]: Number(val) } : br));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(""); setSuccess(false); setSaving(true);
+    try {
+      const body: Record<string, unknown> = { modelo, dia_limite: Number(diaLimite), aplica_automatico: aplica };
+      if (modelo === 1) body.percentagem = Number(percentagem);
+      else if (modelo === 2) body.brackets = brackets;
+      else body.valor_fixo = Number(valorFixo);
+      const res = await fetch(`${API}/school/multa-regra`, { method: "PUT", headers: hdrs, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+      if (onSaved) onSaved(data);
+    } catch (err: any) { setError(err.message); }
+    finally { setSaving(false); }
+  };
+
+  const MODELO_CARDS = [
+    { id: 1 as const, label: "Modelo 1 — Multa única", desc: "Percentagem aplicada uma vez após o dia limite", icon: <BadgePercent className="w-4 h-4" /> },
+    { id: 2 as const, label: "Modelo 2 — Multa progressiva", desc: "Percentagem cresce com o tempo (escalões)", icon: <TrendingUp className="w-4 h-4" /> },
+    { id: 3 as const, label: "Modelo 3 — Taxa fixa", desc: "Valor fixo em AOA aplicado após o dia limite", icon: <Banknote className="w-4 h-4" /> },
+  ];
+
+  const iCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+  const resumo = () => {
+    const dia = diaLimite || "?";
+    if (!aplica) return `Após o dia ${dia} de cada mês, as propinas são marcadas como atrasadas (sem multa automática).`;
+    if (modelo === 1) return `Após o dia ${dia}, aplica uma multa de ${percentagem || 0}% sobre o montante da propina.`;
+    if (modelo === 2) {
+      const partes = brackets.map(b => `dias ${b.dia_inicio}–${b.dia_fim} → ${b.percentagem}%`).join("; ");
+      return `Multa progressiva: ${partes || "sem escalões definidos"}.`;
+    }
+    return `Após o dia ${dia}, aplica uma taxa fixa de ${Number(valorFixo || 0).toLocaleString("pt-AO")} AOA por propina em atraso.`;
+  };
+
+  return (
+    <div className="mt-8 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+        <h4 className="font-semibold text-amber-900">Regras de cálculo de multa</h4>
+      </div>
+      <p className="text-xs text-amber-700 mb-5">
+        Configure como e quando as multas são aplicadas às propinas em atraso. A multa é automaticamente somada ao valor a pagar pelo encarregado.
+      </p>
+      <form onSubmit={submit} className="space-y-5">
+        <div>
+          <p className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Seleccionar modelo de cálculo</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {MODELO_CARDS.map(m => (
+              <button key={m.id} type="button" onClick={() => setModelo(m.id)}
+                className={`text-left p-3 rounded-xl border-2 transition-all ${modelo === m.id ? "border-amber-500 bg-amber-100/60" : "border-slate-200 bg-white hover:border-amber-300"}`}>
+                <div className={`flex items-center gap-1.5 font-semibold text-xs mb-1 ${modelo === m.id ? "text-amber-800" : "text-slate-700"}`}>
+                  {m.icon}{m.label}
+                </div>
+                <p className="text-xs text-slate-500 leading-snug">{m.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Dia limite mensal">
+            <input type="number" min="1" max="31" className={iCls}
+              placeholder="ex: 10" value={diaLimite} onChange={e => setDiaLimite(e.target.value)} required />
+          </Field>
+          <Field label="Aplicar automaticamente">
+            <div className="flex items-center gap-3 h-[42px]">
+              <button type="button" onClick={() => setAplica(a => !a)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${aplica ? "bg-amber-500" : "bg-slate-300"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${aplica ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+              <span className="text-sm text-slate-600">{aplica ? "Sim — aplica automaticamente" : "Não — apenas sinalizar"}</span>
+            </div>
+          </Field>
+        </div>
+        {modelo === 1 && (
+          <Field label="Percentagem da multa (%)">
+            <input type="number" min="0" step="0.01" max="100" className={iCls}
+              placeholder="ex: 10" value={percentagem} onChange={e => setPercentagem(e.target.value)} required />
+          </Field>
+        )}
+        {modelo === 2 && (
+          <div>
+            <p className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Escalões de multa progressiva</p>
+            <div className="space-y-2">
+              {brackets.map((b, i) => (
+                <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-3">
+                  <span className="text-xs text-slate-400 font-semibold shrink-0">Escalão {i + 1}</span>
+                  <div className="flex items-center gap-2 flex-1 flex-wrap">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-slate-500">Dia</span>
+                      <input type="number" min="1" max="31" className="w-16 px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center"
+                        value={b.dia_inicio} onChange={e => updateBracket(i, "dia_inicio", e.target.value)} />
+                    </div>
+                    <span className="text-slate-400 text-xs">até</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-slate-500">Dia</span>
+                      <input type="number" min="1" max="31" className="w-16 px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center"
+                        value={b.dia_fim} onChange={e => updateBracket(i, "dia_fim", e.target.value)} />
+                    </div>
+                    <span className="text-slate-400">→</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" min="0" max="100" step="0.1" className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center"
+                        value={b.percentagem} onChange={e => updateBracket(i, "percentagem", e.target.value)} />
+                      <span className="text-xs text-slate-500 font-semibold">%</span>
+                    </div>
+                  </div>
+                  {brackets.length > 1 && (
+                    <button type="button" onClick={() => removeBracket(i)}
+                      className="p-1 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={addBracket}
+              className="mt-2 text-xs text-amber-700 font-semibold flex items-center gap-1 hover:text-amber-900">
+              <Plus className="w-3.5 h-3.5" /> Adicionar escalão
+            </button>
+          </div>
+        )}
+        {modelo === 3 && (
+          <Field label="Valor fixo da multa (AOA)">
+            <input type="number" min="0" step="0.01" className={iCls}
+              placeholder="ex: 5000" value={valorFixo} onChange={e => setValorFixo(e.target.value)} required />
+          </Field>
+        )}
+        <div className="bg-white border border-amber-200 rounded-xl px-4 py-3 text-sm text-slate-600">
+          <span className="font-semibold text-slate-800">Resumo: </span>
+          <span className="text-amber-800">{resumo()}</span>
+        </div>
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
+        {success && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" /> Regra guardada com sucesso.
+          </div>
+        )}
+        <button type="submit" disabled={saving}
+          className="px-5 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-60 flex items-center gap-2">
+          {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A guardar...</> : "Guardar regra de multa"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function LocalEmolumentosTab({ token }: { token: string }) {
   const [list, setList] = useState<Emolumento[]>([]);
+  const [multaRegra, setMultaRegra] = useState<MultaRegra | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
-  const MULTA_INIT = { multa_ativo: false, multa_tipo: "fixo", multa_valor_fixo: "", multa_percentagem: "", juros_mora: "", dias_carencia: "0" };
-  const fieldLblCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1";
-  const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026", ...MULTA_INIT });
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0] ?? "", montante: "", ano_lectivo: "2025/2026", nomeCustom: "", ...MULTA_INIT });
-  const [formErr, setFormErr] = useState("");
+  const [error, setError] = useState("");
 
+  const [form, setForm] = useState({
+    tipo: "propina",
+    nome: DESCRICAO_POR_TIPO_SCH["propina"][0] ?? "",
+    montante: "",
+    ano_lectivo: anoLectivo(),
+  });
+
+  // Inline multa model state (only for propina)
+  const [multaModelo, setMultaModelo] = useState<1|2|3>(1);
+  const [multaDia, setMultaDia] = useState("10");
+  const [multaAplica, setMultaAplica] = useState(true);
+  const [multaPerc, setMultaPerc] = useState("");
+  const [multaFixo, setMultaFixo] = useState("");
+  const [multaBrackets, setMultaBrackets] = useState<Bracket[]>(DEFAULT_BRACKETS);
+  const [multaModeloSelecionado, setMultaModeloSelecionado] = useState(false);
+
+  const isPropina = form.tipo === "propina";
   const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/school/emolumentos`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) {
-        const all: Emolumento[] = await r.json();
+      const [emRes, mrRes] = await Promise.all([
+        fetch(`${API}/school/emolumentos`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/school/multa-regra`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (emRes.ok) {
+        const all: Emolumento[] = await emRes.json();
         setList(all.filter(e => !e.is_global));
+      }
+      if (mrRes.ok) {
+        const mr: MultaRegra | null = await mrRes.json();
+        setMultaRegra(mr);
+        if (mr) {
+          setMultaModelo(mr.modelo ?? 1);
+          setMultaDia(String(mr.dia_limite ?? 10));
+          setMultaAplica(mr.aplica_automatico ?? true);
+          setMultaPerc(String(mr.percentagem ?? ""));
+          setMultaFixo(String(mr.valor_fixo ?? ""));
+          setMultaBrackets(mr.brackets?.length ? mr.brackets : DEFAULT_BRACKETS);
+          setMultaModeloSelecionado(true);
+        }
       }
     } catch {}
     setLoading(false);
@@ -4492,300 +4709,279 @@ function LocalEmolumentosTab({ token }: { token: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault(); setFormErr("");
-    const nome = form.tipo === "outro" ? form.nomeCustom.trim() : form.nome.trim();
-    if (!nome) return setFormErr("Introduza uma descrição.");
-    if (!form.montante || Number(form.montante) <= 0) return setFormErr("Introduza um montante válido.");
-    setSaving(true);
-    try {
-      const r = await fetch(`${API}/school/emolumentos`, {
-        method: "POST", headers: hdrs,
-        body: JSON.stringify({ tipo: form.tipo, nome, montante: Number(form.montante), ano_lectivo: form.ano_lectivo, multa_ativo: form.multa_ativo, multa_tipo: form.multa_tipo, multa_valor_fixo: form.multa_valor_fixo ? Number(form.multa_valor_fixo) : null, multa_percentagem: form.multa_percentagem ? Number(form.multa_percentagem) : null, juros_mora: form.juros_mora ? Number(form.juros_mora) : 0, dias_carencia: Number(form.dias_carencia || 0) }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
-      setList(prev => [data, ...prev]);
-      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0] ?? "", montante: "", ano_lectivo: "2025/2026", nomeCustom: "", ...MULTA_INIT });
-      setShowForm(false);
-    } catch (err: any) { setFormErr(err.message); }
-    setSaving(false);
+  const addInlineBracket = () => {
+    const last = multaBrackets[multaBrackets.length - 1];
+    setMultaBrackets(b => [...b, { dia_inicio: last ? last.dia_fim + 1 : 1, dia_fim: last ? last.dia_fim + 10 : 10, percentagem: 0 }]);
   };
+  const removeInlineBracket = (i: number) => setMultaBrackets(b => b.filter((_, idx) => idx !== i));
+  const updateInlineBracket = (i: number, field: keyof Bracket, val: string) =>
+    setMultaBrackets(b => b.map((br, idx) => idx === i ? { ...br, [field]: Number(val) } : br));
 
-  const saveEdit = async (id: number) => {
-    if (!editForm.nome.trim() || !editForm.montante) return;
-    setSaving(true);
-    try {
-      const r = await fetch(`${API}/school/emolumentos/${id}`, {
-        method: "PUT", headers: hdrs,
-        body: JSON.stringify({ nome: editForm.nome.trim(), montante: Number(editForm.montante), ano_lectivo: editForm.ano_lectivo, multa_ativo: editForm.multa_ativo, multa_tipo: editForm.multa_tipo, multa_valor_fixo: editForm.multa_valor_fixo ? Number(editForm.multa_valor_fixo) : null, multa_percentagem: editForm.multa_percentagem ? Number(editForm.multa_percentagem) : null, juros_mora: editForm.juros_mora ? Number(editForm.juros_mora) : 0, dias_carencia: Number(editForm.dias_carencia || 0) }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
-      setList(prev => prev.map(e => e.id === id ? { ...e, ...data } : e));
-      setEditId(null);
-    } catch (err: any) { alert(err.message); }
-    setSaving(false);
-  };
-
-  const toggleActivo = async (em: Emolumento) => {
-    const r = await fetch(`${API}/school/emolumentos/${em.id}/toggle`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
-    if (r.ok) { const d = await r.json(); setList(prev => prev.map(e => e.id === em.id ? { ...e, ...d } : e)); }
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm("Eliminar este emolumento local?")) return;
-    await fetch(`${API}/school/emolumentos/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-    setList(prev => prev.filter(e => e.id !== id));
-  };
-
-  const grouped = useMemo(() => {
-    const map: Record<string, Emolumento[]> = {};
-    for (const em of list) {
-      if (!map[em.tipo]) map[em.tipo] = [];
-      map[em.tipo].push(em);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(""); setSaving(true);
+    if (isPropina && !multaModeloSelecionado) {
+      setError("Seleccione o modelo de cobrança de multa antes de registar a propina.");
+      setSaving(false); return;
     }
-    return map;
-  }, [list]);
+    try {
+      if (isPropina) {
+        const multaBody: Record<string, unknown> = {
+          modelo: multaModelo, dia_limite: Number(multaDia), aplica_automatico: multaAplica,
+        };
+        if (multaModelo === 1) multaBody.percentagem = Number(multaPerc);
+        else if (multaModelo === 2) multaBody.brackets = multaBrackets;
+        else multaBody.valor_fixo = Number(multaFixo);
+        const mr = await fetch(`${API}/school/multa-regra`, { method: "PUT", headers: hdrs, body: JSON.stringify(multaBody) });
+        const mrData = await mr.json();
+        if (!mr.ok) throw new Error(mrData.error ?? "Erro ao guardar regra de multa.");
+        setMultaRegra(mrData);
+      }
+      const res = await fetch(`${API}/school/emolumentos`, {
+        method: "POST", headers: hdrs,
+        body: JSON.stringify({ tipo: form.tipo, nome: form.nome, montante: Number(form.montante), ano_lectivo: form.ano_lectivo }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao guardar emolumento.");
+      setList(l => [data, ...l]);
+      setForm(f => ({ ...f, nome: (DESCRICAO_POR_TIPO_SCH[f.tipo] ?? [])[0] ?? "", montante: "" }));
+    } catch (err: any) { setError(err.message); }
+    finally { setSaving(false); }
+  };
 
-  const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
+  const deleteEm = async (id: number) => {
+    if (!confirm("Eliminar este emolumento?")) return;
+    await fetch(`${API}/school/emolumentos/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    setList(l => l.filter(x => x.id !== id));
+  };
+
+  const MODELO_INLINE = [
+    { id: 1 as const, label: "Modelo 1", sub: "Percentagem única", icon: <BadgePercent className="w-3.5 h-3.5" /> },
+    { id: 2 as const, label: "Modelo 2", sub: "Progressiva (escalões)", icon: <TrendingUp className="w-3.5 h-3.5" /> },
+    { id: 3 as const, label: "Modelo 3", sub: "Taxa fixa (Kz)", icon: <Banknote className="w-3.5 h-3.5" /> },
+  ];
+
+  const iCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16 text-slate-400">
+      <RefreshCw className="w-5 h-5 animate-spin mr-2" /> A carregar…
+    </div>
+  );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500">Emolumentos criados por esta instituição (editáveis)</p>
-        <button onClick={() => { setShowForm(s => !s); setFormErr(""); }}
-          className="flex items-center gap-2 px-3.5 py-2 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/90 transition-colors shadow-sm shrink-0">
-          <Plus className="w-3.5 h-3.5"/> {showForm ? "Cancelar" : "Adicionar"}
-        </button>
-      </div>
+    <div className="space-y-6">
+      {/* ─── Add form (always visible) ─── */}
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+        <h4 className="font-semibold text-slate-700 mb-4">Adicionar emolumento</h4>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Tipo de emolumento" required>
+              <select className={iCls} value={form.tipo}
+                onChange={e => {
+                  const tipo = e.target.value;
+                  setForm(f => ({ ...f, tipo, nome: (DESCRICAO_POR_TIPO_SCH[tipo] ?? [])[0] ?? "" }));
+                }}>
+                {TIPO_GRUPOS_SCH.map(g => (
+                  <optgroup key={g.grupo} label={g.grupo}>
+                    {g.items.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </Field>
+            <Field label="Ano lectivo">
+              <input className={iCls} value={form.ano_lectivo}
+                onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Descrição" required>
+              {(DESCRICAO_POR_TIPO_SCH[form.tipo] ?? []).length > 0 ? (
+                <select className={iCls} value={form.nome}
+                  onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required>
+                  {DESCRICAO_POR_TIPO_SCH[form.tipo].map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              ) : (
+                <input className={iCls} placeholder="Descrição do emolumento" value={form.nome}
+                  onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} required />
+              )}
+            </Field>
+            <Field label="Montante base (AOA)" required>
+              <input type="number" min="0" className={iCls} placeholder="ex: 35000" value={form.montante}
+                onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} required />
+            </Field>
+          </div>
 
-      <AnimatePresence>
-        {showForm && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-5">
-            <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <h4 className="font-semibold text-slate-700 mb-4">Adicionar emolumento</h4>
-              <form onSubmit={handleAdd} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className={fieldLblCls}>Tipo de emolumento <span className="text-red-400">*</span></label>
-                    <select className={inputCls} value={form.tipo} onChange={e => {
-                      const tipo = e.target.value;
-                      setForm(f => ({ ...f, tipo, nome: (DESCRICAO_POR_TIPO_SCH[tipo] ?? [])[0] ?? "", nomeCustom: "" }));
-                    }}>
-                      {TIPO_GRUPOS_SCH.map(g => (
-                        <optgroup key={g.grupo} label={g.grupo}>
-                          {g.items.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={fieldLblCls}>Ano lectivo</label>
-                    <input className={inputCls} value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
-                  </div>
+          {/* ─── Inline multa model — propina only ─── */}
+          <AnimatePresence>
+            {isPropina && (
+              <motion.div key="multa-inline"
+                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                className="border-2 border-amber-300 bg-amber-50 rounded-2xl p-4 space-y-4 overflow-hidden">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <p className="text-sm font-semibold text-amber-900">
+                    Modelo de cobrança de multa <span className="text-red-500">*</span>
+                  </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className={fieldLblCls}>Descrição <span className="text-red-400">*</span></label>
-                    {form.tipo === "outro" ? (
-                      <input className={inputCls} placeholder="Ex: Taxa de Passeio Anual" value={form.nomeCustom} onChange={e => setForm(f => ({ ...f, nomeCustom: e.target.value }))} />
-                    ) : (DESCRICAO_POR_TIPO_SCH[form.tipo] ?? []).length > 0 ? (
-                      <select className={inputCls} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}>
-                        {DESCRICAO_POR_TIPO_SCH[form.tipo].map(d => <option key={d} value={d}>{d}</option>)}
-                      </select>
-                    ) : (
-                      <input className={inputCls} placeholder="Descrição" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
-                    )}
-                  </div>
-                  <div>
-                    <label className={fieldLblCls}>Montante base (AOA) <span className="text-red-400">*</span></label>
-                    <input type="number" min="0" className={inputCls} placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
-                  </div>
-                </div>
-                {/* ─── Multa Config Panel ─── */}
-                <div className="border border-slate-200 rounded-xl p-3.5 bg-white">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Configuração de Multa</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Penalização por atraso de pagamento</p>
-                    </div>
-                    <button type="button" onClick={() => setForm(f => ({ ...f, multa_ativo: !f.multa_ativo }))}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${form.multa_ativo ? "bg-emerald-500" : "bg-slate-300"}`}>
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${form.multa_ativo ? "translate-x-4" : "translate-x-1"}`}/>
+                <p className="text-xs text-amber-700 -mt-2">
+                  A multa é automaticamente adicionada à propina: <strong>Propina + Multa = Total pago pelo encarregado.</strong>{" "}
+                  Seleccione como a multa por atraso será calculada para este colégio.
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {MODELO_INLINE.map(m => (
+                    <button key={m.id} type="button"
+                      onClick={() => { setMultaModelo(m.id); setMultaModeloSelecionado(true); }}
+                      className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                        multaModeloSelecionado && multaModelo === m.id
+                          ? "border-amber-500 bg-white shadow-sm"
+                          : "border-slate-200 bg-white hover:border-amber-300"
+                      }`}>
+                      <div className={`flex items-center gap-1 text-xs font-semibold mb-0.5 ${multaModeloSelecionado && multaModelo === m.id ? "text-amber-800" : "text-slate-600"}`}>
+                        {m.icon}{m.label}
+                      </div>
+                      <p className="text-xs text-slate-400 leading-tight">{m.sub}</p>
                     </button>
-                  </div>
-                  {form.multa_ativo && (
-                    <div className="space-y-3 pt-3 mt-3 border-t border-slate-100">
+                  ))}
+                </div>
+                {multaModeloSelecionado && (
+                  <div className="space-y-3 bg-white rounded-xl p-3 border border-amber-200">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Dia limite mensal">
+                        <input type="number" min="1" max="31" className={iCls} placeholder="ex: 10"
+                          value={multaDia} onChange={e => setMultaDia(e.target.value)} required />
+                      </Field>
+                      <Field label="Aplicar automaticamente">
+                        <div className="flex items-center gap-2 h-[42px]">
+                          <button type="button" onClick={() => setMultaAplica(a => !a)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${multaAplica ? "bg-amber-500" : "bg-slate-300"}`}>
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${multaAplica ? "translate-x-4" : "translate-x-1"}`} />
+                          </button>
+                          <span className="text-xs text-slate-600">{multaAplica ? "Sim" : "Não"}</span>
+                        </div>
+                      </Field>
+                    </div>
+                    {multaModelo === 1 && (
+                      <Field label="Percentagem da multa (%)">
+                        <input type="number" min="0" max="100" step="0.1" className={iCls}
+                          placeholder="ex: 10" value={multaPerc} onChange={e => setMultaPerc(e.target.value)} required />
+                      </Field>
+                    )}
+                    {multaModelo === 2 && (
                       <div>
-                        <p className={fieldLblCls}>Tipo de multa</p>
-                        <div className="flex gap-2">
-                          {(["fixo", "percentual"] as const).map(t => (
-                            <button key={t} type="button" onClick={() => setForm(f => ({ ...f, multa_tipo: t }))}
-                              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${form.multa_tipo === t ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
-                              {t === "fixo" ? "Valor Fixo" : "Percentual"}
-                            </button>
+                        <p className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Escalões progressivos</p>
+                        <div className="space-y-1.5">
+                          {multaBrackets.map((b, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2 text-xs">
+                              <span className="text-slate-400 shrink-0">Escalão {i+1}</span>
+                              <span className="text-slate-400">Dia</span>
+                              <input type="number" min="1" max="31" className="w-14 px-2 py-1 border border-slate-200 rounded-lg text-center text-xs"
+                                value={b.dia_inicio} onChange={e => updateInlineBracket(i,"dia_inicio",e.target.value)} />
+                              <span className="text-slate-400">–</span>
+                              <input type="number" min="1" max="31" className="w-14 px-2 py-1 border border-slate-200 rounded-lg text-center text-xs"
+                                value={b.dia_fim} onChange={e => updateInlineBracket(i,"dia_fim",e.target.value)} />
+                              <span className="text-slate-400">→</span>
+                              <input type="number" min="0" max="100" className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-center text-xs"
+                                value={b.percentagem} onChange={e => updateInlineBracket(i,"percentagem",e.target.value)} />
+                              <span className="text-slate-400">%</span>
+                              {multaBrackets.length > 1 && (
+                                <button type="button" onClick={() => removeInlineBracket(i)} className="ml-auto text-slate-300 hover:text-red-400">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {form.multa_tipo === "fixo" ? (
-                          <div>
-                            <label className={fieldLblCls}>Valor fixo (AOA)</label>
-                            <input type="number" min="0" className={inputCls} placeholder="ex: 5000" value={form.multa_valor_fixo} onChange={e => setForm(f => ({ ...f, multa_valor_fixo: e.target.value }))} />
-                          </div>
-                        ) : (
-                          <div>
-                            <label className={fieldLblCls}>Percentagem (%)</label>
-                            <input type="number" min="0" max="100" step="0.1" className={inputCls} placeholder="ex: 5" value={form.multa_percentagem} onChange={e => setForm(f => ({ ...f, multa_percentagem: e.target.value }))} />
-                          </div>
-                        )}
-                        <div>
-                          <label className={fieldLblCls}>Juros de mora (% / dia)</label>
-                          <input type="number" min="0" step="0.01" className={inputCls} placeholder="ex: 0.1" value={form.juros_mora} onChange={e => setForm(f => ({ ...f, juros_mora: e.target.value }))} />
-                        </div>
-                        <div>
-                          <label className={fieldLblCls}>Dias de carência</label>
-                          <input type="number" min="0" className={inputCls} placeholder="ex: 5" value={form.dias_carencia} onChange={e => setForm(f => ({ ...f, dias_carencia: e.target.value }))} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
-                <div className="flex gap-3">
-                  <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors shadow-sm">
-                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Adicionar emolumento</>}
-                  </button>
-                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
-                </div>
-              </form>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-12 text-slate-400"><RefreshCw className="w-4 h-4 animate-spin mr-2"/>A carregar…</div>
-      ) : list.length === 0 ? (
-        <div className="flex flex-col items-center py-12 text-slate-400 gap-3">
-          <Receipt className="w-8 h-8 opacity-30"/>
-          <div className="text-center">
-            <p className="text-sm font-medium text-slate-500">Nenhum emolumento local</p>
-            <p className="text-xs text-slate-400 mt-1">Adicione os seus próprios emolumentos específicos</p>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {Object.entries(grouped).map(([tipo, items]) => (
-            <div key={tipo} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 ${(TIPO_COLOR_SCH[tipo] ?? "bg-slate-50 text-slate-700 border-slate-200").split(" ")[0]}/20`}>
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TIPO_COLOR_SCH[tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>{tipoLabelSch(tipo)}</span>
-                <span className="text-xs text-slate-400 ml-auto">{items.length} item{items.length !== 1 ? "s" : ""}</span>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {items.map(em => (
-                  <div key={em.id} className={`transition-opacity ${em.activo ? "" : "opacity-50"}`}>
-                    {editId === em.id ? (
-                      <div className="px-4 py-4 space-y-3 bg-slate-50/70">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div>
-                            <label className={fieldLblCls}>Descrição</label>
-                            <input className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label className={fieldLblCls}>Montante base (AOA)</label>
-                            <input type="number" min="0" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label className={fieldLblCls}>Ano lectivo</label>
-                            <input className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
-                          </div>
-                        </div>
-                        {/* Edit multa panel */}
-                        <div className="border border-slate-200 rounded-xl p-3 bg-white">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Configuração de Multa</p>
-                            <button type="button" onClick={() => setEditForm(f => ({ ...f, multa_ativo: !f.multa_ativo }))}
-                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${editForm.multa_ativo ? "bg-emerald-500" : "bg-slate-300"}`}>
-                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${editForm.multa_ativo ? "translate-x-4" : "translate-x-1"}`}/>
-                            </button>
-                          </div>
-                          {editForm.multa_ativo && (
-                            <div className="space-y-3 pt-3 mt-2 border-t border-slate-100">
-                              <div className="flex gap-2">
-                                {(["fixo", "percentual"] as const).map(t => (
-                                  <button key={t} type="button" onClick={() => setEditForm(f => ({ ...f, multa_tipo: t }))}
-                                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${editForm.multa_tipo === t ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
-                                    {t === "fixo" ? "Valor Fixo" : "Percentual"}
-                                  </button>
-                                ))}
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                {editForm.multa_tipo === "fixo" ? (
-                                  <div>
-                                    <label className={fieldLblCls}>Valor fixo (AOA)</label>
-                                    <input type="number" min="0" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 5000" value={editForm.multa_valor_fixo} onChange={e => setEditForm(f => ({ ...f, multa_valor_fixo: e.target.value }))} />
-                                  </div>
-                                ) : (
-                                  <div>
-                                    <label className={fieldLblCls}>Percentagem (%)</label>
-                                    <input type="number" min="0" max="100" step="0.1" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 5" value={editForm.multa_percentagem} onChange={e => setEditForm(f => ({ ...f, multa_percentagem: e.target.value }))} />
-                                  </div>
-                                )}
-                                <div>
-                                  <label className={fieldLblCls}>Juros de mora (% / dia)</label>
-                                  <input type="number" min="0" step="0.01" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 0.1" value={editForm.juros_mora} onChange={e => setEditForm(f => ({ ...f, juros_mora: e.target.value }))} />
-                                </div>
-                                <div>
-                                  <label className={fieldLblCls}>Dias de carência</label>
-                                  <input type="number" min="0" className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="ex: 5" value={editForm.dias_carencia} onChange={e => setEditForm(f => ({ ...f, dias_carencia: e.target.value }))} />
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex gap-2 pt-1">
-                          <button onClick={() => saveEdit(em.id)} disabled={saving} className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
-                            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : <Save className="w-3.5 h-3.5"/>} Guardar
-                          </button>
-                          <button onClick={() => setEditId(null)} className="px-3.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 hover:bg-slate-100 transition-colors">Cancelar</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="px-4 py-3 flex items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            <span className="text-xs text-slate-400">{em.ano_lectivo}</span>
-                            {em.multa_ativo && (
-                              <span className="text-xs bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full">
-                                {em.multa_tipo === "fixo"
-                                  ? `Multa ${Number(em.multa_valor_fixo ?? 0).toLocaleString("pt-AO")} Kz`
-                                  : `Multa ${em.multa_percentagem}%`}
-                                {Number(em.juros_mora) > 0 && ` + ${em.juros_mora}%/dia`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
-                        <button onClick={() => toggleActivo(em)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${em.activo ? "bg-emerald-500" : "bg-slate-300"}`}
-                          title={em.activo ? "Desactivar" : "Activar"}>
-                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${em.activo ? "translate-x-4" : "translate-x-1"}`}/>
+                        <button type="button" onClick={addInlineBracket}
+                          className="mt-1.5 text-xs text-amber-700 font-semibold flex items-center gap-1 hover:text-amber-900">
+                          <Plus className="w-3 h-3" />Adicionar escalão
                         </button>
-                        <button onClick={() => { setEditId(em.id); setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo, multa_ativo: !!em.multa_ativo, multa_tipo: em.multa_tipo || "fixo", multa_valor_fixo: em.multa_valor_fixo != null ? String(em.multa_valor_fixo) : "", multa_percentagem: em.multa_percentagem != null ? String(em.multa_percentagem) : "", juros_mora: em.juros_mora != null ? String(em.juros_mora) : "", dias_carencia: String(em.dias_carencia ?? 0) }); }}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar"><Pencil className="w-3.5 h-3.5"/></button>
-                        <button onClick={() => handleDelete(em.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar"><Trash2 className="w-3.5 h-3.5"/></button>
                       </div>
                     )}
+                    {multaModelo === 3 && (
+                      <Field label="Valor fixo da multa (AOA)">
+                        <input type="number" min="0" step="0.01" className={iCls}
+                          placeholder="ex: 5000" value={multaFixo} onChange={e => setMultaFixo(e.target.value)} required />
+                      </Field>
+                    )}
+                    <div className="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-800">
+                      <strong>Resumo: </strong>
+                      {!multaAplica
+                        ? `Após o dia ${multaDia||"?"}, propinas marcadas como atrasadas (sem multa automática).`
+                        : multaModelo === 1
+                        ? `Após o dia ${multaDia||"?"}, aplica ${multaPerc||0}% de multa sobre o montante.`
+                        : multaModelo === 2
+                        ? `Multa progressiva: ${multaBrackets.map(b=>`dias ${b.dia_inicio}–${b.dia_fim}→${b.percentagem}%`).join("; ")}.`
+                        : `Após o dia ${multaDia||"?"}, taxa fixa de ${Number(multaFixo||0).toLocaleString("pt-AO")} AOA.`}
+                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                )}
+                {!multaModeloSelecionado && (
+                  <p className="text-xs text-amber-700 italic">↑ Seleccione um dos modelos acima para continuar.</p>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{error}</div>}
+          <button type="submit" disabled={saving || (isPropina && !multaModeloSelecionado)}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2 ${
+              isPropina && !multaModeloSelecionado
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                : "bg-primary text-white hover:bg-primary/90 disabled:opacity-60"
+            }`}>
+            {saving
+              ? <><RefreshCw className="w-4 h-4 animate-spin" />A guardar...</>
+              : <><Plus className="w-4 h-4" />Adicionar emolumento</>}
+          </button>
+        </form>
+      </div>
+
+      {/* ─── Emolumentos list ─── */}
+      {list.length === 0 ? (
+        <div className="text-center py-12 text-slate-400">
+          <Receipt className="w-10 h-10 mx-auto mb-2 text-slate-200" />
+          <p className="text-sm">Nenhum emolumento registado</p>
+        </div>
+      ) : (
+        <div className="border border-slate-200 rounded-2xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm text-left min-w-[500px]">
+            <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider border-b border-slate-100">
+              <tr>
+                <th className="px-5 py-3">Tipo</th>
+                <th className="px-5 py-3">Descrição</th>
+                <th className="px-5 py-3">Montante</th>
+                <th className="px-5 py-3">Ano Lectivo</th>
+                <th className="px-5 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {list.map(em => (
+                <tr key={em.id} className="hover:bg-slate-50/50">
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TIPO_COLOR_SCH[em.tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                      {tipoLabelSch(em.tipo)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 font-medium text-slate-900">{em.nome}</td>
+                  <td className="px-5 py-3 font-mono text-slate-700">{fmt(em.montante)}</td>
+                  <td className="px-5 py-3 text-slate-500">{em.ano_lectivo}</td>
+                  <td className="px-5 py-3">
+                    <button onClick={() => deleteEm(em.id)}
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+
+      {/* ─── Multa regras panel ─── */}
+      <SchoolMultaRegrasPanel token={token} initial={multaRegra} onSaved={r => setMultaRegra(r)} />
     </div>
   );
 }
@@ -4849,15 +5045,6 @@ function GlobalEmolumentosTab({ token }: { token: string }) {
                       <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs text-slate-400">{em.ano_lectivo}</span>
-                        {em.multa_ativo && (
-                          <span className="text-xs bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded-full">
-                            {em.multa_tipo === "fixo"
-                              ? `Multa ${Number(em.multa_valor_fixo ?? 0).toLocaleString("pt-AO")} Kz`
-                              : `Multa ${em.multa_percentagem}%`}
-                            {Number(em.juros_mora) > 0 && ` + ${em.juros_mora}%/dia`}
-                            {Number(em.dias_carencia) > 0 && ` (carência ${em.dias_carencia}d)`}
-                          </span>
-                        )}
                       </div>
                     </div>
                     <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
