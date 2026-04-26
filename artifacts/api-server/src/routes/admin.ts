@@ -531,6 +531,59 @@ router.put("/admin/colegios/:id/iban", adminAuth, async (req, res) => {
   res.json(r.rows[0]);
 });
 
+/* ─── GET /admin/emolumentos/global — list all global emolumentos ─── */
+router.get("/admin/emolumentos/global", adminAuth, async (req, res) => {
+  const r = await pool.query(
+    "SELECT * FROM emolumentos WHERE school_id IS NULL ORDER BY tipo, nome",
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /admin/emolumentos/global — create global emolumento ─── */
+router.post("/admin/emolumentos/global", adminAuth, async (req, res) => {
+  const { tipo, nome, montante, ano_lectivo } = req.body;
+  if (!tipo || !nome?.trim() || !montante) {
+    return res.status(400).json({ error: "Tipo, nome e montante são obrigatórios." });
+  }
+  const r = await pool.query(
+    `INSERT INTO emolumentos (school_id, tipo, nome, montante, ano_lectivo, activo)
+     VALUES (NULL,$1,$2,$3,$4,TRUE) RETURNING *`,
+    [tipo, nome.trim(), Number(montante), ano_lectivo || "2025/2026"]
+  );
+  res.status(201).json(r.rows[0]);
+});
+
+/* ─── PUT /admin/emolumentos/global/:id — update global emolumento ─── */
+router.put("/admin/emolumentos/global/:id", adminAuth, async (req, res) => {
+  const { nome, montante, ano_lectivo } = req.body;
+  if (!nome?.trim() || !montante) {
+    return res.status(400).json({ error: "Nome e montante são obrigatórios." });
+  }
+  const r = await pool.query(
+    `UPDATE emolumentos SET nome=$1, montante=$2, ano_lectivo=$3
+     WHERE id=$4 AND school_id IS NULL RETURNING *`,
+    [nome.trim(), Number(montante), ano_lectivo || "2025/2026", req.params.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Emolumento global não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── DELETE /admin/emolumentos/global/:id — delete global emolumento ─── */
+router.delete("/admin/emolumentos/global/:id", adminAuth, async (req, res) => {
+  await pool.query("DELETE FROM emolumentos WHERE id=$1 AND school_id IS NULL", [req.params.id]);
+  res.status(204).end();
+});
+
+/* ─── PATCH /admin/emolumentos/:id/toggle — toggle activo ─── */
+router.patch("/admin/emolumentos/:id/toggle", adminAuth, async (req, res) => {
+  const r = await pool.query(
+    "UPDATE emolumentos SET activo = NOT activo WHERE id=$1 RETURNING *",
+    [req.params.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Não encontrado." });
+  res.json(r.rows[0]);
+});
+
 /* ─── GET /admin/colegios/:id/emolumentos ─── */
 router.get("/admin/colegios/:id/emolumentos", adminAuth, async (req, res) => {
   const r = await pool.query(

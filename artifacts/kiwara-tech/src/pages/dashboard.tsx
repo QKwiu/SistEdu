@@ -13,7 +13,7 @@ import {
   Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
   ChevronLeft, ChevronRight, ListFilter,
   Megaphone, CheckCheck, XCircle, Info,
-  Pencil, Lock, Save, EyeOff,
+  Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -25,7 +25,7 @@ const TURNOS = ["Manhã","Tarde","Noite"];
 
 /* ─── Interfaces ─── */
 interface Turma { id: number; nome: string; ano: string; turno: string; total_alunos: number; }
-interface Pacote { id: number; nome: string; valor: number; activo: boolean; }
+interface Pacote { id: number; nome: string; valor: number; descricao?: string; itens?: any[]; activo: boolean; }
 interface Aluno {
   id: number; nome: string; bilhete?: string; turma_id?: number; turma: string; turno?: string;
   nome_encarregado?: string; telefone_encarregado?: string;
@@ -4356,8 +4356,9 @@ function DDCancelamentosView({ token }: { token: string }) {
    Emolumentos — helpers & view
    ───────────────────────────────────────────── */
 interface Emolumento {
-  id: number; school_id: number; tipo: string; nome: string;
+  id: number; school_id: number | null; tipo: string; nome: string;
   montante: number; ano_lectivo: string; created_at: string;
+  activo: boolean; is_global: boolean;
 }
 
 const TIPO_GRUPOS_SCH = [
@@ -4459,15 +4460,15 @@ const TIPO_COLOR_SCH: Record<string, string> = {
   outro: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-function EmolumentosView({ token }: { token: string }) {
+/* ─── School Emolumentos sub-tab: local list with toggle & CRUD ─── */
+function LocalEmolumentosTab({ token }: { token: string }) {
   const [list, setList] = useState<Emolumento[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026" });
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0], montante: "", ano_lectivo: "2025/2026", nomeCustom: "" });
+  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0] ?? "", montante: "", ano_lectivo: "2025/2026", nomeCustom: "" });
   const [formErr, setFormErr] = useState("");
 
   const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
@@ -4476,7 +4477,10 @@ function EmolumentosView({ token }: { token: string }) {
     setLoading(true);
     try {
       const r = await fetch(`${API}/school/emolumentos`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) setList(await r.json());
+      if (r.ok) {
+        const all: Emolumento[] = await r.json();
+        setList(all.filter(e => !e.is_global));
+      }
     } catch {}
     setLoading(false);
   }, [token]);
@@ -4497,15 +4501,10 @@ function EmolumentosView({ token }: { token: string }) {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setList(prev => [data, ...prev]);
-      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0], montante: "", ano_lectivo: "2025/2026", nomeCustom: "" });
+      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO_SCH["propina"][0] ?? "", montante: "", ano_lectivo: "2025/2026", nomeCustom: "" });
       setShowForm(false);
     } catch (err: any) { setFormErr(err.message); }
     setSaving(false);
-  };
-
-  const startEdit = (em: Emolumento) => {
-    setEditId(em.id);
-    setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo });
   };
 
   const saveEdit = async (id: number) => {
@@ -4518,14 +4517,19 @@ function EmolumentosView({ token }: { token: string }) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
-      setList(prev => prev.map(e => e.id === id ? data : e));
+      setList(prev => prev.map(e => e.id === id ? { ...e, ...data } : e));
       setEditId(null);
     } catch (err: any) { alert(err.message); }
     setSaving(false);
   };
 
+  const toggleActivo = async (em: Emolumento) => {
+    const r = await fetch(`${API}/school/emolumentos/${em.id}/toggle`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) { const d = await r.json(); setList(prev => prev.map(e => e.id === em.id ? { ...e, ...d } : e)); }
+  };
+
   const handleDelete = async (id: number) => {
-    if (!confirm("Eliminar este emolumento?")) return;
+    if (!confirm("Eliminar este emolumento local?")) return;
     await fetch(`${API}/school/emolumentos/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
     setList(prev => prev.filter(e => e.id !== id));
   };
@@ -4539,42 +4543,30 @@ function EmolumentosView({ token }: { token: string }) {
     return map;
   }, [list]);
 
-  const allTipos = Object.keys(grouped);
+  const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
 
   return (
-    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-primary"/> Emolumentos
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Tabela de custos e serviços da sua instituição</p>
-        </div>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-slate-500">Emolumentos criados por esta instituição (editáveis)</p>
         <button onClick={() => { setShowForm(s => !s); setFormErr(""); }}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm">
-          <Plus className="w-4 h-4"/> {showForm ? "Cancelar" : "Adicionar emolumento"}
+          className="flex items-center gap-2 px-3.5 py-2 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/90 transition-colors shadow-sm shrink-0">
+          <Plus className="w-3.5 h-3.5"/> {showForm ? "Cancelar" : "Adicionar"}
         </button>
       </div>
 
-      {/* Add form */}
       <AnimatePresence>
         {showForm && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden mb-6">
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
-              <h4 className="font-semibold text-slate-700 mb-4 text-sm">Novo Emolumento</h4>
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-5">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
               <form onSubmit={handleAdd} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Tipo de emolumento <span className="text-red-500">*</span></label>
-                    <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      value={form.tipo}
-                      onChange={e => {
-                        const tipo = e.target.value;
-                        const first = (DESCRICAO_POR_TIPO_SCH[tipo] ?? [])[0] ?? "";
-                        setForm(f => ({ ...f, tipo, nome: first, nomeCustom: "" }));
-                      }}>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Tipo <span className="text-red-500">*</span></label>
+                    <select className={inputCls} value={form.tipo} onChange={e => {
+                      const tipo = e.target.value;
+                      setForm(f => ({ ...f, tipo, nome: (DESCRICAO_POR_TIPO_SCH[tipo] ?? [])[0] ?? "", nomeCustom: "" }));
+                    }}>
                       {TIPO_GRUPOS_SCH.map(g => (
                         <optgroup key={g.grupo} label={g.grupo}>
                           {g.items.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -4584,44 +4576,33 @@ function EmolumentosView({ token }: { token: string }) {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">Ano lectivo</label>
-                    <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                    <input className={inputCls} value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">Descrição <span className="text-red-500">*</span></label>
                     {form.tipo === "outro" ? (
-                      <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        placeholder="Ex: Taxa de Passeio Anual"
-                        value={form.nomeCustom} onChange={e => setForm(f => ({ ...f, nomeCustom: e.target.value }))} />
+                      <input className={inputCls} placeholder="Ex: Taxa de Passeio Anual" value={form.nomeCustom} onChange={e => setForm(f => ({ ...f, nomeCustom: e.target.value }))} />
                     ) : (DESCRICAO_POR_TIPO_SCH[form.tipo] ?? []).length > 0 ? (
-                      <select className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}>
+                      <select className={inputCls} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}>
                         {DESCRICAO_POR_TIPO_SCH[form.tipo].map(d => <option key={d} value={d}>{d}</option>)}
                       </select>
                     ) : (
-                      <input className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        placeholder="Descrição do emolumento"
-                        value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+                      <input className={inputCls} placeholder="Descrição" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Montante base (AOA) <span className="text-red-500">*</span></label>
-                    <input type="number" min="0" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Montante (AOA) <span className="text-red-500">*</span></label>
+                    <input type="number" min="0" className={inputCls} placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
                   </div>
                 </div>
                 {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
-                <div className="flex items-center gap-3">
-                  <button type="submit" disabled={saving}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
-                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Adicionar emolumento</>}
+                <div className="flex gap-3">
+                  <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Criar</>}
                   </button>
-                  <button type="button" onClick={() => setShowForm(false)}
-                    className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">
-                    Cancelar
-                  </button>
+                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
                 </div>
               </form>
             </div>
@@ -4629,55 +4610,36 @@ function EmolumentosView({ token }: { token: string }) {
         )}
       </AnimatePresence>
 
-      {/* List */}
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400">
-          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
-        </div>
+        <div className="flex items-center justify-center py-12 text-slate-400"><RefreshCw className="w-4 h-4 animate-spin mr-2"/>A carregar…</div>
       ) : list.length === 0 ? (
-        <div className="flex flex-col items-center py-20 text-slate-400 gap-3">
-          <Receipt className="w-10 h-10 opacity-30"/>
+        <div className="flex flex-col items-center py-12 text-slate-400 gap-3">
+          <Receipt className="w-8 h-8 opacity-30"/>
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-500">Nenhum emolumento configurado</p>
-            <p className="text-xs text-slate-400 mt-1">Adicione os custos e serviços da sua instituição</p>
+            <p className="text-sm font-medium text-slate-500">Nenhum emolumento local</p>
+            <p className="text-xs text-slate-400 mt-1">Adicione os seus próprios emolumentos específicos</p>
           </div>
-          <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors mt-2">
-            <Plus className="w-4 h-4"/> Adicionar primeiro emolumento
-          </button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</p>}
-          {allTipos.map(tipo => (
+        <div className="space-y-4">
+          {Object.entries(grouped).map(([tipo, items]) => (
             <div key={tipo} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className={`flex items-center gap-2 px-5 py-3 border-b border-slate-100 ${(TIPO_COLOR_SCH[tipo] ?? "bg-slate-50 text-slate-700 border-slate-200").split(" ")[0]}/20`}>
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TIPO_COLOR_SCH[tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                  {tipoLabelSch(tipo)}
-                </span>
-                <span className="text-xs text-slate-400 ml-auto">{grouped[tipo].length} item{grouped[tipo].length !== 1 ? "s" : ""}</span>
+              <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 ${(TIPO_COLOR_SCH[tipo] ?? "bg-slate-50 text-slate-700 border-slate-200").split(" ")[0]}/20`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TIPO_COLOR_SCH[tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>{tipoLabelSch(tipo)}</span>
+                <span className="text-xs text-slate-400 ml-auto">{items.length} item{items.length !== 1 ? "s" : ""}</span>
               </div>
               <div className="divide-y divide-slate-50">
-                {grouped[tipo].map(em => (
-                  <div key={em.id} className="px-5 py-3.5 flex items-center gap-3">
+                {items.map(em => (
+                  <div key={em.id} className={`px-4 py-3 flex items-center gap-2 transition-opacity ${em.activo ? "" : "opacity-50"}`}>
                     {editId === em.id ? (
                       <>
                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <input className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
-                          <input type="number" min="0" className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
-                          <input className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                          <input className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
+                          <input type="number" min="0" className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
+                          <input className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
                         </div>
-                        <button onClick={() => saveEdit(em.id)} disabled={saving}
-                          className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Guardar">
-                          <Save className="w-4 h-4"/>
-                        </button>
-                        <button onClick={() => setEditId(null)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors" title="Cancelar">
-                          <X className="w-4 h-4"/>
-                        </button>
+                        <button onClick={() => saveEdit(em.id)} disabled={saving} className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Guardar"><Save className="w-4 h-4"/></button>
+                        <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors" title="Cancelar"><X className="w-4 h-4"/></button>
                       </>
                     ) : (
                       <>
@@ -4685,17 +4647,15 @@ function EmolumentosView({ token }: { token: string }) {
                           <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
                           <p className="text-xs text-slate-400">{em.ano_lectivo}</p>
                         </div>
-                        <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">
-                          {Number(em.montante).toLocaleString("pt-AO")} Kz
-                        </p>
-                        <button onClick={() => startEdit(em)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar">
-                          <Pencil className="w-3.5 h-3.5"/>
+                        <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
+                        <button onClick={() => toggleActivo(em)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${em.activo ? "bg-emerald-500" : "bg-slate-300"}`}
+                          title={em.activo ? "Desactivar" : "Activar"}>
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${em.activo ? "translate-x-4" : "translate-x-1"}`}/>
                         </button>
-                        <button onClick={() => handleDelete(em.id)}
-                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar">
-                          <Trash2 className="w-3.5 h-3.5"/>
-                        </button>
+                        <button onClick={() => { setEditId(em.id); setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo }); }}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar"><Pencil className="w-3.5 h-3.5"/></button>
+                        <button onClick={() => handleDelete(em.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar"><Trash2 className="w-3.5 h-3.5"/></button>
                       </>
                     )}
                   </div>
@@ -4703,11 +4663,371 @@ function EmolumentosView({ token }: { token: string }) {
               </div>
             </div>
           ))}
-          <p className="text-xs text-center text-slate-400 pb-4">
-            {list.length} emolumento{list.length !== 1 ? "s" : ""} configurado{list.length !== 1 ? "s" : ""}
-          </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── School Emolumentos sub-tab: global list (read-only) ─── */
+function GlobalEmolumentosTab({ token }: { token: string }) {
+  const [list, setList] = useState<Emolumento[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`${API}/school/emolumentos`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) {
+          const all: Emolumento[] = await r.json();
+          setList(all.filter(e => e.is_global));
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, [token]);
+
+  const grouped = useMemo(() => {
+    const map: Record<string, Emolumento[]> = {};
+    for (const em of list) {
+      if (!map[em.tipo]) map[em.tipo] = [];
+      map[em.tipo].push(em);
+    }
+    return map;
+  }, [list]);
+
+  return (
+    <div>
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 mb-4">
+        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/>
+        <p className="text-xs text-amber-800">
+          Estes emolumentos são geridos pela administração central e são <strong>apenas de leitura</strong>.
+          Pode criar os seus próprios na aba «Locais».
+        </p>
+      </div>
+      {loading ? (
+        <div className="flex items-center justify-center py-12 text-slate-400"><RefreshCw className="w-4 h-4 animate-spin mr-2"/>A carregar…</div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center py-12 text-slate-400 gap-2">
+          <Globe className="w-8 h-8 opacity-30"/>
+          <p className="text-sm text-slate-500">Nenhum emolumento global configurado</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(grouped).map(([tipo, items]) => (
+            <div key={tipo} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 ${(TIPO_COLOR_SCH[tipo] ?? "bg-slate-50 text-slate-700 border-slate-200").split(" ")[0]}/20`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TIPO_COLOR_SCH[tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>{tipoLabelSch(tipo)}</span>
+                <span className="ml-auto flex items-center gap-1.5 text-xs text-amber-600 font-medium"><Globe className="w-3 h-3"/>Global</span>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {items.map(em => (
+                  <div key={em.id} className={`px-4 py-3 flex items-center gap-3 ${em.activo ? "" : "opacity-40"}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
+                      <p className="text-xs text-slate-400">{em.ano_lectivo}</p>
+                    </div>
+                    <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
+                    {!em.activo && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inactivo</span>}
+                    <ShieldOff className="w-4 h-4 text-slate-300 shrink-0" title="Apenas leitura"/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs text-center text-slate-400 pb-2">{list.length} emolumento{list.length !== 1 ? "s" : ""} global{list.length !== 1 ? "is" : ""}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── School Pacotes tab ─── */
+function PacotesSchoolTab({ token }: { token: string }) {
+  const [list, setList] = useState<Pacote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editPacote, setEditPacote] = useState<Pacote | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ nome: "", descricao: "" });
+  const [formErr, setFormErr] = useState("");
+  const [formItens, setFormItens] = useState<{ nome: string; valor: string }[]>([]);
+  const [editItens, setEditItens] = useState<{ nome: string; valor: string }[]>([]);
+
+  const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/school/pacotes`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setList(await r.json());
+    } catch {}
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totalItens = (itens: { nome: string; valor: string }[]) =>
+    itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault(); setFormErr("");
+    if (!form.nome.trim()) return setFormErr("Nome do pacote é obrigatório.");
+    setSaving(true);
+    try {
+      const itens = formItens.filter(i => i.nome.trim()).map(i => ({ nome: i.nome.trim(), valor: Number(i.valor) || 0 }));
+      const r = await fetch(`${API}/school/pacotes`, {
+        method: "POST", headers: hdrs,
+        body: JSON.stringify({ nome: form.nome.trim(), descricao: form.descricao.trim(), itens }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setList(prev => [...prev, data]);
+      setForm({ nome: "", descricao: "" }); setFormItens([]); setShowForm(false);
+    } catch (err: any) { setFormErr(err.message); }
+    setSaving(false);
+  };
+
+  const saveEdit = async () => {
+    if (!editPacote || !editPacote.nome?.trim()) return;
+    setSaving(true);
+    try {
+      const itens = editItens.filter(i => i.nome.trim()).map(i => ({ nome: i.nome.trim(), valor: Number(i.valor) || 0 }));
+      const r = await fetch(`${API}/school/pacotes/${editPacote.id}`, {
+        method: "PUT", headers: hdrs,
+        body: JSON.stringify({ nome: editPacote.nome.trim(), descricao: editPacote.descricao ?? "", itens }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setList(prev => prev.map(p => p.id === data.id ? data : p));
+      setEditPacote(null);
+    } catch (err: any) { alert(err.message); }
+    setSaving(false);
+  };
+
+  const toggleActivo = async (p: Pacote) => {
+    const r = await fetch(`${API}/school/pacotes/${p.id}/toggle`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) { const d = await r.json(); setList(prev => prev.map(x => x.id === p.id ? d : x)); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Eliminar este pacote?")) return;
+    await fetch(`${API}/school/pacotes/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    setList(prev => prev.filter(p => p.id !== id));
+  };
+
+  const addItem = (setter: React.Dispatch<React.SetStateAction<{ nome: string; valor: string }[]>>) =>
+    setter(prev => [...prev, { nome: "", valor: "" }]);
+  const removeItem = (setter: React.Dispatch<React.SetStateAction<{ nome: string; valor: string }[]>>, idx: number) =>
+    setter(prev => prev.filter((_, i) => i !== idx));
+  const updateItem = (setter: React.Dispatch<React.SetStateAction<{ nome: string; valor: string }[]>>, idx: number, field: "nome" | "valor", val: string) =>
+    setter(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
+
+  const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+  const renderItemsEditor = (
+    items: { nome: string; valor: string }[],
+    setter: React.Dispatch<React.SetStateAction<{ nome: string; valor: string }[]>>
+  ) => (
+    <div className="space-y-2">
+      {items.map((it, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <input className={inputCls + " flex-1"} placeholder="Descrição do item" value={it.nome} onChange={e => updateItem(setter, idx, "nome", e.target.value)} />
+          <input type="number" min="0" className={inputCls + " w-32 shrink-0"} placeholder="Valor AOA" value={it.valor} onChange={e => updateItem(setter, idx, "valor", e.target.value)} />
+          <button type="button" onClick={() => removeItem(setter, idx)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"><X className="w-4 h-4"/></button>
+        </div>
+      ))}
+      <button type="button" onClick={() => addItem(setter)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium mt-1">
+        <Plus className="w-3.5 h-3.5"/> Adicionar item
+      </button>
+      {items.length > 0 && (
+        <p className="text-xs text-slate-500 font-medium mt-1">Total: {totalItens(items).toLocaleString("pt-AO")} Kz</p>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-slate-500">Agrupamentos de emolumentos para cobrança simplificada</p>
+        <button onClick={() => { setShowForm(s => !s); setFormErr(""); setFormItens([]); setForm({ nome: "", descricao: "" }); }}
+          className="flex items-center gap-2 px-3.5 py-2 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/90 transition-colors shadow-sm shrink-0">
+          <Plus className="w-3.5 h-3.5"/> {showForm ? "Cancelar" : "Novo pacote"}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-5">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+              <h4 className="font-semibold text-slate-700 mb-4 text-sm">Novo Pacote</h4>
+              <form onSubmit={handleAdd} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Nome do pacote <span className="text-red-500">*</span></label>
+                    <input className={inputCls} placeholder="Ex: Pacote de Matrícula Completa" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Descrição</label>
+                    <input className={inputCls} placeholder="Opcional" value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Itens do pacote</label>
+                  {renderItemsEditor(formItens, setFormItens)}
+                </div>
+                {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
+                <div className="flex gap-3">
+                  <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Criar pacote</>}
+                  </button>
+                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit modal */}
+      <AnimatePresence>
+        {editPacote && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900">Editar Pacote</h3>
+                <button onClick={() => setEditPacote(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Nome do pacote <span className="text-red-500">*</span></label>
+                  <input className={inputCls} value={editPacote.nome} onChange={e => setEditPacote(p => p ? { ...p, nome: e.target.value } : p)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Descrição</label>
+                  <input className={inputCls} value={editPacote.descricao ?? ""} onChange={e => setEditPacote(p => p ? { ...p, descricao: e.target.value } : p)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Itens do pacote</label>
+                  {renderItemsEditor(editItens, setEditItens)}
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={saveEdit} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Save className="w-4 h-4"/>Guardar</>}
+                  </button>
+                  <button onClick={() => setEditPacote(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12 text-slate-400"><RefreshCw className="w-4 h-4 animate-spin mr-2"/>A carregar…</div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center py-12 text-slate-400 gap-3">
+          <Package className="w-8 h-8 opacity-30"/>
+          <div className="text-center">
+            <p className="text-sm font-medium text-slate-500">Nenhum pacote criado</p>
+            <p className="text-xs text-slate-400 mt-1">Agrupe emolumentos para facilitar a cobrança</p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {list.map(p => (
+            <div key={p.id} className={`bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition-opacity ${p.activo ? "" : "opacity-50"}`}>
+              <div className="px-4 py-3.5 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{p.nome}</p>
+                    {!p.activo && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full shrink-0">Inactivo</span>}
+                  </div>
+                  {p.descricao && <p className="text-xs text-slate-400 mt-0.5 truncate">{p.descricao}</p>}
+                </div>
+                <p className="text-sm font-bold text-primary tabular-nums shrink-0">{Number(p.valor).toLocaleString("pt-AO")} Kz</p>
+                <button onClick={() => toggleActivo(p)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${p.activo ? "bg-emerald-500" : "bg-slate-300"}`}
+                  title={p.activo ? "Desactivar" : "Activar"}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${p.activo ? "translate-x-4" : "translate-x-1"}`}/>
+                </button>
+                <button onClick={() => {
+                  setEditPacote(p);
+                  setEditItens((p.itens ?? []).map((i: any) => ({ nome: i.nome ?? "", valor: String(i.valor ?? "") })));
+                }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar"><Pencil className="w-3.5 h-3.5"/></button>
+                <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar"><Trash2 className="w-3.5 h-3.5"/></button>
+              </div>
+              {(p.itens ?? []).length > 0 && (
+                <div className="border-t border-slate-50 px-4 pb-3 pt-2">
+                  <div className="space-y-1">
+                    {(p.itens ?? []).map((it: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600">{it.nome}</span>
+                        <span className="font-medium text-slate-700 tabular-nums">{Number(it.valor).toLocaleString("pt-AO")} Kz</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Main EmolumentosView: sub-tabs ─── */
+function EmolumentosView({ token }: { token: string }) {
+  const [activeTab, setActiveTab] = useState<"globais" | "locais" | "pacotes">("globais");
+
+  const tabs = [
+    { key: "globais" as const, label: "Globais", icon: <Globe className="w-4 h-4"/> },
+    { key: "locais" as const, label: "Locais", icon: <Receipt className="w-4 h-4"/> },
+    { key: "pacotes" as const, label: "Pacotes", icon: <Package className="w-4 h-4"/> },
+  ];
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full">
+      <div className="mb-6">
+        <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+          <Receipt className="w-5 h-5 text-primary"/> Emolumentos & Pacotes
+        </h1>
+        <p className="text-sm text-slate-500 mt-0.5">Gestão de taxas, serviços e pacotes de cobrança</p>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 mb-6 w-fit">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setActiveTab(t.key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === t.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            }`}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeTab === "globais" && (
+          <motion.div key="globais" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <GlobalEmolumentosTab token={token} />
+          </motion.div>
+        )}
+        {activeTab === "locais" && (
+          <motion.div key="locais" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <LocalEmolumentosTab token={token} />
+          </motion.div>
+        )}
+        {activeTab === "pacotes" && (
+          <motion.div key="pacotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <PacotesSchoolTab token={token} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

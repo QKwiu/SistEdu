@@ -214,6 +214,62 @@ router.get("/school/pacotes", schoolAuth, async (req: any, res) => {
   res.json(r.rows);
 });
 
+/* ─── POST /school/pacotes ─── */
+router.post("/school/pacotes", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, descricao, itens } = req.body;
+  if (!nome?.trim()) return res.status(400).json({ error: "Nome do pacote é obrigatório." });
+  const itemsArr = Array.isArray(itens) ? itens : [];
+  const valor = itemsArr.reduce((s: number, i: any) => s + (Number(i.valor) || 0), 0);
+  const r = await pool.query(
+    `INSERT INTO pacotes_emolumentos (school_id, nome, descricao, itens, valor, activo)
+     VALUES ($1,$2,$3,$4,$5,TRUE) RETURNING *`,
+    [school.school_id, nome.trim(), descricao?.trim() || null, JSON.stringify(itemsArr), valor]
+  );
+  return res.status(201).json(r.rows[0]);
+});
+
+/* ─── PUT /school/pacotes/:id ─── */
+router.put("/school/pacotes/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, descricao, itens, activo } = req.body;
+  if (!nome?.trim()) return res.status(400).json({ error: "Nome do pacote é obrigatório." });
+  const itemsArr = Array.isArray(itens) ? itens : [];
+  const valor = itemsArr.reduce((s: number, i: any) => s + (Number(i.valor) || 0), 0);
+  const r = await pool.query(
+    `UPDATE pacotes_emolumentos SET nome=$1, descricao=$2, itens=$3, valor=$4, activo=COALESCE($5,activo)
+     WHERE id=$6 AND school_id=$7 RETURNING *`,
+    [nome.trim(), descricao?.trim() || null, JSON.stringify(itemsArr), valor, activo ?? null, req.params.id, school.school_id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Pacote não encontrado." });
+  return res.json(r.rows[0]);
+});
+
+/* ─── DELETE /school/pacotes/:id ─── */
+router.delete("/school/pacotes/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query(
+    "DELETE FROM pacotes_emolumentos WHERE id=$1 AND school_id=$2",
+    [req.params.id, school.school_id]
+  );
+  return res.status(204).end();
+});
+
+/* ─── PATCH /school/pacotes/:id/toggle — toggle activo ─── */
+router.patch("/school/pacotes/:id/toggle", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    "UPDATE pacotes_emolumentos SET activo = NOT activo WHERE id=$1 AND school_id=$2 RETURNING *",
+    [req.params.id, school.school_id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Pacote não encontrado." });
+  return res.json(r.rows[0]);
+});
+
 /* ─── Alunos ─── */
 router.get("/school/alunos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
@@ -1085,12 +1141,15 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
    Emolumentos — school self-management
    ───────────────────────────────────────────── */
 
-/* ─── GET /school/emolumentos ─── */
+/* ─── GET /school/emolumentos — returns global (read-only) + school-local ─── */
 router.get("/school/emolumentos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
-    "SELECT * FROM emolumentos WHERE school_id=$1 ORDER BY tipo, ano_lectivo, nome",
+    `SELECT *, (school_id IS NULL) AS is_global
+     FROM emolumentos
+     WHERE school_id = $1 OR school_id IS NULL
+     ORDER BY (school_id IS NULL) DESC, tipo, nome`,
     [school.school_id]
   );
   return res.json(r.rows);
@@ -1138,6 +1197,18 @@ router.delete("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
     [req.params.id, school.school_id]
   );
   return res.status(204).end();
+});
+
+/* ─── PATCH /school/emolumentos/:id/toggle — toggle activo (local only) ─── */
+router.patch("/school/emolumentos/:id/toggle", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    "UPDATE emolumentos SET activo = NOT activo WHERE id=$1 AND school_id=$2 RETURNING *",
+    [req.params.id, school.school_id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Emolumento não encontrado ou é global." });
+  return res.json(r.rows[0]);
 });
 
 /* ─── GET /school/direct-debit/subscriptions ─── */

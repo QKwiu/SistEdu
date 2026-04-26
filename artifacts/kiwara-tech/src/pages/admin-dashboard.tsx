@@ -75,8 +75,9 @@ interface ColegioDetail extends Colegio {
   pacotes: PacoteEmolumento[];
 }
 interface Emolumento {
-  id: number; school_id: number; tipo: string; nome: string;
-  montante: number; ano_lectivo: string;
+  id: number; school_id: number | null; tipo: string; nome: string;
+  montante: number; ano_lectivo: string; activo: boolean;
+  is_global?: boolean;
 }
 interface Bracket { dia_inicio: number; dia_fim: number; percentagem: number; }
 interface MultaRegra {
@@ -5286,6 +5287,223 @@ function adminPreviewTemplate(tpl: string): string {
   return Object.entries(ADMIN_SAMPLE).reduce((t, [k, v]) => t.replaceAll(k, v), tpl);
 }
 
+/* ─────────────────────────────────────────────
+   Global Emolumentos Admin View
+   ───────────────────────────────────────────── */
+function GlobalEmolumentosAdminView() {
+  const [list, setList] = useState<Emolumento[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ nome: "", montante: "", ano_lectivo: "2025/2026" });
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ tipo: "propina", nome: DESCRICAO_POR_TIPO["propina"][0], montante: "", ano_lectivo: "2025/2026" });
+  const [formErr, setFormErr] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api("/admin/emolumentos/global");
+      if (r.ok) setList(await r.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault(); setFormErr("");
+    if (!form.nome.trim()) return setFormErr("Introduza uma descrição.");
+    if (!form.montante || Number(form.montante) <= 0) return setFormErr("Introduza um montante válido.");
+    setSaving(true);
+    try {
+      const r = await api("/admin/emolumentos/global", {
+        method: "POST", body: JSON.stringify({ tipo: form.tipo, nome: form.nome.trim(), montante: Number(form.montante), ano_lectivo: form.ano_lectivo }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setList(prev => [...prev, data]);
+      setForm({ tipo: "propina", nome: DESCRICAO_POR_TIPO["propina"][0], montante: "", ano_lectivo: "2025/2026" });
+      setShowForm(false);
+    } catch (err: any) { setFormErr(err.message); }
+    setSaving(false);
+  };
+
+  const saveEdit = async (id: number) => {
+    if (!editForm.nome.trim() || !editForm.montante) return;
+    setSaving(true);
+    try {
+      const r = await api(`/admin/emolumentos/global/${id}`, {
+        method: "PUT", body: JSON.stringify({ nome: editForm.nome.trim(), montante: Number(editForm.montante), ano_lectivo: editForm.ano_lectivo }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setList(prev => prev.map(e => e.id === id ? data : e));
+      setEditId(null);
+    } catch (err: any) { alert(err.message); }
+    setSaving(false);
+  };
+
+  const toggleActivo = async (em: Emolumento) => {
+    const r = await api(`/admin/emolumentos/${em.id}/toggle`, { method: "PATCH" });
+    if (r.ok) { const d = await r.json(); setList(prev => prev.map(e => e.id === em.id ? d : e)); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Eliminar este emolumento global? Todas as instituições deixarão de o ver.")) return;
+    await api(`/admin/emolumentos/global/${id}`, { method: "DELETE" });
+    setList(prev => prev.filter(e => e.id !== id));
+  };
+
+  const grouped = list.reduce((acc, em) => {
+    if (!acc[em.tipo]) acc[em.tipo] = [];
+    acc[em.tipo].push(em);
+    return acc;
+  }, {} as Record<string, Emolumento[]>);
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Receipt className="w-5 h-5 text-primary"/> Emolumentos Globais
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Tabela de referência visível por todas as instituições (apenas leitura para os colégios)
+          </p>
+        </div>
+        <button onClick={() => { setShowForm(s => !s); setFormErr(""); }}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm shrink-0">
+          <Plus className="w-4 h-4"/> {showForm ? "Cancelar" : "Novo emolumento global"}
+        </button>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 mb-6">
+        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/>
+        <p className="text-xs text-amber-800">
+          <strong>Emolumentos Globais</strong> são templates de referência criados pela administração central.
+          Ficam visíveis no portal de cada instituição como «leitura apenas» — cada colégio pode adicionar os seus próprios localmente.
+        </p>
+      </div>
+
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-6">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+              <h4 className="font-semibold text-slate-700 mb-4 text-sm">Novo Emolumento Global</h4>
+              <form onSubmit={handleAdd} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Tipo de emolumento" required>
+                    <select className={selectCls} value={form.tipo}
+                      onChange={e => {
+                        const tipo = e.target.value;
+                        const first = (DESCRICAO_POR_TIPO[tipo] ?? [])[0] ?? "";
+                        setForm(f => ({ ...f, tipo, nome: first }));
+                      }}>
+                      {TIPO_GRUPOS.map(g => (
+                        <optgroup key={g.grupo} label={g.grupo}>
+                          {g.items.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Ano lectivo">
+                    <input className={inputCls} value={form.ano_lectivo} onChange={e => setForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Descrição" required>
+                    {(DESCRICAO_POR_TIPO[form.tipo] ?? []).length > 0 ? (
+                      <select className={selectCls} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}>
+                        {DESCRICAO_POR_TIPO[form.tipo].map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    ) : (
+                      <input className={inputCls} placeholder="Descrição do emolumento" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+                    )}
+                  </Field>
+                  <Field label="Montante de referência (AOA)" required>
+                    <input type="number" min="0" className={inputCls} placeholder="ex: 35000" value={form.montante} onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} />
+                  </Field>
+                </div>
+                {formErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{formErr}</p>}
+                <div className="flex items-center gap-3">
+                  <button type="submit" disabled={saving}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                    {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar…</> : <><Plus className="w-4 h-4"/>Criar emolumento global</>}
+                  </button>
+                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
+        </div>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-slate-400 gap-3">
+          <Receipt className="w-10 h-10 opacity-30"/>
+          <div className="text-center">
+            <p className="text-sm font-medium text-slate-500">Nenhum emolumento global configurado</p>
+            <p className="text-xs text-slate-400 mt-1">Adicione templates de referência visíveis por todos os colégios</p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(grouped).map(([tipo, items]) => (
+            <div key={tipo} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50/80">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-primary/10 text-primary border-primary/20">
+                  {tipoLabel(tipo)}
+                </span>
+                <span className="text-xs text-slate-400 ml-auto">{items.length} item{items.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {items.map(em => (
+                  <div key={em.id} className={`px-5 py-3.5 flex items-center gap-3 transition-opacity ${em.activo ? "" : "opacity-50"}`}>
+                    {editId === em.id ? (
+                      <>
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <input className={`${inputCls} text-sm py-1.5`} value={editForm.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))} />
+                          <input type="number" min="0" className={`${inputCls} text-sm py-1.5`} value={editForm.montante} onChange={e => setEditForm(f => ({ ...f, montante: e.target.value }))} />
+                          <input className={`${inputCls} text-sm py-1.5`} value={editForm.ano_lectivo} onChange={e => setEditForm(f => ({ ...f, ano_lectivo: e.target.value }))} />
+                        </div>
+                        <button onClick={() => saveEdit(em.id)} disabled={saving} className="p-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Guardar"><Save className="w-4 h-4"/></button>
+                        <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors" title="Cancelar"><X className="w-4 h-4"/></button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{em.nome}</p>
+                          <p className="text-xs text-slate-400">{em.ano_lectivo}</p>
+                        </div>
+                        <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
+                        {/* Toggle activo */}
+                        <button onClick={() => toggleActivo(em)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${em.activo ? "bg-emerald-500" : "bg-slate-300"}`}
+                          title={em.activo ? "Desactivar" : "Activar"}>
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${em.activo ? "translate-x-4" : "translate-x-1"}`}/>
+                        </button>
+                        <button onClick={() => { setEditId(em.id); setEditForm({ nome: em.nome, montante: String(em.montante), ano_lectivo: em.ano_lectivo }); }}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors" title="Editar"><Pencil className="w-3.5 h-3.5"/></button>
+                        <button onClick={() => handleDelete(em.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors" title="Eliminar"><Trash2 className="w-3.5 h-3.5"/></button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs text-center text-slate-400 pb-4">{list.length} emolumento{list.length !== 1 ? "s" : ""} global{list.length !== 1 ? "is" : ""} configurado{list.length !== 1 ? "s" : ""}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminSMSView() {
   const [activeTab, setActiveTab] = useState<"provider" | "templates" | "logs" | "enviar">("provider");
 
@@ -5763,7 +5981,7 @@ function AdminSMSView() {
 }
 
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios" | "sms";
+type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -5800,6 +6018,7 @@ export default function AdminDashboard() {
   const NAV = [
     { id: "stats" as const, label: "Visão Geral", icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: "colegios" as const, label: "Colégios", icon: <Building2 className="w-5 h-5" /> },
+    { id: "emolumentos_globais" as const, label: "Emolumentos Globais", icon: <Receipt className="w-5 h-5" /> },
     { id: "sms" as const, label: "SMS & Comunicação", icon: <Smartphone className="w-5 h-5" /> },
   ];
 
@@ -6000,6 +6219,7 @@ export default function AdminDashboard() {
             {view === "colegios" && (
               <ColegiosView onSelect={id => { setSelectedSchoolId(id); setView("colegios"); }} />
             )}
+            {view === "emolumentos_globais" && <GlobalEmolumentosAdminView />}
             {view === "sms" && <AdminSMSView />}
           </>
         )}
