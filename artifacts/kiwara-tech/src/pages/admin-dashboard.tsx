@@ -2817,6 +2817,7 @@ function AlunoFichaSlideOver({
 
   const [pacoteId, setPacoteId] = useState<number | "">("");
   const [adminPacotes, setAdminPacotes] = useState<PacoteEmolumento[]>([]);
+  const [adminPropinaList, setAdminPropinaList] = useState<{ id: number; mes: string; ano: string; montante: number; multa: number; status: string }[]>([]);
 
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
 
@@ -2825,7 +2826,8 @@ function AlunoFichaSlideOver({
     Promise.all([
       api(`/admin/colegios/${schoolId}/alunos/${alunoId}`).then(r => r.json()),
       api(`/admin/colegios/${schoolId}/pacotes`).then(r => r.ok ? r.json() : []),
-    ]).then(([d, pkts]: [AlunoFicha, PacoteEmolumento[]]) => {
+      api(`/admin/colegios/${schoolId}/propinas?student_id=${alunoId}`).then(r => r.ok ? r.json() : []),
+    ]).then(([d, pkts, props]: [AlunoFicha, PacoteEmolumento[], any[]]) => {
       setFicha(d);
       setNome(d.nome || "");
       setBilhete(d.bilhete || "");
@@ -2839,6 +2841,7 @@ function AlunoFichaSlideOver({
       setEmailEnc(d.encarregado?.email || "");
       setPacoteId(d.pacote_id ?? "");
       setAdminPacotes((pkts as PacoteEmolumento[]).filter(p => p.activo));
+      setAdminPropinaList(props as any[]);
     }).finally(() => setLoading(false));
   }, [schoolId, alunoId]);
 
@@ -2993,6 +2996,38 @@ function AlunoFichaSlideOver({
                 <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-slate-400"/>
                   Nenhum pacote activo configurado para este colégio.
+                </div>
+              )}
+            </div>
+
+            {/* ─── Propinas (read-only view) ─── */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <FileText className="w-3.5 h-3.5"/> Propinas
+              </h3>
+              {adminPropinaList.length > 0 ? (
+                <div className="space-y-1.5">
+                  {adminPropinaList.slice(0, 8).map(p => (
+                    <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800">{p.mes} {p.ano}</p>
+                        {Number(p.multa) > 0 && <p className="text-xs text-red-500">+{fmt(Number(p.multa))} multa</p>}
+                      </div>
+                      <p className="text-sm font-mono font-semibold text-slate-900 shrink-0">{fmt(Number(p.montante) + Number(p.multa))}</p>
+                      {p.status === "pago"
+                        ? <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold shrink-0">Paga</span>
+                        : p.status === "vencido"
+                          ? <span className="text-xs px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full font-semibold shrink-0">Vencida</span>
+                          : <span className="text-xs px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-semibold shrink-0">Pendente</span>}
+                    </div>
+                  ))}
+                  {adminPropinaList.length > 8 && (
+                    <p className="text-xs text-center text-slate-400 pt-1">+{adminPropinaList.length - 8} propinas anteriores</p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-5 text-slate-400 bg-slate-50 border border-slate-200 rounded-xl">
+                  <p className="text-sm">Nenhuma propina registada para este aluno.</p>
                 </div>
               )}
             </div>

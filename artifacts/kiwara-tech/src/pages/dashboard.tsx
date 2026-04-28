@@ -1343,6 +1343,7 @@ function SchoolUploadAlunosPanel({ token, onSuccess }: {
 }
 
 /* ─── AlunoFichaSlideOver (portal da escola) ─── */
+interface FichaPropina { id: number; mes: string; ano: string; montante: number; multa: number; status: string; }
 interface AlunoFichaData {
   id: number; nome: string; bilhete?: string; numero_processo?: string;
   data_nascimento?: string; sexo?: string; estado?: string;
@@ -1379,6 +1380,15 @@ function AlunoFichaSlideOver({
   const [fichaPackets, setFichaPackets] = useState<Pacote[]>([]);
   const [fichaEmolumentos, setFichaEmolumentos] = useState<Emolumento[]>([]);
 
+  const [fichaPropinaList, setFichaPropinaList] = useState<FichaPropina[]>([]);
+  const [showGerarForm, setShowGerarForm] = useState(false);
+  const [gerarAno, setGerarAno] = useState(String(new Date().getFullYear()));
+  const [gerarMontante, setGerarMontante] = useState("");
+  const [gerarMeses, setGerarMeses] = useState<string[]>([]);
+  const [gerarSaving, setGerarSaving] = useState(false);
+  const [gerarError, setGerarError] = useState("");
+  const [gerarSuccess, setGerarSuccess] = useState("");
+
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
@@ -1389,7 +1399,8 @@ function AlunoFichaSlideOver({
       fetch(`${API}/school/alunos/${alunoId}`, { headers }).then(r => r.json()),
       fetch(`${API}/school/pacotes`, { headers }).then(r => r.ok ? r.json() : []),
       fetch(`${API}/school/emolumentos`, { headers }).then(r => r.ok ? r.json() : []),
-    ]).then(([d, pkts, ems]: [AlunoFichaData, Pacote[], Emolumento[]]) => {
+      fetch(`${API}/school/propinas?student_id=${alunoId}`, { headers }).then(r => r.ok ? r.json() : []),
+    ]).then(([d, pkts, ems, props]: [AlunoFichaData, Pacote[], Emolumento[], FichaPropina[]]) => {
       setFicha(d);
       setNome(d.nome || "");
       setBilhete(d.bilhete || "");
@@ -1402,10 +1413,28 @@ function AlunoFichaSlideOver({
       setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
       setEmailEnc(d.encarregado?.email || "");
       setPacoteId(d.pacote_id ?? "");
-      setFichaPackets((pkts as Pacote[]).filter(p => p.activo));
-      setFichaEmolumentos((ems as Emolumento[]).filter(e => !e.is_global));
+      const activePkts = (pkts as Pacote[]).filter(p => p.activo);
+      const localEms = (ems as Emolumento[]).filter(e => !e.is_global);
+      setFichaPackets(activePkts);
+      setFichaEmolumentos(localEms);
+      setFichaPropinaList(props as FichaPropina[]);
+      // Default amount: pacote value → local propina emolumento → blank
+      const selectedPacote = activePkts.find(p => p.id === d.pacote_id);
+      if (selectedPacote) {
+        setGerarMontante(String(selectedPacote.valor));
+      } else {
+        const propinaEm = localEms.find(e => e.tipo === "propina");
+        if (propinaEm) setGerarMontante(String(propinaEm.montante));
+      }
     }).finally(() => setLoading(false));
   }, [alunoId]);
+
+  useEffect(() => {
+    if (pacoteId !== "") {
+      const p = fichaPackets.find(pk => pk.id === pacoteId);
+      if (p) setGerarMontante(String(p.valor));
+    }
+  }, [pacoteId, fichaPackets]);
 
   const save = async () => {
     if (!nome.trim()) { setErr("Nome do aluno é obrigatório."); return; }
@@ -1442,6 +1471,35 @@ function AlunoFichaSlideOver({
       setTimeout(() => { setSaved(false); onClose(); }, 1200);
     } catch (e: any) { setErr(e.message); }
     finally { setSaving(false); }
+  };
+
+  const gerarPropinas = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGerarError(""); setGerarSuccess("");
+    if (!gerarMeses.length) { setGerarError("Selecione pelo menos um mês."); return; }
+    if (!gerarMontante || isNaN(Number(gerarMontante))) { setGerarError("Insira o valor mensal."); return; }
+    setGerarSaving(true);
+    try {
+      const res = await fetch(`${API}/school/propinas/gerar`, {
+        method: "POST", headers,
+        body: JSON.stringify({ student_id: alunoId, meses: gerarMeses, ano: gerarAno, montante: Number(gerarMontante) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao gerar propinas.");
+      setGerarSuccess(`${data.total} propina(s) gerada(s) com sucesso!`);
+      setGerarMeses([]);
+      const newItems: FichaPropina[] = (data.created ?? []).map((p: any) => ({
+        id: p.id, mes: p.mes, ano: p.ano, montante: Number(p.montante), multa: Number(p.multa ?? 0), status: p.status,
+      }));
+      setFichaPropinaList(prev => [...newItems, ...prev]);
+    } catch (err: any) { setGerarError(err.message); }
+    finally { setGerarSaving(false); }
+  };
+
+  const propinaStatusBadge = (s: string) => {
+    if (s === "pago") return <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold shrink-0">Paga</span>;
+    if (s === "vencido") return <span className="text-xs px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full font-semibold shrink-0">Vencida</span>;
+    return <span className="text-xs px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-semibold shrink-0">Pendente</span>;
   };
 
   const Lbl = ({ children }: { children: React.ReactNode }) => (
@@ -1584,6 +1642,86 @@ function AlunoFichaSlideOver({
                 <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-slate-400"/>
                   Nenhum pacote ou emolumento configurado. Configure-os nas secções «Emolumentos» e «Pacotes».
+                </div>
+              )}
+            </div>
+
+            {/* ─── Propinas ─── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5"/> Propinas
+                </h3>
+                <button type="button" onClick={() => { setShowGerarForm(v => !v); setGerarError(""); setGerarSuccess(""); }}
+                  className="text-xs flex items-center gap-1 text-primary font-semibold hover:text-primary/80 transition-colors">
+                  <Plus className="w-3 h-3"/>{showGerarForm ? "Fechar" : "Gerar propinas"}
+                </button>
+              </div>
+
+              {showGerarForm && (
+                <form onSubmit={gerarPropinas} className="mb-4 bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
+                  <p className="text-xs font-semibold text-primary">Nova propina para {ficha?.nome?.split(" ")[0]}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Lbl>Ano</Lbl>
+                      <input className={inp} value={gerarAno} onChange={e => setGerarAno(e.target.value)} placeholder="2026"/>
+                    </div>
+                    <div>
+                      <Lbl>Valor mensal (AOA)</Lbl>
+                      <input type="number" min="0" step="0.01" className={inp} value={gerarMontante}
+                        onChange={e => setGerarMontante(e.target.value)} placeholder="ex: 35000"/>
+                    </div>
+                  </div>
+                  <div>
+                    <Lbl>Meses</Lbl>
+                    <div className="grid grid-cols-4 gap-1.5 mt-1">
+                      {MESES.map(m => {
+                        const sel = gerarMeses.includes(m);
+                        return (
+                          <button type="button" key={m} onClick={() => setGerarMeses(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])}
+                            className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${sel ? "bg-primary text-white border-primary" : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"}`}>
+                            {m.slice(0, 3)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {gerarMeses.length > 0 && <p className="text-xs text-primary mt-1.5 font-medium">{gerarMeses.length} mês/meses seleccionado(s)</p>}
+                  </div>
+                  {gerarError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{gerarError}</p>}
+                  {gerarSuccess && <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">{gerarSuccess}</p>}
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={() => setShowGerarForm(false)}
+                      className="flex-1 py-2 text-xs text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Fechar</button>
+                    <button type="submit" disabled={gerarSaving}
+                      className="flex-1 py-2 text-xs font-semibold bg-primary text-white rounded-xl hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-1 transition-colors">
+                      {gerarSaving ? <><RefreshCw className="w-3 h-3 animate-spin"/>A gerar…</> : "Gerar Propinas"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {fichaPropinaList.length > 0 ? (
+                <div className="space-y-1.5">
+                  {fichaPropinaList.slice(0, 8).map(p => (
+                    <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800">{p.mes} {p.ano}</p>
+                        {Number(p.multa) > 0 && (
+                          <p className="text-xs text-red-500">+{fmt(p.multa)} multa</p>
+                        )}
+                      </div>
+                      <p className="text-sm font-mono font-semibold text-slate-900 shrink-0">{fmt(Number(p.montante) + Number(p.multa))}</p>
+                      {propinaStatusBadge(p.status)}
+                    </div>
+                  ))}
+                  {fichaPropinaList.length > 8 && (
+                    <p className="text-xs text-center text-slate-400 pt-1">+{fichaPropinaList.length - 8} propinas anteriores</p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-5 text-slate-400">
+                  <p className="text-sm">Nenhuma propina registada para este aluno.</p>
+                  <p className="text-xs mt-1">Use o botão «Gerar propinas» acima para criar.</p>
                 </div>
               )}
             </div>
