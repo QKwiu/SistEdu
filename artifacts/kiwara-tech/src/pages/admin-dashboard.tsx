@@ -2790,6 +2790,7 @@ interface AlunoFicha {
   nome_encarregado?: string; telefone_encarregado?: string;
   encarregado?: { id: number; nome: string; telefone: string; email?: string; first_login: boolean; created_at: string } | null;
   turmas?: { id: number; nome: string; turno?: string }[];
+  pacote_id?: number | null;
 }
 
 function AlunoFichaSlideOver({
@@ -2814,26 +2815,31 @@ function AlunoFichaSlideOver({
   const [novaPassword, setNovaPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
 
+  const [pacoteId, setPacoteId] = useState<number | "">("");
+  const [adminPacotes, setAdminPacotes] = useState<PacoteEmolumento[]>([]);
+
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
 
   useEffect(() => {
     setLoading(true);
-    api(`/admin/colegios/${schoolId}/alunos/${alunoId}`)
-      .then(r => r.json())
-      .then((d: AlunoFicha) => {
-        setFicha(d);
-        setNome(d.nome || "");
-        setBilhete(d.bilhete || "");
-        setNumProcesso(d.numero_processo || "");
-        setDataNascimento(d.data_nascimento?.slice(0, 10) || "");
-        setSexo(d.sexo || "");
-        setEstado(d.estado || "activo");
-        setTurmaId(d.turma_id ?? "");
-        setNomeEnc(d.encarregado?.nome || d.nome_encarregado || "");
-        setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
-        setEmailEnc(d.encarregado?.email || "");
-      })
-      .finally(() => setLoading(false));
+    Promise.all([
+      api(`/admin/colegios/${schoolId}/alunos/${alunoId}`).then(r => r.json()),
+      api(`/admin/colegios/${schoolId}/pacotes`).then(r => r.ok ? r.json() : []),
+    ]).then(([d, pkts]: [AlunoFicha, PacoteEmolumento[]]) => {
+      setFicha(d);
+      setNome(d.nome || "");
+      setBilhete(d.bilhete || "");
+      setNumProcesso(d.numero_processo || "");
+      setDataNascimento(d.data_nascimento?.slice(0, 10) || "");
+      setSexo(d.sexo || "");
+      setEstado(d.estado || "activo");
+      setTurmaId(d.turma_id ?? "");
+      setNomeEnc(d.encarregado?.nome || d.nome_encarregado || "");
+      setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
+      setEmailEnc(d.encarregado?.email || "");
+      setPacoteId(d.pacote_id ?? "");
+      setAdminPacotes((pkts as PacoteEmolumento[]).filter(p => p.activo));
+    }).finally(() => setLoading(false));
   }, [schoolId, alunoId]);
 
   const save = async () => {
@@ -2853,6 +2859,15 @@ function AlunoFichaSlideOver({
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+
+      const newPacoteId = pacoteId === "" ? null : pacoteId;
+      if (newPacoteId !== (ficha?.pacote_id ?? null)) {
+        await api(`/admin/colegios/${schoolId}/alunos/${alunoId}/pacote`, {
+          method: "PUT",
+          body: JSON.stringify({ pacote_id: newPacoteId }),
+        });
+      }
+
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
       onSaved?.(d.nome);
@@ -2939,6 +2954,47 @@ function AlunoFichaSlideOver({
                   </select>
                 </div>
               </div>
+            </div>
+
+            {/* Plano de Pagamento */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Receipt className="w-3.5 h-3.5"/> Plano de Pagamento
+              </h3>
+              {adminPacotes.length > 0 ? (
+                <div className="space-y-3">
+                  <div>
+                    <Label>Pacote de emolumentos</Label>
+                    <select className={inp} value={pacoteId}
+                      onChange={e => setPacoteId(e.target.value ? Number(e.target.value) : "")}>
+                      <option value="">— sem pacote atribuído —</option>
+                      {adminPacotes.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.nome}{p.valor ? ` — ${Number(p.valor).toLocaleString("pt-AO")} Kz` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      O pacote agrupa os emolumentos aplicáveis a este aluno (propina, seguro, etc.).
+                    </p>
+                  </div>
+                  {pacoteId !== "" && (() => {
+                    const p = adminPacotes.find(pk => pk.id === pacoteId);
+                    return p ? (
+                      <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-3 text-sm text-slate-700">
+                        <p className="font-semibold text-primary mb-1">{p.nome}</p>
+                        {p.descricao && <p className="text-xs text-slate-500 mb-1">{p.descricao}</p>}
+                        <p className="text-xs font-mono font-bold">{Number(p.valor).toLocaleString("pt-AO")} Kz / mês</p>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-slate-400"/>
+                  Nenhum pacote activo configurado para este colégio.
+                </div>
+              )}
             </div>
 
             {/* Dados do encarregado */}

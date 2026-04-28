@@ -1350,6 +1350,7 @@ interface AlunoFichaData {
   nome_encarregado?: string; telefone_encarregado?: string;
   encarregado?: { id: number; nome: string; telefone: string; email?: string; first_login: boolean } | null;
   turmas?: { id: number; nome: string; turno?: string }[];
+  pacote_id?: number | null;
 }
 
 function AlunoFichaSlideOver({
@@ -1374,28 +1375,36 @@ function AlunoFichaSlideOver({
   const [novaPassword, setNovaPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
 
+  const [pacoteId, setPacoteId] = useState<number | "">("");
+  const [fichaPackets, setFichaPackets] = useState<Pacote[]>([]);
+  const [fichaEmolumentos, setFichaEmolumentos] = useState<Emolumento[]>([]);
+
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
 
   useEffect(() => {
     setLoading(true);
-    fetch(`${API}/school/alunos/${alunoId}`, { headers })
-      .then(r => r.json())
-      .then((d: AlunoFichaData) => {
-        setFicha(d);
-        setNome(d.nome || "");
-        setBilhete(d.bilhete || "");
-        setNumProcesso(d.numero_processo || "");
-        setDataNascimento(d.data_nascimento?.slice(0, 10) || "");
-        setSexo(d.sexo || "");
-        setEstado(d.estado || "activo");
-        setTurmaId(d.turma_id ?? "");
-        setNomeEnc(d.encarregado?.nome || d.nome_encarregado || "");
-        setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
-        setEmailEnc(d.encarregado?.email || "");
-      })
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch(`${API}/school/alunos/${alunoId}`, { headers }).then(r => r.json()),
+      fetch(`${API}/school/pacotes`, { headers }).then(r => r.ok ? r.json() : []),
+      fetch(`${API}/school/emolumentos`, { headers }).then(r => r.ok ? r.json() : []),
+    ]).then(([d, pkts, ems]: [AlunoFichaData, Pacote[], Emolumento[]]) => {
+      setFicha(d);
+      setNome(d.nome || "");
+      setBilhete(d.bilhete || "");
+      setNumProcesso(d.numero_processo || "");
+      setDataNascimento(d.data_nascimento?.slice(0, 10) || "");
+      setSexo(d.sexo || "");
+      setEstado(d.estado || "activo");
+      setTurmaId(d.turma_id ?? "");
+      setNomeEnc(d.encarregado?.nome || d.nome_encarregado || "");
+      setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
+      setEmailEnc(d.encarregado?.email || "");
+      setPacoteId(d.pacote_id ?? "");
+      setFichaPackets((pkts as Pacote[]).filter(p => p.activo));
+      setFichaEmolumentos((ems as Emolumento[]).filter(e => !e.is_global));
+    }).finally(() => setLoading(false));
   }, [alunoId]);
 
   const save = async () => {
@@ -1415,11 +1424,21 @@ function AlunoFichaSlideOver({
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+
+      const newPacoteId = pacoteId === "" ? null : pacoteId;
+      if (newPacoteId !== (ficha?.pacote_id ?? null)) {
+        await fetch(`${API}/school/alunos/${alunoId}/pacote`, {
+          method: "PUT", headers,
+          body: JSON.stringify({ pacote_id: newPacoteId }),
+        });
+      }
+
       setSaved(true);
       onSaved?.({ id: alunoId, nome: d.nome, bilhete: d.bilhete, numero_processo: d.numero_processo,
         data_nascimento: d.data_nascimento, sexo: d.sexo, estado: d.estado,
         nome_encarregado: d.nome_encarregado, telefone_encarregado: d.telefone_encarregado,
-        turma_id: d.turma_id, turma: d.turma_nome, turno: d.turno });
+        turma_id: d.turma_id, turma: d.turma_nome, turno: d.turno,
+        pacote_id: newPacoteId });
       setTimeout(() => { setSaved(false); onClose(); }, 1200);
     } catch (e: any) { setErr(e.message); }
     finally { setSaving(false); }
@@ -1502,6 +1521,71 @@ function AlunoFichaSlideOver({
                   </select>
                 </div>
               </div>
+            </div>
+
+            {/* ─── Plano de Pagamento ─── */}
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Receipt className="w-3.5 h-3.5"/> Plano de Pagamento
+              </h3>
+              {fichaPackets.length > 0 ? (
+                <div className="space-y-3">
+                  <div>
+                    <Lbl>Pacote de emolumentos</Lbl>
+                    <select className={inp} value={pacoteId}
+                      onChange={e => setPacoteId(e.target.value ? Number(e.target.value) : "")}>
+                      <option value="">— sem pacote atribuído —</option>
+                      {fichaPackets.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.nome}{p.valor ? ` — ${Number(p.valor).toLocaleString("pt-AO")} Kz` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      O pacote agrupa os emolumentos aplicáveis a este aluno (propina, seguro, etc.).
+                    </p>
+                  </div>
+                  {pacoteId !== "" && (() => {
+                    const p = fichaPackets.find(pk => pk.id === pacoteId);
+                    return p ? (
+                      <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-3 text-sm text-slate-700">
+                        <p className="font-semibold text-primary mb-1">{p.nome}</p>
+                        {p.descricao && <p className="text-xs text-slate-500 mb-1">{p.descricao}</p>}
+                        <p className="text-xs font-mono font-bold">{Number(p.valor).toLocaleString("pt-AO")} Kz / mês</p>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              ) : fichaEmolumentos.length > 0 ? (
+                <div>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Este colégio utiliza emolumentos individuais. Os seguintes emolumentos estão configurados:
+                  </p>
+                  <div className="space-y-1.5">
+                    {fichaEmolumentos.map(em => (
+                      <div key={em.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <div>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border mr-2 ${TIPO_COLOR_SCH[em.tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                            {tipoLabelSch(em.tipo)}
+                          </span>
+                          <span className="text-sm text-slate-700">{em.nome}</span>
+                        </div>
+                        <span className="text-sm font-mono font-bold text-slate-900 shrink-0 ml-2">
+                          {Number(em.montante).toLocaleString("pt-AO")} Kz
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    Para usar pacotes, configure-os na secção «Pacotes» do painel.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-slate-400"/>
+                  Nenhum pacote ou emolumento configurado. Configure-os nas secções «Emolumentos» e «Pacotes».
+                </div>
+              )}
             </div>
 
             <div>
