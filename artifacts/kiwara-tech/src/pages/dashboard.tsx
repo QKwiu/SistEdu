@@ -344,7 +344,15 @@ function ModalGerarPropina({ token, alunos, onClose, onCreated }: { token: strin
   return (
     <form onSubmit={submit} className="p-6 space-y-4">
       <Field label="Aluno" required>
-        <select className={selectCls} value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))}>
+        <select className={selectCls} value={form.student_id} onChange={e => {
+          const sid = e.target.value;
+          const aluno = alunos.find(a => String(a.id) === sid);
+          setForm(f => ({
+            ...f,
+            student_id: sid,
+            montante: aluno?.pacote_valor ? String(aluno.pacote_valor) : "",
+          }));
+        }}>
           <option value="">Selecionar aluno...</option>
           {alunos.map(a => <option key={a.id} value={a.id}>{a.nome} — {a.turma}</option>)}
         </select>
@@ -355,7 +363,8 @@ function ModalGerarPropina({ token, alunos, onClose, onCreated }: { token: strin
         </Field>
         <Field label="Valor mensal (AOA)" required>
           <input className={inputCls} type="number" min="0" value={form.montante}
-            onChange={e => setForm(f => ({ ...f, montante: e.target.value }))} placeholder="ex: 35000"/>
+            onChange={e => setForm(f => ({ ...f, montante: e.target.value }))}
+            placeholder={form.student_id && !form.montante ? "Sem pacote — insira o valor" : "ex: 35000"}/>
         </Field>
       </div>
       <Field label="Meses" required>
