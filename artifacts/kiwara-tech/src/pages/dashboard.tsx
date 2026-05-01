@@ -1098,6 +1098,17 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
   token: string | null; turmas: Turma[]; onSuccess: () => void; onCreateTurma?: () => void;
 }) {
   const anoLectivo = `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`;
+  const [nextNumeroProcesso, setNextNumeroProcesso] = useState<string | undefined>(undefined);
+
+  const fetchNext = useCallback(() => {
+    if (!token) return;
+    fetch(`${API}/school/alunos/next-numero-processo`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.next) setNextNumeroProcesso(d.next); })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => { fetchNext(); }, [fetchNext]);
 
   const handleSubmit = async (fd: FormData) => {
     const r = await fetch(`${API}/school/alunos`, {
@@ -1115,8 +1126,10 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
     <StudentRegistrationForm
       turmas={turmas}
       anoLectivo={anoLectivo}
+      nextNumeroProcesso={nextNumeroProcesso}
       onSubmitForm={handleSubmit}
       onCreateTurma={onCreateTurma}
+      onRegisterSuccess={fetchNext}
     />
   );
 }

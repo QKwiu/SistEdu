@@ -477,6 +477,11 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
                   <input className={inp} style={{width:160}} value={A.nomenclatura_turma} onChange={e => setS(["academico","nomenclatura_turma"], e.target.value)} />
                 </Row>
               </Sect>
+              <Sect title="Numeração de Processos">
+                <Row label="Prefixo do Nº de Processo" desc="Texto adicionado antes do número sequencial. Ex: '2025/' gera '2025/0001'.">
+                  <input className={inp} style={{width:180}} value={A.numero_processo_prefixo ?? ""} placeholder="ex: 2025/ ou ALU-" onChange={e => setS(["academico","numero_processo_prefixo"], e.target.value)} />
+                </Row>
+              </Sect>
               <Sect title="Anos lectivos activos">
                 <Row label="Anos lectivos" desc="Separados por vírgula.">
                   <input className={inp} style={{width:260}} value={A.anos_lectivos.join(", ")} onChange={e => setS(["academico","anos_lectivos"], e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))} />
@@ -658,6 +663,18 @@ function AddAlunoPanel({ schoolId, turmas, usaPacotes, pacotes, anoLectivo, onSu
   schoolId: number; turmas: SchoolTurma[]; usaPacotes: boolean;
   pacotes: PacoteEmolumento[]; anoLectivo: string; onSuccess: () => void;
 }) {
+  const [nextNumeroProcesso, setNextNumeroProcesso] = useState<string | undefined>(undefined);
+
+  const fetchNext = useCallback(() => {
+    const token = localStorage.getItem("kiwara_admin_token") ?? "";
+    fetch(`/api/admin/colegios/${schoolId}/alunos/next-numero-processo`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.next) setNextNumeroProcesso(d.next); })
+      .catch(() => {});
+  }, [schoolId]);
+
+  useEffect(() => { fetchNext(); }, [fetchNext]);
+
   const handleSubmit = async (fd: FormData) => {
     const token = localStorage.getItem("kiwara_admin_token") ?? "";
     const r = await fetch(`/api/admin/colegios/${schoolId}/alunos`, {
@@ -677,7 +694,9 @@ function AddAlunoPanel({ schoolId, turmas, usaPacotes, pacotes, anoLectivo, onSu
       anoLectivo={anoLectivo}
       usaPacotes={usaPacotes}
       pacotes={pacotes}
+      nextNumeroProcesso={nextNumeroProcesso}
       onSubmitForm={handleSubmit}
+      onRegisterSuccess={fetchNext}
     />
   );
 }
@@ -3868,6 +3887,9 @@ function SettingsView({ schoolId }: { schoolId: number }) {
           </SettingRow>
           <SettingRow label="Nomenclatura de turma" desc="Como as turmas são denominadas neste colégio.">
             <input className={inp} style={{width:160}} value={A.nomenclatura_turma ?? "Turma"} placeholder="ex: Turma, Classe, Sala" onChange={e => set(["academico","nomenclatura_turma"], e.target.value)}/>
+          </SettingRow>
+          <SettingRow label="Prefixo do Nº de Processo" desc="Texto adicionado antes do número sequencial automático. Ex: '2025/' gera '2025/0001', '2025/0002'...">
+            <input className={inp} style={{width:180}} value={A.numero_processo_prefixo ?? ""} placeholder="ex: 2025/ ou ALU-" onChange={e => set(["academico","numero_processo_prefixo"], e.target.value)}/>
           </SettingRow>
           <SettingRow label="Anos lectivos disponíveis" desc="Lista separada por vírgulas dos anos lectivos activos.">
             <input className={inp} style={{width:260}} value={(A.anos_lectivos ?? []).join(", ")}

@@ -258,6 +258,7 @@ const DEFAULT_SETTINGS = {
     permite_matricula_online: false,
     nomenclatura_turma: "Turma",
     anos_lectivos: ["2025/2026", "2026/2027"],
+    numero_processo_prefixo: "",
   },
   encarregados: {
     maximo_por_aluno: 2,
@@ -936,6 +937,47 @@ router.post("/admin/colegios/:id/alunos/upload", adminAuth, async (req, res) => 
   res.json({ inserted, skipped, errors, total: alunos.length, encarregados_criados });
 });
 
+/* ─── Helper: compute next numero_processo for a school (admin) ─── */
+async function computeNextNumeroProcessoAdmin(schoolId: number): Promise<{ next: string; prefixo: string; nextNum: number }> {
+  let prefixo = "";
+  try {
+    const r = await pool.query("SELECT numero_processo_prefixo, settings FROM schools WHERE id=$1", [schoolId]);
+    const row = r.rows[0];
+    prefixo = row?.numero_processo_prefixo ?? "";
+    if (!prefixo) prefixo = row?.settings?.academico?.numero_processo_prefixo ?? "";
+  } catch {
+    try {
+      const r = await pool.query("SELECT settings FROM schools WHERE id=$1", [schoolId]);
+      prefixo = r.rows[0]?.settings?.academico?.numero_processo_prefixo ?? "";
+    } catch { prefixo = ""; }
+  }
+  const existing = await pool.query(
+    `SELECT numero_processo FROM students WHERE school_id=$1 AND numero_processo IS NOT NULL AND numero_processo != ''`,
+    [schoolId]
+  );
+  let maxNum = 0;
+  for (const row of existing.rows) {
+    const np: string = row.numero_processo ?? "";
+    const stripped = prefixo && np.startsWith(prefixo) ? np.slice(prefixo.length) : np;
+    const num = parseInt(stripped.replace(/\D/g, ""), 10);
+    if (!isNaN(num) && num > maxNum) maxNum = num;
+  }
+  const nextNum = maxNum + 1;
+  const padded = String(nextNum).padStart(4, "0");
+  return { next: prefixo ? `${prefixo}${padded}` : padded, prefixo, nextNum };
+}
+
+/* ─── GET /admin/colegios/:id/alunos/next-numero-processo ─── */
+router.get("/admin/colegios/:id/alunos/next-numero-processo", adminAuth, async (req: any, res) => {
+  const schoolId = Number(req.params.id);
+  try {
+    const result = await computeNextNumeroProcessoAdmin(schoolId);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ─── POST /admin/colegios/:id/alunos — create single student (multipart) ─── */
 const alunoUpload = upload.fields([
   { name: "bi_doc", maxCount: 1 },
@@ -983,6 +1025,13 @@ router.post("/admin/colegios/:id/alunos", adminAuth, (req, res, next) => {
       }
     }
 
+    // Auto-generate numero_processo if not provided
+    let numeroProcesso = b.numero_processo?.trim() || null;
+    if (!numeroProcesso) {
+      const gen = await computeNextNumeroProcessoAdmin(schoolId);
+      numeroProcesso = gen.next;
+    }
+
     // Insert student with all fields
     const st = await pool.query(
       `INSERT INTO students
@@ -991,10 +1040,10 @@ router.post("/admin/colegios/:id/alunos", adminAuth, (req, res, next) => {
           bi_doc_path, bi_encarregado_doc_path,
           is_transferencia, escola_anterior, ano_classe_anterior, docs_transferencia_path)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'activo',$10,$11,$12,$13,$14,$15)
-       RETURNING id, nome, bilhete, estado, created_at`,
+       RETURNING id, nome, bilhete, numero_processo, estado, created_at`,
       [
         schoolId, turmaId, b.nome.trim(),
-        b.bilhete?.trim() || null, b.numero_processo?.trim() || null,
+        b.bilhete?.trim() || null, numeroProcesso,
         b.data_nascimento || null, b.sexo || null,
         b.nome_encarregado?.trim() || null, b.telefone_encarregado?.trim() || null,
         biDocPath, biEncDocPath,

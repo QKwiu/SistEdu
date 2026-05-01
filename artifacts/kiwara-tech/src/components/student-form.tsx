@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import {
   Paperclip, ArrowRightLeft, AlertCircle, CheckCircle2,
-  X, RefreshCw, UserPlus, School,
+  X, RefreshCw, UserPlus, School, Sparkles,
 } from "lucide-react";
 
 export interface FormTurma { id: number; nome: string; turno?: string }
@@ -12,8 +12,10 @@ interface StudentRegistrationFormProps {
   anoLectivo?: string;
   usaPacotes?: boolean;
   pacotes?: FormPacote[];
+  nextNumeroProcesso?: string;
   onSubmitForm: (fd: FormData) => Promise<string>;
   onCreateTurma?: () => void;
+  onRegisterSuccess?: () => void;
 }
 
 /* ─── File Input ─── */
@@ -54,8 +56,10 @@ export function StudentRegistrationForm({
   anoLectivo,
   usaPacotes = false,
   pacotes = [],
+  nextNumeroProcesso,
   onSubmitForm,
   onCreateTurma,
+  onRegisterSuccess,
 }: StudentRegistrationFormProps) {
   const ano = anoLectivo ?? `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`;
 
@@ -108,6 +112,7 @@ export function StudentRegistrationForm({
       const studentName = await onSubmitForm(fd);
       setSuccess(studentName);
       reset();
+      onRegisterSuccess?.();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -150,8 +155,26 @@ export function StudentRegistrationForm({
           </div>
           <div>
             <label className={labelCls}>Nº de Processo</label>
-            <input name="numero_processo" className={inputCls} placeholder="ex: 2025/0001"
-              value={form.numero_processo} onChange={e => set("numero_processo", e.target.value)} />
+            {nextNumeroProcesso !== undefined ? (
+              <div className="relative">
+                <input
+                  name="numero_processo"
+                  className={`${inputCls} bg-slate-50 text-slate-500 pr-8`}
+                  value={nextNumeroProcesso}
+                  readOnly
+                  title="Gerado automaticamente pelo sistema"
+                />
+                <Sparkles className="w-3.5 h-3.5 text-primary/60 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            ) : (
+              <input name="numero_processo" className={inputCls} placeholder="ex: 2025/0001"
+                value={form.numero_processo} onChange={e => set("numero_processo", e.target.value)} />
+            )}
+            {nextNumeroProcesso !== undefined && (
+              <p className="text-xs text-primary/70 mt-1 flex items-center gap-1">
+                <Sparkles className="w-3 h-3"/> Atribuído automaticamente em sequência
+              </p>
+            )}
           </div>
           <div>
             <label className={labelCls}>Data de Nascimento</label>

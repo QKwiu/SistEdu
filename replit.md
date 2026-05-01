@@ -60,6 +60,14 @@ A full scholarship management system integrated across all three portals:
 - **Discount engine**: Propina generation (`/school/propinas/gerar` and `/gerar-lote`) automatically detects an active bolsa and applies the discount before inserting — stored as `desconto` column on the `propinas` table.
 - **DB tables**: `bolsa_tipos`, `bolsa_atribuicoes`; `propinas` altered with `desconto` + `bolsa_atribuicao_id`.
 
+## Número de Processo Automático
+Sequential process number auto-generation for student registration:
+- **DB migration**: `schools` table gets a `numero_processo_prefixo TEXT` column; `students` gets a unique constraint on `(school_id, numero_processo)`.
+- **API endpoints**: `GET /school/alunos/next-numero-processo` and `GET /admin/colegios/:id/alunos/next-numero-processo` — compute `MAX(numero_processo)` for the school, strip prefix, parse numeric part, increment, zero-pad to 4 digits, re-apply prefix.
+- **Auto-generate on POST**: Both `POST /school/alunos` and `POST /admin/colegios/:id/alunos` auto-generate the number if the client sends none.
+- **Frontend**: `StudentRegistrationForm` accepts a `nextNumeroProcesso` prop — when provided, the field is read-only with a Sparkles icon and helper text. `SchoolAddAlunoPanel` (dashboard + admin) fetches the next number on mount and refreshes it after each successful registration.
+- **Settings**: Both the simplified ColegioSettings panel (admin) and the full per-tenant SettingsView have a "Prefixo do Nº de Processo" input in the Académico tab.
+
 ## Database Schema Highlights
 The database schema includes tables for `schools`, `sessions`, `encarregados` (guardians), `students`, `turmas` (classes), `propinas` (tuition fees), `pagamentos` (payments), `ocorrencias` (incidents), `multa_regras` (penalty rules), `emolumentos` (fees), `sms_logs`, `comunicados` (announcements), `direct_debit_subscriptions`, `bolsa_tipos`, and `bolsa_atribuicoes`, among others, with appropriate enums for status and types.
 

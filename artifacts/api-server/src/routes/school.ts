@@ -65,6 +65,14 @@ pool.query(`
   ALTER TABLE propinas ADD COLUMN IF NOT EXISTS bolsa_atribuicao_id INTEGER REFERENCES bolsa_atribuicoes(id);
 `).catch(() => {});
 
+/* ─── Número de processo: DB migration ─── */
+pool.query(`
+  ALTER TABLE schools ADD COLUMN IF NOT EXISTS numero_processo_prefixo TEXT DEFAULT '';
+`).catch(() => {});
+pool.query(`
+  ALTER TABLE students ADD CONSTRAINT IF NOT EXISTS uniq_student_school_num_proc UNIQUE (school_id, numero_processo);
+`).catch(() => {});
+
 /* Helper: fetch active bolsa discount for a student */
 async function getActiveBolsaDiscount(studentId: number): Promise<{ id: number; tipo_desconto: string; bolsa_valor: number } | null> {
   const r = await pool.query(
@@ -430,6 +438,13 @@ router.post("/school/alunos", schoolAuth, (req: any, res: any, next: any) => {
       }
     }
 
+    // Auto-generate numero_processo if not provided
+    let numeroProcesso = b.numero_processo?.trim() || null;
+    if (!numeroProcesso) {
+      const gen = await computeNextNumeroProcesso(school.school_id);
+      numeroProcesso = gen.next;
+    }
+
     const st = await pool.query(
       `INSERT INTO students
          (school_id, turma_id, nome, bilhete, numero_processo, data_nascimento, sexo,
@@ -437,10 +452,10 @@ router.post("/school/alunos", schoolAuth, (req: any, res: any, next: any) => {
           bi_doc_path, bi_encarregado_doc_path,
           is_transferencia, escola_anterior, ano_classe_anterior, docs_transferencia_path)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'activo',$10,$11,$12,$13,$14,$15)
-       RETURNING id, nome, bilhete, estado, created_at`,
+       RETURNING id, nome, bilhete, numero_processo, estado, created_at`,
       [
         school.school_id, turmaId, b.nome.trim(),
-        b.bilhete?.trim() || null, b.numero_processo?.trim() || null,
+        b.bilhete?.trim() || null, numeroProcesso,
         b.data_nascimento || null, b.sexo || null,
         b.nome_encarregado?.trim() || null, b.telefone_encarregado?.trim() || null,
         biDocPath, biEncDocPath,
@@ -610,6 +625,61 @@ router.delete("/school/alunos/:id", schoolAuth, async (req: any, res) => {
     [req.params.id, school.school_id]
   );
   res.status(204).end();
+});
+
+/* ─── Helper: get numero_processo prefix for a school ─── */
+async function getNumeroProcessoPrefixo(schoolId: number): Promise<string> {
+  // Try the dedicated column first (may not exist yet on first deploy), then fall back to settings JSONB
+  try {
+    const r = await pool.query(
+      "SELECT numero_processo_prefixo, settings FROM schools WHERE id=$1", [schoolId]
+    );
+    const row = r.rows[0];
+    if (!row) return "";
+    let prefixo = row.numero_processo_prefixo ?? "";
+    if (!prefixo) prefixo = row.settings?.academico?.numero_processo_prefixo ?? "";
+    return prefixo;
+  } catch {
+    // Column may not exist yet – fall back to settings only
+    try {
+      const r = await pool.query("SELECT settings FROM schools WHERE id=$1", [schoolId]);
+      return r.rows[0]?.settings?.academico?.numero_processo_prefixo ?? "";
+    } catch {
+      return "";
+    }
+  }
+}
+
+/* ─── Helper: compute next numero_processo for a school ─── */
+async function computeNextNumeroProcesso(schoolId: number): Promise<{ next: string; prefixo: string; nextNum: number }> {
+  const prefixo = await getNumeroProcessoPrefixo(schoolId);
+  const existing = await pool.query(
+    `SELECT numero_processo FROM students WHERE school_id=$1 AND numero_processo IS NOT NULL AND numero_processo != ''`,
+    [schoolId]
+  );
+  let maxNum = 0;
+  for (const row of existing.rows) {
+    const np: string = row.numero_processo ?? "";
+    const stripped = prefixo && np.startsWith(prefixo) ? np.slice(prefixo.length) : np;
+    const num = parseInt(stripped.replace(/\D/g, ""), 10);
+    if (!isNaN(num) && num > maxNum) maxNum = num;
+  }
+  const nextNum = maxNum + 1;
+  const padded = String(nextNum).padStart(4, "0");
+  const next = prefixo ? `${prefixo}${padded}` : padded;
+  return { next, prefixo, nextNum };
+}
+
+/* ─── GET /school/alunos/next-numero-processo ─── */
+router.get("/school/alunos/next-numero-processo", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  try {
+    const result = await computeNextNumeroProcesso(school.school_id);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /* ─── GET /school/alunos/:id — ficha completa do aluno ─── */
