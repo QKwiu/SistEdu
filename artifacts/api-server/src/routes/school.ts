@@ -968,7 +968,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { mes_inicio, ano_inicio, mes_fim, ano_fim, montante_fallback } = req.body;
+  const { mes_inicio, ano_inicio, mes_fim, ano_fim, montante_fallback, auto_referencia, auto_sms } = req.body;
   if (!mes_inicio || !ano_inicio) return res.status(400).json({ error: "Período inicial é obrigatório." });
 
   // Build month range
@@ -992,7 +992,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
 
   // Fetch all active students with their active enrolment package (or assigned individual emolumento)
   const studentsRes = await pool.query(
-    `SELECT s.id AS student_id, s.nome,
+    `SELECT s.id AS student_id, s.nome, s.telefone_encarregado, s.nome_encarregado,
             s.emolumento_propina_id,
             pe.valor AS pacote_valor,
             pe.itens AS pacote_itens,
@@ -1011,7 +1011,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
   const students = studentsRes.rows;
   if (!students.length) return res.status(400).json({ error: "Nenhum aluno activo encontrado." });
 
-  let totalGeradas = 0, totalSkipped = 0;
+  let totalGeradas = 0, totalSkipped = 0, totalReferencias = 0, totalSMS = 0;
   const detalhes: any[] = [];
 
   for (const st of students) {
@@ -1059,6 +1059,37 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
           await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
           criadosParaAluno++;
           totalGeradas++;
+
+          // Auto-generate Multicaixa (EMIS) reference for this propina
+          let emisRef: string | null = null;
+          if (auto_referencia) {
+            try {
+              const emisReferencia = generateRef();
+              const validade = lastDayOfMonth(mes, ano);
+              await pool.query(
+                `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+                 VALUES ($1, $2, $3, $4, 'PENDENTE', $5)
+                 ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
+                [propina.id, "00112", emisReferencia, stFinalMontante, validade]
+              );
+              emisRef = emisReferencia;
+              totalReferencias++;
+            } catch {}
+          }
+
+          // Send SMS notification to guardian
+          if (auto_sms && st.telefone_encarregado) {
+            sendEventSMS("nova_fatura", school.school_id, {
+              telefone: st.telefone_encarregado,
+              nome_encarregado: st.nome_encarregado ?? undefined,
+              nome_aluno: st.nome,
+              mes,
+              valor: stFinalMontante,
+              reference: emisRef ?? ref,
+              is_emis_reference: !!emisRef,
+            }).catch(() => {});
+            totalSMS++;
+          }
         } else {
           totalSkipped++;
         }
@@ -1072,7 +1103,67 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
     total_skipped: totalSkipped,
     total_alunos: students.length,
     periodos: periodos.length,
+    total_referencias: totalReferencias,
+    total_sms: totalSMS,
     detalhes,
+  });
+});
+
+/* ─── GET /school/propinas/:id/fatura — structured invoice data ─── */
+router.get("/school/propinas/:id/fatura", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const r = await pool.query(`
+    SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.desconto, p.status,
+           p.data_vencimento, p.internal_reference, p.created_at, p.pago_em,
+           p.metodo_pagamento, p.pagamento_origem,
+           s.nome AS aluno_nome, s.numero_processo, s.nome_encarregado,
+           s.telefone_encarregado,
+           COALESCE(t.nome, 'Sem turma') AS turma_nome,
+           pg.entidade, pg.referencia AS ref_numero, pg.valor AS ref_valor,
+           pg.validade AS ref_validade,
+           sc.name AS escola_nome, sc.nif AS escola_nif, sc.phone AS escola_phone,
+           sc.institution_type, sc.iban, sc.logo_url
+    FROM propinas p
+    JOIN students s ON s.id = p.student_id
+    JOIN schools sc ON sc.id = p.school_id
+    LEFT JOIN turmas t ON t.id = s.turma_id
+    LEFT JOIN pagamentos pg ON pg.propina_id = p.id
+    WHERE p.id = $1 AND p.school_id = $2
+  `, [req.params.id, school.school_id]);
+
+  if (!r.rows.length) return res.status(404).json({ error: "Propina não encontrada." });
+  const row = r.rows[0];
+
+  const institutionLabel = row.institution_type === "university" ? "Universidade"
+    : row.institution_type === "instituto" ? "Instituto"
+    : row.institution_type === "colegio" ? "Colégio"
+    : "Escola";
+
+  res.json({
+    propina: {
+      id: row.id, mes: row.mes, ano: row.ano,
+      montante: row.montante, multa: row.multa, desconto: row.desconto,
+      status: row.status, data_vencimento: row.data_vencimento,
+      internal_reference: row.internal_reference, created_at: row.created_at,
+      pago_em: row.pago_em, metodo_pagamento: row.metodo_pagamento,
+      pagamento_origem: row.pagamento_origem,
+    },
+    aluno: {
+      nome: row.aluno_nome, numero_processo: row.numero_processo, turma: row.turma_nome,
+      nome_encarregado: row.nome_encarregado, telefone_encarregado: row.telefone_encarregado,
+    },
+    escola: {
+      nome: row.escola_nome, nif: row.escola_nif, phone: row.escola_phone,
+      institution_type: institutionLabel, iban: row.iban, logo_url: row.logo_url,
+    },
+    referencia: row.ref_numero ? {
+      entidade: row.entidade, numero: row.ref_numero,
+      valor: row.ref_valor, validade: row.ref_validade,
+    } : null,
+    descricao: `Propina Mensal — ${row.mes} ${row.ano}`,
+    numero_fatura: `FT${String(row.id).padStart(6, "0")}`,
   });
 });
 
