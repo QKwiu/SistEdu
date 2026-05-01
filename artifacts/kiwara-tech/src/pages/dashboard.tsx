@@ -1099,6 +1099,9 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
 }) {
   const anoLectivo = `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`;
   const [nextNumeroProcesso, setNextNumeroProcesso] = useState<string | undefined>(undefined);
+  const [schoolUsaPacotes, setSchoolUsaPacotes] = useState(false);
+  const [schoolPacotes, setSchoolPacotes] = useState<import("../components/student-form").FormPacote[]>([]);
+  const [schoolEmolumentos, setSchoolEmolumentos] = useState<import("../components/student-form").FormEmolumento[]>([]);
 
   const fetchNext = useCallback(() => {
     if (!token) return;
@@ -1109,6 +1112,21 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
   }, [token]);
 
   useEffect(() => { fetchNext(); }, [fetchNext]);
+
+  useEffect(() => {
+    if (!token) return;
+    const hdrs = { Authorization: `Bearer ${token}` };
+    Promise.all([
+      fetch(`${API}/school/profile`, { headers: hdrs }).then(r => r.ok ? r.json() : { usa_pacotes: false }),
+      fetch(`${API}/school/pacotes`, { headers: hdrs }).then(r => r.ok ? r.json() : []),
+      fetch(`${API}/school/emolumentos`, { headers: hdrs }).then(r => r.ok ? r.json() : []),
+    ]).then(([prof, pkts, ems]: [any, any[], any[]]) => {
+      const active = pkts.filter((p: any) => p.activo);
+      setSchoolUsaPacotes(prof.usa_pacotes === true);
+      setSchoolPacotes(active);
+      setSchoolEmolumentos((ems as any[]).filter(e => !e.is_global && e.tipo === "propina"));
+    }).catch(() => {});
+  }, [token]);
 
   const handleSubmit = async (fd: FormData) => {
     const r = await fetch(`${API}/school/alunos`, {
@@ -1126,6 +1144,9 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
     <StudentRegistrationForm
       turmas={turmas}
       anoLectivo={anoLectivo}
+      usaPacotes={schoolUsaPacotes}
+      pacotes={schoolPacotes}
+      emolumentos={schoolEmolumentos}
       nextNumeroProcesso={nextNumeroProcesso}
       onSubmitForm={handleSubmit}
       onCreateTurma={onCreateTurma}
@@ -1389,6 +1410,8 @@ interface AlunoFichaData {
   encarregado?: { id: number; nome: string; telefone: string; email?: string; first_login: boolean } | null;
   turmas?: { id: number; nome: string; turno?: string }[];
   pacote_id?: number | null;
+  emolumento_propina_id?: number | null;
+  school_usa_pacotes?: boolean;
 }
 
 function AlunoFichaSlideOver({
@@ -1414,6 +1437,7 @@ function AlunoFichaSlideOver({
   const [showPass, setShowPass] = useState(false);
 
   const [pacoteId, setPacoteId] = useState<number | "">("");
+  const [emolumentoPropinaId, setEmolumentoPropinaId] = useState<number | "">("");
   const [fichaPackets, setFichaPackets] = useState<Pacote[]>([]);
   const [fichaEmolumentos, setFichaEmolumentos] = useState<Emolumento[]>([]);
 
@@ -1463,6 +1487,7 @@ function AlunoFichaSlideOver({
       setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
       setEmailEnc(d.encarregado?.email || "");
       setPacoteId(d.pacote_id ?? "");
+      setEmolumentoPropinaId(d.emolumento_propina_id ?? "");
       const activePkts = (pkts as Pacote[]).filter(p => p.activo);
       const localEms = (ems as Emolumento[]).filter(e => !e.is_global);
       setFichaPackets(activePkts);
@@ -1470,12 +1495,13 @@ function AlunoFichaSlideOver({
       setFichaPropinaList(props as FichaPropina[]);
       setBolsaHistory(bolsas as BolsaAtribuicao[]);
       setBolsaTipos((tipos as BolsaTipo[]).filter(t => t.activo));
-      // Default amount: pacote value → local propina emolumento → blank
+      // Default amount: pacote value → assigned emolumento → first propina emolumento → blank
       const selectedPacote = activePkts.find(p => p.id === d.pacote_id);
       if (selectedPacote) {
         setGerarMontante(String(selectedPacote.valor));
       } else {
-        const propinaEm = localEms.find(e => e.tipo === "propina");
+        const assignedEm = localEms.find(e => e.id === d.emolumento_propina_id);
+        const propinaEm = assignedEm ?? localEms.find(e => e.tipo === "propina");
         if (propinaEm) setGerarMontante(String(propinaEm.montante));
       }
     }).finally(() => setLoading(false));
@@ -1487,6 +1513,13 @@ function AlunoFichaSlideOver({
       if (p) setGerarMontante(String(p.valor));
     }
   }, [pacoteId, fichaPackets]);
+
+  useEffect(() => {
+    if (fichaPackets.length === 0 && emolumentoPropinaId !== "") {
+      const em = fichaEmolumentos.find(e => e.id === emolumentoPropinaId);
+      if (em) setGerarMontante(String(em.montante));
+    }
+  }, [emolumentoPropinaId, fichaEmolumentos, fichaPackets]);
 
   const save = async () => {
     if (!nome.trim()) { setErr("Nome do aluno é obrigatório."); return; }
@@ -1501,6 +1534,7 @@ function AlunoFichaSlideOver({
           nome_encarregado: nomeEnc.trim(), telefone_encarregado: telEnc.trim(),
           encarregado_email: emailEnc.trim() || null,
           nova_password: novaPassword.trim() || null,
+          emolumento_propina_id: emolumentoPropinaId || null,
         }),
       });
       const d = await r.json();
@@ -1638,7 +1672,7 @@ function AlunoFichaSlideOver({
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Receipt className="w-3.5 h-3.5"/> Plano de Pagamento
               </h3>
-              {fichaPackets.length > 0 ? (
+              {ficha?.school_usa_pacotes ? (
                 <div className="space-y-3">
                   <div>
                     <Lbl>Pacote de emolumentos</Lbl>
@@ -1667,28 +1701,38 @@ function AlunoFichaSlideOver({
                   })()}
                 </div>
               ) : fichaEmolumentos.length > 0 ? (
-                <div>
-                  <p className="text-xs text-slate-500 mb-2">
-                    Este colégio utiliza emolumentos individuais. Os seguintes emolumentos estão configurados:
-                  </p>
-                  <div className="space-y-1.5">
-                    {fichaEmolumentos.map(em => (
-                      <div key={em.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                        <div>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border mr-2 ${TIPO_COLOR_SCH[em.tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                            {tipoLabelSch(em.tipo)}
-                          </span>
-                          <span className="text-sm text-slate-700">{em.nome}</span>
-                        </div>
-                        <span className="text-sm font-mono font-bold text-slate-900 shrink-0 ml-2">
-                          {Number(em.montante).toLocaleString("pt-AO")} Kz
-                        </span>
-                      </div>
-                    ))}
+                <div className="space-y-3">
+                  <div>
+                    <Lbl>Propina atribuída a este aluno</Lbl>
+                    <select className={inp} value={emolumentoPropinaId}
+                      onChange={e => setEmolumentoPropinaId(e.target.value ? Number(e.target.value) : "")}>
+                      <option value="">— não definido —</option>
+                      {fichaEmolumentos.map(em => (
+                        <option key={em.id} value={em.id}>
+                          {em.nome} — {Number(em.montante).toLocaleString("pt-AO")} Kz
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Seleccione a propina/emolumento aplicável a este aluno. Será usado ao gerar propinas.
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Para usar pacotes, configure-os na secção «Pacotes» do painel.
-                  </p>
+                  {emolumentoPropinaId !== "" && (() => {
+                    const em = fichaEmolumentos.find(e => e.id === emolumentoPropinaId);
+                    return em ? (
+                      <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-3 text-sm text-slate-700">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border mr-2 ${TIPO_COLOR_SCH[em.tipo] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                              {tipoLabelSch(em.tipo)}
+                            </span>
+                            <span className="font-semibold text-primary">{em.nome}</span>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-slate-900">{Number(em.montante).toLocaleString("pt-AO")} Kz / mês</span>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">

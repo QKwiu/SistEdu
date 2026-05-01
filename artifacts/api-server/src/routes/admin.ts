@@ -1099,7 +1099,7 @@ router.get("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req,
 
   const sr = await pool.query(
     `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.data_nascimento, s.sexo, s.estado,
-            s.nome_encarregado, s.telefone_encarregado,
+            s.nome_encarregado, s.telefone_encarregado, s.emolumento_propina_id,
             s.is_transferencia, s.escola_anterior, s.ano_classe_anterior,
             s.turma_id, COALESCE(t.nome,'Sem turma') AS turma_nome, t.turno,
             m.pacote_id, m.ano_lectivo
@@ -1164,25 +1164,53 @@ router.put("/admin/colegios/:schoolId/alunos/:studentId", adminAuth, async (req,
   }
 
   // Update student
-  await pool.query(
-    `UPDATE students SET
-       nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
-       nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9
-     WHERE id=$10 AND school_id=$11`,
-    [
-      b.nome?.trim() || null,
-      b.bilhete?.trim() || null,
-      b.numero_processo?.trim() || null,
-      b.data_nascimento || null,
-      b.sexo || null,
-      b.nome_encarregado?.trim() || null,
-      b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
-      b.estado || "activo",
-      turmaId,
-      studentId,
-      schoolId,
-    ]
-  );
+  const adminEmolumentoPropinaId = b.emolumento_propina_id !== undefined
+    ? (b.emolumento_propina_id ? Number(b.emolumento_propina_id) : null)
+    : undefined;
+
+  if (adminEmolumentoPropinaId !== undefined) {
+    await pool.query(
+      `UPDATE students SET
+         nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
+         nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9,
+         emolumento_propina_id=$10
+       WHERE id=$11 AND school_id=$12`,
+      [
+        b.nome?.trim() || null,
+        b.bilhete?.trim() || null,
+        b.numero_processo?.trim() || null,
+        b.data_nascimento || null,
+        b.sexo || null,
+        b.nome_encarregado?.trim() || null,
+        b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
+        b.estado || "activo",
+        turmaId,
+        adminEmolumentoPropinaId,
+        studentId,
+        schoolId,
+      ]
+    );
+  } else {
+    await pool.query(
+      `UPDATE students SET
+         nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
+         nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9
+       WHERE id=$10 AND school_id=$11`,
+      [
+        b.nome?.trim() || null,
+        b.bilhete?.trim() || null,
+        b.numero_processo?.trim() || null,
+        b.data_nascimento || null,
+        b.sexo || null,
+        b.nome_encarregado?.trim() || null,
+        b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
+        b.estado || "activo",
+        turmaId,
+        studentId,
+        schoolId,
+      ]
+    );
+  }
 
   // Upsert matricula with new turma
   if (turmaId) {

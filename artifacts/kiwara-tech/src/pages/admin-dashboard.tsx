@@ -2810,6 +2810,7 @@ interface AlunoFicha {
   encarregado?: { id: number; nome: string; telefone: string; email?: string; first_login: boolean; created_at: string } | null;
   turmas?: { id: number; nome: string; turno?: string }[];
   pacote_id?: number | null;
+  emolumento_propina_id?: number | null;
 }
 
 function AlunoFichaSlideOver({
@@ -2835,7 +2836,9 @@ function AlunoFichaSlideOver({
   const [showPass, setShowPass] = useState(false);
 
   const [pacoteId, setPacoteId] = useState<number | "">("");
+  const [emolumentoPropinaId, setEmolumentoPropinaId] = useState<number | "">("");
   const [adminPacotes, setAdminPacotes] = useState<PacoteEmolumento[]>([]);
+  const [adminEmolumentos, setAdminEmolumentos] = useState<Emolumento[]>([]);
   const [adminPropinaList, setAdminPropinaList] = useState<{ id: number; mes: string; ano: string; montante: number; multa: number; status: string }[]>([]);
 
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
@@ -2846,7 +2849,8 @@ function AlunoFichaSlideOver({
       api(`/admin/colegios/${schoolId}/alunos/${alunoId}`).then(r => r.json()),
       api(`/admin/colegios/${schoolId}/pacotes`).then(r => r.ok ? r.json() : []),
       api(`/admin/colegios/${schoolId}/propinas?student_id=${alunoId}`).then(r => r.ok ? r.json() : []),
-    ]).then(([d, pkts, props]: [AlunoFicha, PacoteEmolumento[], any[]]) => {
+      api(`/admin/colegios/${schoolId}/emolumentos`).then(r => r.ok ? r.json() : []),
+    ]).then(([d, pkts, props, ems]: [AlunoFicha, PacoteEmolumento[], any[], any[]]) => {
       setFicha(d);
       setNome(d.nome || "");
       setBilhete(d.bilhete || "");
@@ -2859,7 +2863,9 @@ function AlunoFichaSlideOver({
       setTelEnc(d.encarregado?.telefone || d.telefone_encarregado || "");
       setEmailEnc(d.encarregado?.email || "");
       setPacoteId(d.pacote_id ?? "");
+      setEmolumentoPropinaId(d.emolumento_propina_id ?? "");
       setAdminPacotes((pkts as PacoteEmolumento[]).filter(p => p.activo));
+      setAdminEmolumentos((ems as Emolumento[]).filter(e => !e.is_global));
       setAdminPropinaList(props as any[]);
     }).finally(() => setLoading(false));
   }, [schoolId, alunoId]);
@@ -2877,6 +2883,7 @@ function AlunoFichaSlideOver({
           nome_encarregado: nomeEnc.trim(), telefone_encarregado: telEnc.trim(),
           encarregado_email: emailEnc.trim() || null,
           nova_password: novaPassword.trim() || null,
+          emolumento_propina_id: emolumentoPropinaId || null,
         }),
       });
       const d = await r.json();
@@ -3011,10 +3018,39 @@ function AlunoFichaSlideOver({
                     ) : null;
                   })()}
                 </div>
+              ) : adminEmolumentos.length > 0 ? (
+                <div className="space-y-3">
+                  <div>
+                    <Label>Propina atribuída a este aluno</Label>
+                    <select className={inp} value={emolumentoPropinaId}
+                      onChange={e => setEmolumentoPropinaId(e.target.value ? Number(e.target.value) : "")}>
+                      <option value="">— não definido —</option>
+                      {adminEmolumentos.map(em => (
+                        <option key={em.id} value={em.id}>
+                          {em.nome} — {Number(em.montante).toLocaleString("pt-AO")} Kz
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Seleccione o emolumento/propina aplicável a este aluno. Será usado ao gerar propinas em lote.
+                    </p>
+                  </div>
+                  {emolumentoPropinaId !== "" && (() => {
+                    const em = adminEmolumentos.find(e => e.id === emolumentoPropinaId);
+                    return em ? (
+                      <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-3 text-sm text-slate-700">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-primary">{em.nome}</p>
+                          <p className="text-xs font-mono font-bold">{Number(em.montante).toLocaleString("pt-AO")} Kz / mês</p>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-slate-400"/>
-                  Nenhum pacote activo configurado para este colégio.
+                  Nenhum pacote ou emolumento configurado para este colégio.
                 </div>
               )}
             </div>

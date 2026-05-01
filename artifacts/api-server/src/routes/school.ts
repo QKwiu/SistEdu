@@ -205,7 +205,7 @@ async function applyFinesForSchool(schoolId: number): Promise<void> {
 async function getSchoolFromToken(token: string) {
   const res = await pool.query(
     `SELECT sc.id AS school_id, sc.name AS school_name,
-            sc.institution_type, sc.portal_nomenclatura
+            sc.institution_type, sc.portal_nomenclatura, sc.usa_pacotes
      FROM sessions s
      JOIN schools sc ON sc.id = s.school_id
      WHERE s.token = $1 AND s.expires_at > NOW()`,
@@ -220,6 +220,13 @@ function schoolAuth(req: any, res: any, next: any) {
   req.schoolToken = header.slice(7);
   next();
 }
+
+/* ─── School Profile ─── */
+router.get("/school/profile", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  res.json({ usa_pacotes: school.usa_pacotes ?? false });
+});
 
 /* ─── Turmas ─── */
 router.get("/school/turmas", schoolAuth, async (req: any, res) => {
@@ -476,6 +483,14 @@ router.post("/school/alunos", schoolAuth, (req: any, res: any, next: any) => {
       );
     }
 
+    // Individual emolumento assignment (when school uses individual emolumentos instead of pacotes)
+    if (b.emolumento_propina_id) {
+      await pool.query(
+        "UPDATE students SET emolumento_propina_id=$1 WHERE id=$2",
+        [Number(b.emolumento_propina_id), student.id]
+      );
+    }
+
     // Encarregado
     const telefoneEnc = b.telefone_encarregado?.toString().replace(/\D/g, "").trim();
     if (telefoneEnc && b.nome_encarregado?.trim()) {
@@ -690,7 +705,7 @@ router.get("/school/alunos/:id", schoolAuth, async (req: any, res) => {
   const studentId = Number(req.params.id);
   const sr = await pool.query(
     `SELECT s.id, s.nome, s.bilhete, s.numero_processo, s.data_nascimento, s.sexo, s.estado,
-            s.nome_encarregado, s.telefone_encarregado,
+            s.nome_encarregado, s.telefone_encarregado, s.emolumento_propina_id,
             s.turma_id, COALESCE(t.nome,'Sem turma') AS turma_nome, t.turno,
             m.pacote_id, m.ano_lectivo
      FROM students s
@@ -714,7 +729,7 @@ router.get("/school/alunos/:id", schoolAuth, async (req: any, res) => {
     [school.school_id]
   );
 
-  return res.json({ ...sr.rows[0], encarregado: er.rows[0] ?? null, turmas: tr.rows });
+  return res.json({ ...sr.rows[0], encarregado: er.rows[0] ?? null, turmas: tr.rows, school_usa_pacotes: school.usa_pacotes ?? false });
 });
 
 /* ─── PUT /school/alunos/:id — actualizar ficha do aluno ─── */
@@ -732,19 +747,40 @@ router.put("/school/alunos/:id", schoolAuth, async (req: any, res) => {
 
   let turmaId: number | null = b.turma_id ? Number(b.turma_id) : null;
 
-  await pool.query(
-    `UPDATE students SET
-       nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
-       nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9
-     WHERE id=$10 AND school_id=$11`,
-    [
-      b.nome?.trim() || null, b.bilhete?.trim() || null,
-      b.numero_processo?.trim() || null, b.data_nascimento || null, b.sexo || null,
-      b.nome_encarregado?.trim() || null,
-      b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
-      b.estado || "activo", turmaId, studentId, school.school_id,
-    ]
-  );
+  const emolumentoPropinaId = b.emolumento_propina_id !== undefined
+    ? (b.emolumento_propina_id ? Number(b.emolumento_propina_id) : null)
+    : undefined;
+
+  if (emolumentoPropinaId !== undefined) {
+    await pool.query(
+      `UPDATE students SET
+         nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
+         nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9,
+         emolumento_propina_id=$10
+       WHERE id=$11 AND school_id=$12`,
+      [
+        b.nome?.trim() || null, b.bilhete?.trim() || null,
+        b.numero_processo?.trim() || null, b.data_nascimento || null, b.sexo || null,
+        b.nome_encarregado?.trim() || null,
+        b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
+        b.estado || "activo", turmaId, emolumentoPropinaId, studentId, school.school_id,
+      ]
+    );
+  } else {
+    await pool.query(
+      `UPDATE students SET
+         nome=$1, bilhete=$2, numero_processo=$3, data_nascimento=$4, sexo=$5,
+         nome_encarregado=$6, telefone_encarregado=$7, estado=$8, turma_id=$9
+       WHERE id=$10 AND school_id=$11`,
+      [
+        b.nome?.trim() || null, b.bilhete?.trim() || null,
+        b.numero_processo?.trim() || null, b.data_nascimento || null, b.sexo || null,
+        b.nome_encarregado?.trim() || null,
+        b.telefone_encarregado?.toString().replace(/\D/g, "").trim() || null,
+        b.estado || "activo", turmaId, studentId, school.school_id,
+      ]
+    );
+  }
 
   if (turmaId) {
     await pool.query(
@@ -954,15 +990,19 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
     if (cm >= 12) { cm = 0; cy++; }
   }
 
-  // Fetch all active students with their active enrolment package
+  // Fetch all active students with their active enrolment package (or assigned individual emolumento)
   const studentsRes = await pool.query(
     `SELECT s.id AS student_id, s.nome,
+            s.emolumento_propina_id,
             pe.valor AS pacote_valor,
             pe.itens AS pacote_itens,
-            pe.nome  AS pacote_nome
+            pe.nome  AS pacote_nome,
+            em.montante AS emolumento_montante,
+            em.nome AS emolumento_nome
      FROM students s
      LEFT JOIN matriculas m             ON m.student_id = s.id AND m.estado = 'activa'
      LEFT JOIN pacotes_emolumentos pe   ON pe.id = m.pacote_id
+     LEFT JOIN emolumentos em           ON em.id = s.emolumento_propina_id
      WHERE s.school_id = $1 AND s.estado = 'activo'
      ORDER BY s.nome`,
     [school.school_id]
@@ -975,7 +1015,8 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
   const detalhes: any[] = [];
 
   for (const st of students) {
-    // Determine montante: prefer propina item in package, fallback to whole package, then request fallback
+    // Determine montante: prefer propina item in package, fallback to whole package,
+    // then student's assigned emolumento, then request fallback
     let montante: number = Number(montante_fallback) || 0;
     if (st.pacote_itens) {
       const itens: { tipo: string; valor: number }[] = typeof st.pacote_itens === "string"
@@ -986,6 +1027,8 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
       else if (st.pacote_valor) montante = Number(st.pacote_valor);
     } else if (st.pacote_valor) {
       montante = Number(st.pacote_valor);
+    } else if (st.emolumento_montante) {
+      montante = Number(st.emolumento_montante);
     }
 
     if (!montante) {

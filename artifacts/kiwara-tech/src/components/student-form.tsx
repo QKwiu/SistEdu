@@ -6,12 +6,14 @@ import {
 
 export interface FormTurma { id: number; nome: string; turno?: string }
 export interface FormPacote { id: number; nome: string; valor: number }
+export interface FormEmolumento { id: number; nome: string; tipo: string; montante: number }
 
 interface StudentRegistrationFormProps {
   turmas: FormTurma[];
   anoLectivo?: string;
   usaPacotes?: boolean;
   pacotes?: FormPacote[];
+  emolumentos?: FormEmolumento[];
   nextNumeroProcesso?: string;
   onSubmitForm: (fd: FormData) => Promise<string>;
   onCreateTurma?: () => void;
@@ -56,6 +58,7 @@ export function StudentRegistrationForm({
   anoLectivo,
   usaPacotes = false,
   pacotes = [],
+  emolumentos = [],
   nextNumeroProcesso,
   onSubmitForm,
   onCreateTurma,
@@ -70,7 +73,7 @@ export function StudentRegistrationForm({
   const blank = () => ({
     nome: "", bilhete: "", numero_processo: "", data_nascimento: "", sexo: "",
     turma_id: "", turma_nova: "", turno: "Manhã",
-    nome_encarregado: "", telefone_encarregado: "", pacote_id: "",
+    nome_encarregado: "", telefone_encarregado: "", pacote_id: "", emolumento_id: "",
   });
 
   const [form, setForm] = useState(blank());
@@ -108,6 +111,7 @@ export function StudentRegistrationForm({
       if (form.turma_id) fd.set("turma_id", form.turma_id);
       else if (form.turma_nova.trim()) fd.set("turma_nome", form.turma_nova.trim());
       if (form.pacote_id) fd.set("pacote_id", form.pacote_id);
+      if (form.emolumento_id) fd.set("emolumento_propina_id", form.emolumento_id);
 
       const studentName = await onSubmitForm(fd);
       setSuccess(studentName);
@@ -319,6 +323,23 @@ export function StudentRegistrationForm({
               </option>
             ))}
           </select>
+        </div>
+      )}
+
+      {/* ── Propina (individual emolumento) ── */}
+      {!usaPacotes && emolumentos.length > 0 && (
+        <div>
+          <p className={secCls}>Propina / Emolumento</p>
+          <select className={`${inputCls} sm:max-w-sm`} value={form.emolumento_id}
+            onChange={e => set("emolumento_id", e.target.value)}>
+            <option value="">— Não definido —</option>
+            {emolumentos.map(em => (
+              <option key={em.id} value={String(em.id)}>
+                {em.nome} — {Number(em.montante).toLocaleString("pt-AO")} Kz
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-400 mt-1">Seleccione o emolumento de propina aplicável a este aluno.</p>
         </div>
       )}
 
