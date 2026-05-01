@@ -13,7 +13,7 @@ import {
   Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
   ChevronLeft, ChevronRight, ListFilter,
   Megaphone, CheckCheck, XCircle, Info,
-  Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent,
+  Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent, Tag,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -1351,8 +1351,23 @@ function SchoolUploadAlunosPanel({ token, onSuccess }: {
   );
 }
 
+/* ─── Bolsas interfaces ─── */
+interface BolsaTipo {
+  id: number; nome: string; descricao?: string;
+  tipo_desconto: 'percentagem' | 'fixo'; valor: number;
+  abrangencia: 'propina' | 'tudo'; activo: boolean; total_activos: number;
+}
+interface BolsaAtribuicao {
+  id: number; student_id: number; aluno_nome?: string; turma?: string;
+  bolsa_tipo_id: number; bolsa_nome: string;
+  tipo_desconto: 'percentagem' | 'fixo'; bolsa_valor: number;
+  abrangencia: 'propina' | 'tudo'; bolsa_descricao?: string;
+  data_inicio: string; data_fim?: string;
+  estado: 'activa' | 'revogada' | 'expirada'; notas?: string;
+}
+
 /* ─── AlunoFichaSlideOver (portal da escola) ─── */
-interface FichaPropina { id: number; mes: string; ano: string; montante: number; multa: number; status: string; }
+interface FichaPropina { id: number; mes: string; ano: string; montante: number; multa: number; status: string; desconto?: number; }
 interface AlunoFichaData {
   id: number; nome: string; bilhete?: string; numero_processo?: string;
   data_nascimento?: string; sexo?: string; estado?: string;
@@ -1398,6 +1413,17 @@ function AlunoFichaSlideOver({
   const [gerarError, setGerarError] = useState("");
   const [gerarSuccess, setGerarSuccess] = useState("");
 
+  // Bolsa de estudo state
+  const [bolsaHistory, setBolsaHistory] = useState<BolsaAtribuicao[]>([]);
+  const [bolsaTipos, setBolsaTipos] = useState<BolsaTipo[]>([]);
+  const [showBolsaForm, setShowBolsaForm] = useState(false);
+  const [bolsaAtribTipo, setBolsaAtribTipo] = useState("");
+  const [bolsaAtribInicio, setBolsaAtribInicio] = useState(new Date().toISOString().slice(0, 10));
+  const [bolsaAtribFim, setBolsaAtribFim] = useState("");
+  const [bolsaAtribNotas, setBolsaAtribNotas] = useState("");
+  const [bolsaSaving, setBolsaSaving] = useState(false);
+  const [bolsaError, setBolsaError] = useState("");
+
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
@@ -1409,7 +1435,9 @@ function AlunoFichaSlideOver({
       fetch(`${API}/school/pacotes`, { headers }).then(r => r.ok ? r.json() : []),
       fetch(`${API}/school/emolumentos`, { headers }).then(r => r.ok ? r.json() : []),
       fetch(`${API}/school/propinas?student_id=${alunoId}`, { headers }).then(r => r.ok ? r.json() : []),
-    ]).then(([d, pkts, ems, props]: [AlunoFichaData, Pacote[], Emolumento[], FichaPropina[]]) => {
+    fetch(`${API}/school/alunos/${alunoId}/bolsa`, { headers }).then(r => r.ok ? r.json() : []),
+    fetch(`${API}/school/bolsas/tipos`, { headers }).then(r => r.ok ? r.json() : []),
+    ]).then(([d, pkts, ems, props, bolsas, tipos]: [AlunoFichaData, Pacote[], Emolumento[], FichaPropina[], BolsaAtribuicao[], BolsaTipo[]]) => {
       setFicha(d);
       setNome(d.nome || "");
       setBilhete(d.bilhete || "");
@@ -1427,6 +1455,8 @@ function AlunoFichaSlideOver({
       setFichaPackets(activePkts);
       setFichaEmolumentos(localEms);
       setFichaPropinaList(props as FichaPropina[]);
+      setBolsaHistory(bolsas as BolsaAtribuicao[]);
+      setBolsaTipos((tipos as BolsaTipo[]).filter(t => t.activo));
       // Default amount: pacote value → local propina emolumento → blank
       const selectedPacote = activePkts.find(p => p.id === d.pacote_id);
       if (selectedPacote) {
@@ -1718,6 +1748,9 @@ function AlunoFichaSlideOver({
                         {Number(p.multa) > 0 && (
                           <p className="text-xs text-red-500">+{fmt(p.multa)} multa</p>
                         )}
+                        {Number(p.desconto) > 0 && (
+                          <p className="text-xs text-emerald-600 flex items-center gap-1"><GraduationCap className="w-3 h-3"/>Bolsa: -{fmt(p.desconto)}</p>
+                        )}
                       </div>
                       <p className="text-sm font-mono font-semibold text-slate-900 shrink-0">{fmt(Number(p.montante) + Number(p.multa))}</p>
                       {propinaStatusBadge(p.status)}
@@ -1734,6 +1767,126 @@ function AlunoFichaSlideOver({
                 </div>
               )}
             </div>
+
+            {/* ─── Bolsa de Estudo ─── */}
+            {(() => {
+              const activeBolsa = bolsaHistory.find(b => b.estado === 'activa');
+              const reloadBolsa = () => {
+                Promise.all([
+                  fetch(`${API}/school/alunos/${alunoId}/bolsa`, { headers }).then(r => r.ok ? r.json() : []),
+                  fetch(`${API}/school/bolsas/tipos`, { headers }).then(r => r.ok ? r.json() : []),
+                ]).then(([bolsas, tipos]) => {
+                  setBolsaHistory(bolsas as BolsaAtribuicao[]);
+                  setBolsaTipos((tipos as BolsaTipo[]).filter(t => t.activo));
+                });
+              };
+              const atribuirBolsaFicha = async (e: React.FormEvent) => {
+                e.preventDefault();
+                if (!bolsaAtribTipo) { setBolsaError("Seleccione uma tipologia."); return; }
+                setBolsaSaving(true); setBolsaError("");
+                try {
+                  const res = await fetch(`${API}/school/bolsas/atribuicoes`, {
+                    method: "POST", headers,
+                    body: JSON.stringify({ student_id: alunoId, bolsa_tipo_id: Number(bolsaAtribTipo), data_inicio: bolsaAtribInicio, data_fim: bolsaAtribFim || null, notas: bolsaAtribNotas.trim() || null }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error ?? "Erro ao atribuir bolsa.");
+                  setShowBolsaForm(false); setBolsaAtribTipo(""); setBolsaAtribFim(""); setBolsaAtribNotas("");
+                  reloadBolsa();
+                } catch (err: any) { setBolsaError(err.message); }
+                finally { setBolsaSaving(false); }
+              };
+              const revogarBolsaFicha = async () => {
+                if (!activeBolsa) return;
+                if (!confirm("Revogar esta bolsa de estudo?")) return;
+                await fetch(`${API}/school/bolsas/atribuicoes/${activeBolsa.id}`, {
+                  method: "PUT", headers,
+                  body: JSON.stringify({ estado: 'revogada', motivo_revogacao: 'Revogada manualmente' }),
+                });
+                reloadBolsa();
+              };
+              return (
+                <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <GraduationCap className="w-3.5 h-3.5"/> Bolsa de Estudo
+                  </h3>
+                  {activeBolsa ? (
+                    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <GraduationCap className="w-4 h-4 text-primary shrink-0"/>
+                            <p className="font-semibold text-primary text-sm truncate">{activeBolsa.bolsa_nome}</p>
+                          </div>
+                          <p className="text-xs text-slate-600">
+                            {activeBolsa.tipo_desconto === 'percentagem' ? `${activeBolsa.bolsa_valor}% de desconto` : `${fmt(activeBolsa.bolsa_valor)} de desconto`}
+                            {' · '}{activeBolsa.abrangencia === 'propina' ? 'Propina mensal' : 'Todos emolumentos'}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Desde {new Date(activeBolsa.data_inicio).toLocaleDateString('pt-AO')}
+                            {activeBolsa.data_fim ? ` até ${new Date(activeBolsa.data_fim).toLocaleDateString('pt-AO')}` : ''}
+                          </p>
+                          {activeBolsa.notas && <p className="text-xs text-slate-400 mt-1 italic">{activeBolsa.notas}</p>}
+                        </div>
+                        <button onClick={revogarBolsaFicha} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors shrink-0" title="Revogar bolsa">
+                          <XCircle className="w-4 h-4"/>
+                        </button>
+                      </div>
+                    </div>
+                  ) : bolsaTipos.length === 0 ? (
+                    <div className="text-center py-4 text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                      <GraduationCap className="w-5 h-5 mx-auto mb-1 opacity-40"/>
+                      <p className="text-xs">Nenhuma tipologia de bolsa configurada.</p>
+                      <p className="text-xs text-slate-300 mt-0.5">Configure em Emolumentos → Bolsas.</p>
+                    </div>
+                  ) : !showBolsaForm ? (
+                    <div className="text-center py-4 text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                      <GraduationCap className="w-5 h-5 mx-auto mb-1 opacity-40"/>
+                      <p className="text-xs">Nenhuma bolsa atribuída.</p>
+                      <button onClick={() => setShowBolsaForm(true)} className="mt-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
+                        + Atribuir bolsa
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={atribuirBolsaFicha} className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
+                      <p className="text-xs font-semibold text-primary">Atribuir bolsa de estudo</p>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Tipologia</label>
+                        <select className={inp} value={bolsaAtribTipo} onChange={e => setBolsaAtribTipo(e.target.value)}>
+                          <option value="">Seleccionar tipologia...</option>
+                          {bolsaTipos.map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.nome} — {t.tipo_desconto === 'percentagem' ? `${t.valor}%` : fmt(t.valor)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Início</label>
+                          <input type="date" className={inp} value={bolsaAtribInicio} onChange={e => setBolsaAtribInicio(e.target.value)}/>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Fim (opcional)</label>
+                          <input type="date" className={inp} value={bolsaAtribFim} onChange={e => setBolsaAtribFim(e.target.value)}/>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Notas (opcional)</label>
+                        <input className={inp} value={bolsaAtribNotas} onChange={e => setBolsaAtribNotas(e.target.value)} placeholder="Critério de concessão..."/>
+                      </div>
+                      {bolsaError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{bolsaError}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setShowBolsaForm(false); setBolsaError(""); }} className="flex-1 py-2 text-xs text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancelar</button>
+                        <button type="submit" disabled={bolsaSaving} className="flex-1 py-2 text-xs font-semibold bg-primary text-white rounded-xl hover:bg-primary/90 disabled:opacity-60">
+                          {bolsaSaving ? "A atribuir..." : "Atribuir Bolsa"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              );
+            })()}
 
             <div>
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -5530,14 +5683,333 @@ function PacotesSchoolTab({ token }: { token: string }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   BolsasSchoolTab — Bolsas de Estudo management (School Portal)
+   ═══════════════════════════════════════════════════════════════ */
+function BolsasSchoolTab({ token }: { token: string }) {
+  const [tipos, setTipos] = useState<BolsaTipo[]>([]);
+  const [atribuicoes, setAtribuicoes] = useState<BolsaAtribuicao[]>([]);
+  const [stats, setStats] = useState<{ total_bolseiros: string; total_tipos: string; total_desconto_historico: string; propinas_com_desconto: string } | null>(null);
+  const [alunos, setAlunos] = useState<Aluno[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterEstado, setFilterEstado] = useState<"activa" | "revogada" | "">("activa");
+
+  // Tipo form
+  const [showTipoForm, setShowTipoForm] = useState(false);
+  const [editTipo, setEditTipo] = useState<BolsaTipo | null>(null);
+  const [tipoNome, setTipoNome] = useState("");
+  const [tipoDescricao, setTipoDescricao] = useState("");
+  const [tipoTipoDesconto, setTipoTipoDesconto] = useState<'percentagem' | 'fixo'>('percentagem');
+  const [tipoValor, setTipoValor] = useState("");
+  const [tipoAbrangencia, setTipoAbrangencia] = useState<'propina' | 'tudo'>('propina');
+  const [tipoSaving, setTipoSaving] = useState(false);
+  const [tipoError, setTipoError] = useState("");
+
+  // Atribuicao form
+  const [showAtribuirForm, setShowAtribuirForm] = useState(false);
+  const [atribStudent, setAtribStudent] = useState("");
+  const [atribTipo, setAtribTipo] = useState("");
+  const [atribDataInicio, setAtribDataInicio] = useState(new Date().toISOString().slice(0, 10));
+  const [atribDataFim, setAtribDataFim] = useState("");
+  const [atribNotas, setAtribNotas] = useState("");
+  const [atribSaving, setAtribSaving] = useState(false);
+  const [atribError, setAtribError] = useState("");
+
+  const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const iCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
+  const lCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5";
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      fetch(`${API}/school/bolsas/tipos`, { headers: hdrs }).then(r => r.ok ? r.json() : []),
+      fetch(`${API}/school/bolsas/atribuicoes${filterEstado ? `?estado=${filterEstado}` : ''}`, { headers: hdrs }).then(r => r.ok ? r.json() : []),
+      fetch(`${API}/school/bolsas/stats`, { headers: hdrs }).then(r => r.ok ? r.json() : null),
+      fetch(`${API}/school/alunos`, { headers: hdrs }).then(r => r.ok ? r.json() : []),
+    ]).then(([t, a, s, al]) => {
+      setTipos(t); setAtribuicoes(a); setStats(s); setAlunos(al);
+    }).finally(() => setLoading(false));
+  }, [token, filterEstado]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveTipo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tipoNome.trim() || !tipoValor) { setTipoError("Nome e valor são obrigatórios."); return; }
+    setTipoSaving(true); setTipoError("");
+    try {
+      const method = editTipo ? 'PUT' : 'POST';
+      const url = editTipo ? `${API}/school/bolsas/tipos/${editTipo.id}` : `${API}/school/bolsas/tipos`;
+      const res = await fetch(url, { method, headers: hdrs, body: JSON.stringify({ nome: tipoNome, descricao: tipoDescricao, tipo_desconto: tipoTipoDesconto, valor: Number(tipoValor), abrangencia: tipoAbrangencia }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setShowTipoForm(false); setEditTipo(null); setTipoNome(""); setTipoDescricao(""); setTipoValor(""); setTipoTipoDesconto('percentagem'); setTipoAbrangencia('propina');
+      load();
+    } catch (err: any) { setTipoError(err.message); }
+    finally { setTipoSaving(false); }
+  };
+
+  const deleteTipo = async (id: number) => {
+    if (!confirm("Eliminar este tipo de bolsa?")) return;
+    const res = await fetch(`${API}/school/bolsas/tipos/${id}`, { method: "DELETE", headers: hdrs });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
+    load();
+  };
+
+  const revogarBolsa = async (id: number) => {
+    if (!confirm("Revogar esta bolsa?")) return;
+    await fetch(`${API}/school/bolsas/atribuicoes/${id}`, { method: "PUT", headers: hdrs, body: JSON.stringify({ estado: "revogada", motivo_revogacao: "Revogada manualmente" }) });
+    load();
+  };
+
+  const atribuirBolsa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!atribStudent || !atribTipo) { setAtribError("Aluno e tipo de bolsa são obrigatórios."); return; }
+    setAtribSaving(true); setAtribError("");
+    try {
+      const res = await fetch(`${API}/school/bolsas/atribuicoes`, { method: "POST", headers: hdrs, body: JSON.stringify({ student_id: Number(atribStudent), bolsa_tipo_id: Number(atribTipo), data_inicio: atribDataInicio, data_fim: atribDataFim || null, notas: atribNotas.trim() || null }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao atribuir.");
+      setShowAtribuirForm(false); setAtribStudent(""); setAtribTipo(""); setAtribNotas(""); setAtribDataFim("");
+      load();
+    } catch (err: any) { setAtribError(err.message); }
+    finally { setAtribSaving(false); }
+  };
+
+  const openEditTipo = (t: BolsaTipo) => { setEditTipo(t); setTipoNome(t.nome); setTipoDescricao(t.descricao || ""); setTipoTipoDesconto(t.tipo_desconto); setTipoValor(String(t.valor)); setTipoAbrangencia(t.abrangencia); setShowTipoForm(true); };
+
+  return (
+    <div className="space-y-8">
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "Bolseiros activos", value: stats.total_bolseiros, icon: <GraduationCap className="w-4 h-4 text-primary"/>, color: "text-primary" },
+            { label: "Tipos de bolsa", value: stats.total_tipos, icon: <Tag className="w-4 h-4 text-violet-600"/>, color: "text-violet-600" },
+            { label: "Propinas c/ desconto", value: stats.propinas_com_desconto, icon: <Receipt className="w-4 h-4 text-blue-600"/>, color: "text-blue-600" },
+            { label: "Desconto total", value: `${Number(stats.total_desconto_historico).toLocaleString("pt-AO")} AOA`, icon: <TrendingUp className="w-4 h-4 text-emerald-600"/>, color: "text-emerald-600" },
+          ].map((s, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">{s.icon}<span className="text-xs text-slate-500 font-medium leading-tight">{s.label}</span></div>
+              <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tipologias */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Tipologias de Bolsa</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Categorias de desconto disponíveis para atribuição</p>
+          </div>
+          <button onClick={() => { setShowTipoForm(true); setEditTipo(null); setTipoNome(""); setTipoDescricao(""); setTipoValor(""); setTipoTipoDesconto('percentagem'); setTipoAbrangencia('propina'); }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
+            <Plus className="w-3.5 h-3.5"/> Nova Tipologia
+          </button>
+        </div>
+
+        {showTipoForm && (
+          <form onSubmit={saveTipo} className="mb-4 bg-primary/5 border border-primary/20 rounded-2xl p-5 space-y-4">
+            <h3 className="text-sm font-bold text-primary">{editTipo ? "Editar" : "Nova"} Tipologia de Bolsa</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className={lCls}>Nome</label>
+                <input className={iCls} value={tipoNome} onChange={e => setTipoNome(e.target.value)} placeholder="ex: Bolsa de Mérito"/>
+              </div>
+              <div className="col-span-2">
+                <label className={lCls}>Descrição (opcional)</label>
+                <input className={iCls} value={tipoDescricao} onChange={e => setTipoDescricao(e.target.value)} placeholder="Critérios de atribuição..."/>
+              </div>
+              <div>
+                <label className={lCls}>Tipo de Desconto</label>
+                <select className={iCls} value={tipoTipoDesconto} onChange={e => setTipoTipoDesconto(e.target.value as 'percentagem' | 'fixo')}>
+                  <option value="percentagem">Percentagem (%)</option>
+                  <option value="fixo">Valor fixo (AOA)</option>
+                </select>
+              </div>
+              <div>
+                <label className={lCls}>{tipoTipoDesconto === 'percentagem' ? 'Percentagem (0–100)' : 'Valor (AOA)'}</label>
+                <input type="number" min="0" max={tipoTipoDesconto === 'percentagem' ? 100 : undefined} step="0.01" className={iCls} value={tipoValor} onChange={e => setTipoValor(e.target.value)} placeholder={tipoTipoDesconto === 'percentagem' ? 'ex: 50' : 'ex: 15000'}/>
+              </div>
+              <div className="col-span-2">
+                <label className={lCls}>Abrangência</label>
+                <div className="flex gap-2">
+                  {([{v:'propina',l:'Apenas propina mensal'},{v:'tudo',l:'Todos os emolumentos'}] as const).map(opt => (
+                    <button type="button" key={opt.v} onClick={() => setTipoAbrangencia(opt.v)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${tipoAbrangencia === opt.v ? 'bg-primary text-white border-primary' : 'bg-white text-slate-600 border-slate-200 hover:border-primary/40'}`}>
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {tipoError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{tipoError}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setShowTipoForm(false); setEditTipo(null); }} className="flex-1 py-2 text-xs text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancelar</button>
+              <button type="submit" disabled={tipoSaving} className="flex-1 py-2 text-xs font-semibold bg-primary text-white rounded-xl hover:bg-primary/90 disabled:opacity-60">
+                {tipoSaving ? "A guardar..." : "Guardar"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {tipos.length === 0 ? (
+          <div className="text-center py-10 bg-white border border-slate-200 rounded-2xl text-slate-400">
+            <GraduationCap className="w-8 h-8 mx-auto mb-2 opacity-40"/>
+            <p className="text-sm">Nenhuma tipologia configurada.</p>
+            <p className="text-xs mt-1 text-slate-300">Crie uma tipologia para começar a atribuir bolsas.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {tipos.map(t => (
+              <div key={t.id} className={`bg-white border rounded-2xl p-4 ${t.activo ? 'border-slate-200' : 'border-slate-100 opacity-60'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <GraduationCap className="w-4 h-4 text-primary shrink-0"/>
+                      <p className="font-semibold text-slate-900 text-sm truncate">{t.nome}</p>
+                    </div>
+                    {t.descricao && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{t.descricao}</p>}
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full font-semibold">
+                        {t.tipo_desconto === 'percentagem' ? `${t.valor}%` : `${Number(t.valor).toLocaleString("pt-AO")} AOA`}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">
+                        {t.abrangencia === 'propina' ? 'Propina mensal' : 'Todos emolumentos'}
+                      </span>
+                      {t.total_activos > 0 && (
+                        <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">{t.total_activos} bolseiro(s)</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => openEditTipo(t)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                    <button onClick={() => deleteTipo(t.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Bolseiros */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Alunos Bolseiros</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Gestão de atribuições e vigências</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+              {([{v:'activa',l:'Activas'},{v:'revogada',l:'Revogadas'},{v:'',l:'Todas'}] as const).map(o => (
+                <button key={o.v} onClick={() => setFilterEstado(o.v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filterEstado === o.v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+            {tipos.filter(t => t.activo).length > 0 && (
+              <button onClick={() => setShowAtribuirForm(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 transition-colors">
+                <Plus className="w-3.5 h-3.5"/> Atribuir
+              </button>
+            )}
+          </div>
+        </div>
+
+        {showAtribuirForm && (
+          <form onSubmit={atribuirBolsa} className="mb-4 bg-emerald-50 border border-emerald-200 rounded-2xl p-5 space-y-4">
+            <h3 className="text-sm font-bold text-emerald-800">Atribuir Bolsa</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className={lCls}>Aluno</label>
+                <select className={iCls} value={atribStudent} onChange={e => setAtribStudent(e.target.value)}>
+                  <option value="">Seleccionar aluno...</option>
+                  {alunos.map(a => <option key={a.id} value={a.id}>{a.nome} — {a.turma}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className={lCls}>Tipologia</label>
+                <select className={iCls} value={atribTipo} onChange={e => setAtribTipo(e.target.value)}>
+                  <option value="">Seleccionar tipologia...</option>
+                  {tipos.filter(t => t.activo).map(t => (
+                    <option key={t.id} value={t.id}>{t.nome} — {t.tipo_desconto === 'percentagem' ? `${t.valor}%` : `${Number(t.valor).toLocaleString("pt-AO")} AOA`}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={lCls}>Início</label>
+                <input type="date" className={iCls} value={atribDataInicio} onChange={e => setAtribDataInicio(e.target.value)}/>
+              </div>
+              <div>
+                <label className={lCls}>Fim (opcional)</label>
+                <input type="date" className={iCls} value={atribDataFim} onChange={e => setAtribDataFim(e.target.value)}/>
+              </div>
+              <div className="col-span-2">
+                <label className={lCls}>Notas (opcional)</label>
+                <input className={iCls} value={atribNotas} onChange={e => setAtribNotas(e.target.value)} placeholder="Observações sobre a concessão..."/>
+              </div>
+            </div>
+            {atribError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{atribError}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowAtribuirForm(false)} className="flex-1 py-2 text-xs text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancelar</button>
+              <button type="submit" disabled={atribSaving} className="flex-1 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-60">
+                {atribSaving ? "A atribuir..." : "Atribuir Bolsa"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+        ) : atribuicoes.length === 0 ? (
+          <div className="text-center py-10 bg-white border border-slate-200 rounded-2xl text-slate-400">
+            <Users className="w-8 h-8 mx-auto mb-2 opacity-40"/>
+            <p className="text-sm">Nenhum aluno bolseiro{filterEstado === 'activa' ? ' activo' : filterEstado === 'revogada' ? ' com bolsa revogada' : ''}.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {atribuicoes.map(a => (
+              <div key={a.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-2xl">
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <GraduationCap className="w-4 h-4 text-primary"/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 text-sm truncate">{a.aluno_nome}</p>
+                  <p className="text-xs text-slate-500">{a.turma} · <span className="font-medium text-primary">{a.bolsa_nome}</span> · {a.tipo_desconto === 'percentagem' ? `${a.bolsa_valor}%` : fmt(a.bolsa_valor)}</p>
+                  {a.data_fim && <p className="text-xs text-amber-600 mt-0.5">Válida até {new Date(a.data_fim).toLocaleDateString("pt-AO")}</p>}
+                  {a.notas && <p className="text-xs text-slate-400 mt-0.5 truncate">{a.notas}</p>}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {a.estado === 'activa'
+                    ? <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold">Activa</span>
+                    : <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full font-semibold capitalize">{a.estado}</span>}
+                  {a.estado === 'activa' && (
+                    <button onClick={() => revogarBolsa(a.id)} className="text-xs text-red-400 hover:text-red-600 font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors">Revogar</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main EmolumentosView: sub-tabs ─── */
 function EmolumentosView({ token }: { token: string }) {
-  const [activeTab, setActiveTab] = useState<"globais" | "locais" | "pacotes">("globais");
+  const [activeTab, setActiveTab] = useState<"globais" | "locais" | "pacotes" | "bolsas">("globais");
 
   const tabs = [
     { key: "globais" as const, label: "Globais", icon: <Globe className="w-4 h-4"/> },
     { key: "locais" as const, label: "Locais", icon: <Receipt className="w-4 h-4"/> },
     { key: "pacotes" as const, label: "Pacotes", icon: <Package className="w-4 h-4"/> },
+    { key: "bolsas" as const, label: "Bolsas", icon: <GraduationCap className="w-4 h-4"/> },
   ];
 
   return (
@@ -5546,11 +6018,11 @@ function EmolumentosView({ token }: { token: string }) {
         <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
           <Receipt className="w-5 h-5 text-primary"/> Emolumentos & Pacotes
         </h1>
-        <p className="text-sm text-slate-500 mt-0.5">Gestão de taxas, serviços e pacotes de cobrança</p>
+        <p className="text-sm text-slate-500 mt-0.5">Gestão de taxas, serviços, pacotes de cobrança e bolsas de estudo</p>
       </div>
 
       {/* Sub-tabs */}
-      <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 mb-6 w-fit">
+      <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 mb-6 w-fit flex-wrap">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
@@ -5575,6 +6047,11 @@ function EmolumentosView({ token }: { token: string }) {
         {activeTab === "pacotes" && (
           <motion.div key="pacotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <PacotesSchoolTab token={token} />
+          </motion.div>
+        )}
+        {activeTab === "bolsas" && (
+          <motion.div key="bolsas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <BolsasSchoolTab token={token} />
           </motion.div>
         )}
       </AnimatePresence>

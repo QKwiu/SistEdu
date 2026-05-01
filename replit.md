@@ -51,8 +51,17 @@ A direct debit subscription lifecycle is implemented, including a 3-step adhesio
 ## Emolumentos & Multas Module
 Both global and school-local emoluments support individual fine rules, including activation, type (fixed/percentage), value, daily interest, and grace period. The billing engine dynamically reads these configurations.
 
+## Bolsas de Estudo (Scholarship) Module
+A full scholarship management system integrated across all three portals:
+- **School Portal** (`Emolumentos → Bolsas` tab): CRUD for bolsa tipologias (percentage or fixed-amount discount, scoped to propina-only or all emoluments), list of active/revoked bolseiros with assign/revoke actions, and a stats dashboard (total bolseiros, types, discounted propinas, total discount value).
+- **AlunoFichaSlideOver**: A dedicated "Bolsa de Estudo" section between Propinas and Encarregado sections — shows active bolsa with revoke button, or an assign-bolsa form with tipo/date/notes fields when none is active.
+- **Guardian Portal**: Propina cards display original value (struck through), bolsa discount line, and net value when a scholarship discount exists.
+- **Admin Panel** (`Colégio → Bolsas` tab): Read-only view of all bolsa tipologias and bolseiros for each school, with stats panel.
+- **Discount engine**: Propina generation (`/school/propinas/gerar` and `/gerar-lote`) automatically detects an active bolsa and applies the discount before inserting — stored as `desconto` column on the `propinas` table.
+- **DB tables**: `bolsa_tipos`, `bolsa_atribuicoes`; `propinas` altered with `desconto` + `bolsa_atribuicao_id`.
+
 ## Database Schema Highlights
-The database schema includes tables for `schools`, `sessions`, `encarregados` (guardians), `students`, `turmas` (classes), `propinas` (tuition fees), `pagamentos` (payments), `ocorrencias` (incidents), `multa_regras` (penalty rules), `emolumentos` (fees), `sms_logs`, `comunicados` (announcements), and `direct_debit_subscriptions`, among others, with appropriate enums for status and types.
+The database schema includes tables for `schools`, `sessions`, `encarregados` (guardians), `students`, `turmas` (classes), `propinas` (tuition fees), `pagamentos` (payments), `ocorrencias` (incidents), `multa_regras` (penalty rules), `emolumentos` (fees), `sms_logs`, `comunicados` (announcements), `direct_debit_subscriptions`, `bolsa_tipos`, and `bolsa_atribuicoes`, among others, with appropriate enums for status and types.
 
 # External Dependencies
 -   **Monorepo Tool**: pnpm workspaces

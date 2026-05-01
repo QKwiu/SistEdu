@@ -33,6 +33,62 @@ const alunoUpload = upload.fields([
 
 const router = Router();
 
+/* ─── Bolsas de estudo: DB migration ─── */
+pool.query(`
+  CREATE TABLE IF NOT EXISTS bolsa_tipos (
+    id SERIAL PRIMARY KEY,
+    school_id INTEGER REFERENCES schools(id) ON DELETE CASCADE,
+    nome VARCHAR(100) NOT NULL,
+    descricao TEXT,
+    tipo_desconto VARCHAR(20) NOT NULL DEFAULT 'percentagem' CHECK (tipo_desconto IN ('percentagem','fixo')),
+    valor NUMERIC(10,2) NOT NULL DEFAULT 0,
+    abrangencia VARCHAR(20) NOT NULL DEFAULT 'propina' CHECK (abrangencia IN ('propina','tudo')),
+    activo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS bolsa_atribuicoes (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
+    bolsa_tipo_id INTEGER REFERENCES bolsa_tipos(id),
+    school_id INTEGER REFERENCES schools(id),
+    data_inicio DATE NOT NULL DEFAULT CURRENT_DATE,
+    data_fim DATE,
+    comprovativo_url TEXT,
+    estado VARCHAR(20) DEFAULT 'activa' CHECK (estado IN ('activa','revogada','expirada')),
+    notas TEXT,
+    revogada_em TIMESTAMPTZ,
+    revogada_por TEXT,
+    motivo_revogacao TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  ALTER TABLE propinas ADD COLUMN IF NOT EXISTS desconto NUMERIC(10,2) DEFAULT 0;
+  ALTER TABLE propinas ADD COLUMN IF NOT EXISTS bolsa_atribuicao_id INTEGER REFERENCES bolsa_atribuicoes(id);
+`).catch(() => {});
+
+/* Helper: fetch active bolsa discount for a student */
+async function getActiveBolsaDiscount(studentId: number): Promise<{ id: number; tipo_desconto: string; bolsa_valor: number } | null> {
+  const r = await pool.query(
+    `SELECT ba.id, bt.tipo_desconto, bt.valor AS bolsa_valor
+     FROM bolsa_atribuicoes ba
+     JOIN bolsa_tipos bt ON bt.id = ba.bolsa_tipo_id
+     WHERE ba.student_id = $1 AND ba.estado = 'activa'
+       AND (ba.data_fim IS NULL OR ba.data_fim >= CURRENT_DATE) LIMIT 1`,
+    [studentId]
+  );
+  return r.rows[0] ?? null;
+}
+
+function applyBolsaDiscount(montante: number, bolsa: { tipo_desconto: string; bolsa_valor: number } | null): { finalMontante: number; desconto: number } {
+  if (!bolsa) return { finalMontante: montante, desconto: 0 };
+  let desconto = 0;
+  if (bolsa.tipo_desconto === 'percentagem') {
+    desconto = Math.round(montante * Number(bolsa.bolsa_valor) / 100 * 100) / 100;
+  } else {
+    desconto = Math.min(montante, Number(bolsa.bolsa_valor));
+  }
+  return { finalMontante: Math.max(0, montante - desconto), desconto };
+}
+
 /* ─────────────────────────────────────────────
    Fine computation helper
    ─────────────────────────────────────────────
@@ -762,16 +818,21 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
   if (!stRes.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
   const studentInfo = stRes.rows[0];
 
+  // Apply active bolsa discount
+  const activeBolsa = await getActiveBolsaDiscount(student_id);
+  const { finalMontante, desconto } = applyBolsaDiscount(Number(montante), activeBolsa);
+  const bolsaAtribuicaoId = activeBolsa?.id ?? null;
+
   const created = [];
   for (const mes of meses) {
     const vencimento = lastDayOfMonth(mes, String(ano));
     try {
       const r = await pool.query(
-        `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente')
+        `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status, desconto, bolsa_atribuicao_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente', $7, $8)
          ON CONFLICT (student_id, mes, ano) DO NOTHING
          RETURNING *`,
-        [school.school_id, student_id, mes, String(ano), montante, vencimento]
+        [school.school_id, student_id, mes, String(ano), finalMontante, vencimento, desconto, bolsaAtribuicaoId]
       );
       if (r.rows[0]) {
         const propina = r.rows[0];
@@ -784,7 +845,7 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
             nome_encarregado: studentInfo.nome_encarregado ?? undefined,
             nome_aluno: studentInfo.nome,
             mes,
-            valor: montante,
+            valor: finalMontante,
             reference: ref,
             is_emis_reference: false,
           }).catch(() => {});
@@ -863,16 +924,21 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
       continue;
     }
 
+    // Apply bolsa discount for this student
+    const stBolsa = await getActiveBolsaDiscount(st.student_id);
+    const { finalMontante: stFinalMontante, desconto: stDesconto } = applyBolsaDiscount(montante, stBolsa);
+    const stBolsaId = stBolsa?.id ?? null;
+
     let criadosParaAluno = 0;
     for (const { mes, ano } of periodos) {
       const vencimento = lastDayOfMonth(mes, ano);
       try {
         const r = await pool.query(
-          `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente')
+          `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status, desconto, bolsa_atribuicao_id)
+           VALUES ($1, $2, $3, $4, $5, $6, 0, 'pendente', $7, $8)
            ON CONFLICT (student_id, mes, ano) DO NOTHING
            RETURNING *`,
-          [school.school_id, st.student_id, mes, ano, montante, vencimento]
+          [school.school_id, st.student_id, mes, ano, stFinalMontante, vencimento, stDesconto, stBolsaId]
         );
         if (r.rows[0]) {
           const propina = r.rows[0];
@@ -885,7 +951,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
         }
       } catch { totalSkipped++; }
     }
-    detalhes.push({ student_id: st.student_id, nome: st.nome, criados: criadosParaAluno, montante, pacote_nome: st.pacote_nome ?? null });
+    detalhes.push({ student_id: st.student_id, nome: st.nome, criados: criadosParaAluno, montante: stFinalMontante, montante_original: montante, desconto: stDesconto, pacote_nome: st.pacote_nome ?? null, bolsa: stBolsa ? true : false });
   }
 
   res.status(201).json({
@@ -1299,6 +1365,184 @@ router.put("/school/direct-debit/subscriptions/:id/reject-cancellation", schoolA
     [req.params.id, school.school_id]
   );
   return res.json({ ok: true });
+});
+
+/* ═══════════════════════════════════════════════════════
+   BOLSAS DE ESTUDO — School routes
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── GET /school/bolsas/tipos ─── */
+router.get("/school/bolsas/tipos", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT bt.*,
+            COUNT(ba.id) FILTER (WHERE ba.estado='activa' AND (ba.data_fim IS NULL OR ba.data_fim >= CURRENT_DATE))::int AS total_activos
+     FROM bolsa_tipos bt
+     LEFT JOIN bolsa_atribuicoes ba ON ba.bolsa_tipo_id = bt.id
+     WHERE bt.school_id = $1
+     GROUP BY bt.id ORDER BY bt.nome`,
+    [school.school_id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /school/bolsas/tipos ─── */
+router.post("/school/bolsas/tipos", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, descricao, tipo_desconto, valor, abrangencia } = req.body;
+  if (!nome || !tipo_desconto || valor === undefined) return res.status(400).json({ error: "Nome, tipo e valor são obrigatórios." });
+  if (tipo_desconto === 'percentagem' && (Number(valor) < 0 || Number(valor) > 100)) return res.status(400).json({ error: "Percentagem deve estar entre 0% e 100%." });
+  const r = await pool.query(
+    `INSERT INTO bolsa_tipos (school_id, nome, descricao, tipo_desconto, valor, abrangencia)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [school.school_id, nome.trim(), descricao?.trim() || null, tipo_desconto, Number(valor), abrangencia || 'propina']
+  );
+  res.status(201).json(r.rows[0]);
+});
+
+/* ─── PUT /school/bolsas/tipos/:id ─── */
+router.put("/school/bolsas/tipos/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, descricao, tipo_desconto, valor, abrangencia, activo } = req.body;
+  const r = await pool.query(
+    `UPDATE bolsa_tipos
+     SET nome=COALESCE($1,nome), descricao=COALESCE($2,descricao),
+         tipo_desconto=COALESCE($3,tipo_desconto), valor=COALESCE($4,valor),
+         abrangencia=COALESCE($5,abrangencia), activo=COALESCE($6,activo)
+     WHERE id=$7 AND school_id=$8 RETURNING *`,
+    [nome?.trim() || null, descricao !== undefined ? (descricao?.trim() || null) : undefined,
+     tipo_desconto || null, valor !== undefined ? Number(valor) : null,
+     abrangencia || null, activo !== undefined ? activo : null,
+     req.params.id, school.school_id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Tipo de bolsa não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── DELETE /school/bolsas/tipos/:id ─── */
+router.delete("/school/bolsas/tipos/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const check = await pool.query(
+    "SELECT id FROM bolsa_atribuicoes WHERE bolsa_tipo_id=$1 AND estado='activa' LIMIT 1",
+    [req.params.id]
+  );
+  if (check.rows.length) return res.status(409).json({ error: "Tipo em uso por bolseiros activos. Revogue primeiro." });
+  await pool.query("DELETE FROM bolsa_tipos WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
+  res.json({ ok: true });
+});
+
+/* ─── GET /school/bolsas/atribuicoes ─── */
+router.get("/school/bolsas/atribuicoes", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { student_id, estado, turma_id } = req.query;
+  const conds: string[] = ["ba.school_id=$1"];
+  const params: any[] = [school.school_id];
+  if (student_id) { conds.push(`ba.student_id=$${params.length+1}`); params.push(student_id); }
+  if (estado) { conds.push(`ba.estado=$${params.length+1}`); params.push(estado); }
+  if (turma_id) { conds.push(`s.turma_id=$${params.length+1}`); params.push(turma_id); }
+  const r = await pool.query(
+    `SELECT ba.*, s.nome AS aluno_nome, COALESCE(t.nome,'Sem turma') AS turma,
+            bt.nome AS bolsa_nome, bt.tipo_desconto, bt.valor AS bolsa_valor, bt.abrangencia
+     FROM bolsa_atribuicoes ba
+     JOIN students s ON s.id = ba.student_id
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     JOIN bolsa_tipos bt ON bt.id = ba.bolsa_tipo_id
+     WHERE ${conds.join(" AND ")}
+     ORDER BY ba.estado, s.nome`,
+    params
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /school/bolsas/atribuicoes ─── */
+router.post("/school/bolsas/atribuicoes", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { student_id, bolsa_tipo_id, data_inicio, data_fim, notas } = req.body;
+  if (!student_id || !bolsa_tipo_id) return res.status(400).json({ error: "Aluno e tipo de bolsa são obrigatórios." });
+  const st = await pool.query("SELECT id FROM students WHERE id=$1 AND school_id=$2", [student_id, school.school_id]);
+  if (!st.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+  const bt = await pool.query("SELECT id FROM bolsa_tipos WHERE id=$1 AND school_id=$2 AND activo=TRUE", [bolsa_tipo_id, school.school_id]);
+  if (!bt.rows.length) return res.status(404).json({ error: "Tipo de bolsa não encontrado ou inactivo." });
+  await pool.query(
+    `UPDATE bolsa_atribuicoes SET estado='revogada', revogada_em=NOW(), revogada_por='escola', motivo_revogacao='Substituída por nova bolsa'
+     WHERE student_id=$1 AND estado='activa'`,
+    [student_id]
+  );
+  const r = await pool.query(
+    `INSERT INTO bolsa_atribuicoes (student_id, bolsa_tipo_id, school_id, data_inicio, data_fim, notas, estado)
+     VALUES ($1,$2,$3,$4,$5,$6,'activa') RETURNING *`,
+    [student_id, bolsa_tipo_id, school.school_id,
+     data_inicio || new Date().toISOString().slice(0,10), data_fim || null, notas?.trim() || null]
+  );
+  res.status(201).json(r.rows[0]);
+});
+
+/* ─── PUT /school/bolsas/atribuicoes/:id ─── */
+router.put("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { data_fim, notas, estado, motivo_revogacao } = req.body;
+  const extra = estado === 'revogada' ? ", revogada_em=NOW(), revogada_por='escola'" : "";
+  const r = await pool.query(
+    `UPDATE bolsa_atribuicoes
+     SET data_fim=COALESCE($1,data_fim), notas=COALESCE($2,notas),
+         estado=COALESCE($3,estado), motivo_revogacao=COALESCE($4,motivo_revogacao)${extra}
+     WHERE id=$5 AND school_id=$6 RETURNING *`,
+    [data_fim || null, notas?.trim() || null, estado || null, motivo_revogacao?.trim() || null,
+     req.params.id, school.school_id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Bolsa não encontrada." });
+  res.json(r.rows[0]);
+});
+
+/* ─── DELETE /school/bolsas/atribuicoes/:id ─── */
+router.delete("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query("DELETE FROM bolsa_atribuicoes WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
+  res.json({ ok: true });
+});
+
+/* ─── GET /school/bolsas/stats ─── */
+router.get("/school/bolsas/stats", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT
+       COUNT(DISTINCT ba.id) FILTER (WHERE ba.estado='activa' AND (ba.data_fim IS NULL OR ba.data_fim >= CURRENT_DATE)) AS total_bolseiros,
+       COUNT(DISTINCT bt.id) AS total_tipos,
+       COALESCE(SUM(p.desconto) FILTER (WHERE p.desconto > 0), 0) AS total_desconto_historico,
+       COUNT(DISTINCT p.id) FILTER (WHERE p.desconto > 0) AS propinas_com_desconto
+     FROM bolsa_tipos bt
+     LEFT JOIN bolsa_atribuicoes ba ON ba.bolsa_tipo_id = bt.id
+     LEFT JOIN propinas p ON p.bolsa_atribuicao_id = ba.id
+     WHERE bt.school_id = $1`,
+    [school.school_id]
+  );
+  res.json(r.rows[0]);
+});
+
+/* ─── GET /school/alunos/:id/bolsa ─── */
+router.get("/school/alunos/:id/bolsa", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT ba.*, bt.nome AS bolsa_nome, bt.tipo_desconto, bt.valor AS bolsa_valor,
+            bt.abrangencia, bt.descricao AS bolsa_descricao
+     FROM bolsa_atribuicoes ba
+     JOIN bolsa_tipos bt ON bt.id = ba.bolsa_tipo_id
+     WHERE ba.student_id = $1 AND ba.school_id = $2
+     ORDER BY CASE ba.estado WHEN 'activa' THEN 0 WHEN 'expirada' THEN 1 ELSE 2 END, ba.created_at DESC
+     LIMIT 5`,
+    [req.params.id, school.school_id]
+  );
+  res.json(r.rows);
 });
 
 export default router;

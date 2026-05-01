@@ -10,7 +10,7 @@ import {
   ArrowLeftRight, ShieldCheck, Filter, ChevronDown,
   SlidersHorizontal, Save, MessageSquare, Mail, Smartphone, Globe, Lock,
   Zap, BarChart3, CheckSquare, ToggleLeft, Send, ChevronLeft, ToggleRight, ListFilter,
-  Megaphone, CheckCheck,
+  Megaphone, CheckCheck, Tag,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -4977,8 +4977,126 @@ function DDManagementPanel({ schoolId }: { schoolId: number }) {
   );
 }
 
+/* ─── Admin read-only Bolsas panel ─── */
+function BolsasAdminPanel({ schoolId }: { schoolId: number }) {
+  const [tipos, setTipos] = useState<{ id: number; nome: string; tipo_desconto: string; valor: number; abrangencia: string; activo: boolean; total_activos: number }[]>([]);
+  const [atribuicoes, setAtribuicoes] = useState<{ id: number; aluno_nome: string; turma: string; bolsa_nome: string; tipo_desconto: string; bolsa_valor: number; abrangencia: string; data_inicio: string; data_fim?: string; estado: string; notas?: string }[]>([]);
+  const [stats, setStats] = useState<{ total_bolseiros: string; total_tipos: string; total_desconto_historico: string; propinas_com_desconto: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filterEstado, setFilterEstado] = useState<"activa" | "revogada" | "">("activa");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api(`/admin/colegios/${schoolId}/bolsas/tipos`).then(r => r.ok ? r.json() : []),
+      api(`/admin/colegios/${schoolId}/bolsas/atribuicoes${filterEstado ? `?estado=${filterEstado}` : ''}`).then(r => r.ok ? r.json() : []),
+      api(`/admin/colegios/${schoolId}/bolsas/stats`).then(r => r.ok ? r.json() : null),
+    ]).then(([t, a, s]) => { setTipos(t); setAtribuicoes(a); setStats(s); }).finally(() => setLoading(false));
+  }, [schoolId, filterEstado]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2 mb-2">
+        <GraduationCap className="w-5 h-5 text-primary"/>
+        <div>
+          <h3 className="font-semibold text-slate-900">Bolsas de Estudo</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Vista de leitura — gestão apenas no portal do colégio.</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-slate-300"/></div>
+      ) : (
+        <>
+          {stats && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Bolseiros activos", value: stats.total_bolseiros, color: "text-primary" },
+                { label: "Tipos de bolsa", value: stats.total_tipos, color: "text-violet-600" },
+                { label: "Propinas c/ desconto", value: stats.propinas_com_desconto, color: "text-blue-600" },
+                { label: "Desconto total", value: `${Number(stats.total_desconto_historico).toLocaleString("pt-AO")} AOA`, color: "text-emerald-600" },
+              ].map((s, i) => (
+                <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                  <p className="text-xs text-slate-500 font-medium mb-1">{s.label}</p>
+                  <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <h4 className="text-sm font-bold text-slate-700 mb-3">Tipologias ({tipos.length})</h4>
+            {tipos.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">Nenhuma tipologia configurada neste colégio.</p>
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-2">
+                {tipos.map(t => (
+                  <div key={t.id} className={`bg-white border rounded-2xl p-3 ${t.activo ? 'border-slate-200' : 'border-slate-100 opacity-60'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-slate-900 text-sm truncate">{t.nome}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {t.tipo_desconto === 'percentagem' ? `${t.valor}%` : `${Number(t.valor).toLocaleString("pt-AO")} AOA`}
+                          {' · '}{t.abrangencia === 'propina' ? 'Propina mensal' : 'Todos emolumentos'}
+                        </p>
+                      </div>
+                      {t.total_activos > 0 && (
+                        <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full shrink-0">{t.total_activos} bolseiro(s)</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-slate-700">Alunos Bolseiros</h4>
+              <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+                {([{v:'activa' as const,l:'Activas'},{v:'revogada' as const,l:'Revogadas'},{v:'' as const,l:'Todas'}]).map(o => (
+                  <button key={o.v} onClick={() => setFilterEstado(o.v)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${filterEstado === o.v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {atribuicoes.length === 0 ? (
+              <div className="text-center py-8 bg-white border border-slate-200 rounded-2xl text-slate-400">
+                <GraduationCap className="w-7 h-7 mx-auto mb-2 opacity-40"/>
+                <p className="text-sm">Nenhum aluno bolseiro{filterEstado === 'activa' ? ' activo' : filterEstado === 'revogada' ? ' revogado' : ''}.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {atribuicoes.map(a => (
+                  <div key={a.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-2xl">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <GraduationCap className="w-3.5 h-3.5 text-primary"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900 text-sm truncate">{a.aluno_nome}</p>
+                      <p className="text-xs text-slate-500">{a.turma} · <span className="font-medium text-primary">{a.bolsa_nome}</span> · {a.tipo_desconto === 'percentagem' ? `${a.bolsa_valor}%` : `${Number(a.bolsa_valor).toLocaleString("pt-AO")} AOA`}</p>
+                      {a.notas && <p className="text-xs text-slate-400 truncate mt-0.5">{a.notas}</p>}
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${a.estado === 'activa' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                      {a.estado === 'activa' ? 'Activa' : 'Revogada'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "bolsas" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -5009,6 +5127,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "alunos" as const, label: "Alunos", icon: <Users className="w-4 h-4" /> },
     { id: "emolumentos" as const, label: "Emolumentos", icon: <Receipt className="w-4 h-4" /> },
     ...(currentSchool.usa_pacotes ? [{ id: "pacotes" as const, label: "Pacotes", icon: <BadgePercent className="w-4 h-4" /> }] : []),
+    { id: "bolsas" as const, label: "Bolsas", icon: <GraduationCap className="w-4 h-4" /> },
     { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
@@ -5206,6 +5325,10 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
           </div>
           <DDManagementPanel schoolId={currentSchool.id} />
         </div>
+      )}
+
+      {tab === "bolsas" && (
+        <BolsasAdminPanel schoolId={currentSchool.id} />
       )}
 
       {tab === "comunicar" && (

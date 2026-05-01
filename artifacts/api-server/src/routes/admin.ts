@@ -1386,4 +1386,62 @@ router.put("/admin/direct-debit/subscriptions/:id/approve-cancellation", adminAu
   return res.json({ ok: true });
 });
 
+/* ═══════════════════════════════════════════════════════
+   BOLSAS DE ESTUDO — Admin read routes
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── GET /admin/colegios/:id/bolsas/tipos ─── */
+router.get("/admin/colegios/:id/bolsas/tipos", adminAuth, async (req, res) => {
+  const { id } = req.params;
+  const r = await pool.query(
+    `SELECT bt.*,
+            COUNT(ba.id) FILTER (WHERE ba.estado='activa' AND (ba.data_fim IS NULL OR ba.data_fim >= CURRENT_DATE))::int AS total_activos
+     FROM bolsa_tipos bt
+     LEFT JOIN bolsa_atribuicoes ba ON ba.bolsa_tipo_id = bt.id
+     WHERE bt.school_id = $1
+     GROUP BY bt.id ORDER BY bt.nome`,
+    [id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── GET /admin/colegios/:id/bolsas/atribuicoes ─── */
+router.get("/admin/colegios/:id/bolsas/atribuicoes", adminAuth, async (req, res) => {
+  const { id } = req.params;
+  const { estado } = req.query;
+  const cond = estado ? "AND ba.estado=$2" : "";
+  const params: any[] = [id];
+  if (estado) params.push(estado);
+  const r = await pool.query(
+    `SELECT ba.*, s.nome AS aluno_nome, COALESCE(t.nome,'Sem turma') AS turma,
+            bt.nome AS bolsa_nome, bt.tipo_desconto, bt.valor AS bolsa_valor, bt.abrangencia
+     FROM bolsa_atribuicoes ba
+     JOIN students s ON s.id = ba.student_id
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     JOIN bolsa_tipos bt ON bt.id = ba.bolsa_tipo_id
+     WHERE ba.school_id = $1 ${cond}
+     ORDER BY ba.estado, s.nome`,
+    params
+  );
+  res.json(r.rows);
+});
+
+/* ─── GET /admin/colegios/:id/bolsas/stats ─── */
+router.get("/admin/colegios/:id/bolsas/stats", adminAuth, async (req, res) => {
+  const { id } = req.params;
+  const r = await pool.query(
+    `SELECT
+       COUNT(DISTINCT ba.id) FILTER (WHERE ba.estado='activa' AND (ba.data_fim IS NULL OR ba.data_fim >= CURRENT_DATE)) AS total_bolseiros,
+       COUNT(DISTINCT bt.id) AS total_tipos,
+       COALESCE(SUM(p.desconto) FILTER (WHERE p.desconto > 0), 0) AS total_desconto_historico,
+       COUNT(DISTINCT p.id) FILTER (WHERE p.desconto > 0) AS propinas_com_desconto
+     FROM bolsa_tipos bt
+     LEFT JOIN bolsa_atribuicoes ba ON ba.bolsa_tipo_id = bt.id
+     LEFT JOIN propinas p ON p.bolsa_atribuicao_id = ba.id
+     WHERE bt.school_id = $1`,
+    [id]
+  );
+  res.json(r.rows[0]);
+});
+
 export default router;

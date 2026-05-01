@@ -8,7 +8,7 @@ import {
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
   Phone, HelpCircle, RotateCcw, Menu, Bell, ArrowLeftRight,
   FileText, Send, ChevronRight, ChevronLeft, Banknote,
-  BadgeCheck, XCircle,
+  BadgeCheck, XCircle, GraduationCap,
 } from "lucide-react";
 
 const API = "/api";
@@ -26,6 +26,8 @@ interface Student {
 interface Propina {
   id: number; mes: string; ano: string;
   valor_base: number; multa: number; total: number;
+  desconto: number;
+  bolsa_atribuicao_id: number | null;
   estado: "PENDENTE" | "PAGO" | "VENCIDO";
   data_vencimento: string;
   pagamento_id: number | null; entidade: string | null;
@@ -1703,10 +1705,31 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
                         {/* Values */}
                         <div className="ml-8 space-y-1 text-sm mb-3">
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Valor base</span>
-                            <span className="font-medium text-gray-800">{fmt(p.valor_base)}</span>
-                          </div>
+                          {Number(p.desconto) > 0 ? (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Valor original</span>
+                              <span className="font-medium text-gray-400 line-through">{fmt(Number(p.valor_base) + Number(p.desconto))}</span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Valor base</span>
+                              <span className="font-medium text-gray-800">{fmt(p.valor_base)}</span>
+                            </div>
+                          )}
+                          {Number(p.desconto) > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-emerald-600 flex items-center gap-1">
+                                <GraduationCap size={10}/> Bolsa de estudo
+                              </span>
+                              <span className="font-semibold text-emerald-600">- {fmt(p.desconto)}</span>
+                            </div>
+                          )}
+                          {Number(p.desconto) > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Valor após desconto</span>
+                              <span className="font-semibold text-gray-800">{fmt(p.valor_base)}</span>
+                            </div>
+                          )}
                           {Number(p.multa) > 0 && (
                             <div className="flex justify-between">
                               <span className="text-red-500 flex items-center gap-1"><AlertTriangle size={10}/>Multa (atraso)</span>
