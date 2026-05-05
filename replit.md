@@ -42,6 +42,16 @@ The core business logic centers on the tuition fee system and its flexible penal
 ## SMS Notification System
 A multi-tenant SMS notification system allows schools to configure providers (mock, Africa's Talking, Twilio, custom HTTP), manage templates, and send messages manually or automatically via events (`nova_fatura`, `pagamento_confirmado`, `multa_aplicada`, `atraso_pagamento`). It includes an SMS fallback mechanism for guardians without portal accounts.
 
+## Módulo de Relatórios e Dashboards (Perfil Gestão)
+Novo módulo `ReportsDashboard.tsx` acessível via tab "Relatórios" no sidebar do painel escolar. 4 secções:
+- **Financeiro**: KPIs (receita realizada/pendente, inadimplência %, multas), gráfico de barras "Receita Prevista vs. Realizada" (Recharts), funil de conversão de pagamentos, tabela de inadimplência por turma.
+- **Académico**: KPIs demográficos, distribuição por género (pie chart), por turno (bar chart horizontal), por turma; impacto de bolsas de estudo (abdicação de receita), receitas de multas e penalizações, listagem completa de bolseiros com estado.
+- **Auditoria**: Histórico de SMS por evento e status, comunicados recentes, log paginado de ajustes financeiros (`propina_ajustes`) com filtro por tipo.
+- **Exportação**: 5 cards de download CSV com BOM UTF-8 (fichas de alunos, propinas todas/pagas/vencidas/pendentes), feedback visual de estado de download.
+- Isolamento multi-tenant: todos os endpoints filtram automaticamente por `school_id` da sessão activa.
+- Novos endpoints backend: `GET /api/school/relatorios/{overview,receita-mensal,funil-pagamentos,inadimplencia-turma,demografico,bolsas-multas,audit-log,comunicacoes,bolseiros,export/alunos,export/propinas}`.
+- Route file: `artifacts/api-server/src/routes/reports.ts`.
+
 ## Checkout Wizard (Guardian Portal)
 A 3-step checkout wizard (`CheckoutWizard`) replaces the old single-button "Gerar Referência" flow in the guardian portal:
 - **Step 1 – Resumo**: Lists selected propinas with individual breakdowns and total; warns about multas.

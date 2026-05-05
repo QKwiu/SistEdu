@@ -19,6 +19,7 @@ import {
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
 import { StudentRegistrationForm } from "@/components/student-form";
+import ReportsDashboard from "./ReportsDashboard";
 
 const API = "/api";
 const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -49,7 +50,7 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios";
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -6565,6 +6566,7 @@ export default function Dashboard() {
     { key: "comunicar", icon: <Megaphone className="w-5 h-5"/>, label: "Comunicar" },
     { key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>, label: "Débito Direto", badge: ddPendingCount },
     { key: "emolumentos", icon: <Receipt className="w-5 h-5"/>, label: "Emolumentos" },
+    { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -6579,9 +6581,6 @@ export default function Dashboard() {
           </button>
         ))}
         <div className="border-t border-slate-800 mt-2 pt-2">
-          <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
-            <BarChart3 className="w-5 h-5"/> Relatórios
-          </a>
           <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
             <Settings className="w-5 h-5"/> Configurações
           </a>
@@ -6719,6 +6718,9 @@ export default function Dashboard() {
             )}
             {view === "emolumentos" && token && (
               <EmolumentosView key="emolumentos" token={token}/>
+            )}
+            {view === "relatorios" && token && (
+              <ReportsDashboard key="relatorios" token={token}/>
             )}
           </AnimatePresence>
         )}

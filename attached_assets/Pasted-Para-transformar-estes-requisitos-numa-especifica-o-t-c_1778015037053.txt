@@ -1,0 +1,45 @@
+Para transformar estes requisitos numa especificação técnica clara para a equipa de engenharia ou para o seu PRD, o prompt deve focar na extração de dados, filtros de segmentação e na transversalidade (isolamento de dados por colégio).
+
+Aqui está o prompt otimizado:
+
+Prompt: Implementação do Módulo Transversal de Relatórios e Dashboards (Perfil Gestão)
+Objetivo: Implementar um módulo de relatórios analíticos e dashboards executivos no Perfil de Gestão da Instituição, permitindo o controlo total da saúde financeira, desempenho académico e auditoria administrativa.
+
+1. Dashboards de Visão Executiva (UI de Topo)
+Gráfico de Receita Dinâmico: Comparativo entre Receita Prevista vs. Receita Realizada.
+
+Funil de Conversão de Pagamentos: Monitorização do fluxo desde a geração da fatura até à liquidação via GPO/Referência.
+
+Demografia Escolar: Distribuição de alunos por género, regime e idade.
+
+2. Relatórios Financeiros e Autonomia
+Mapa de Faturação e Recebíveis: Listagens detalhadas de propinas e emolumentos, com distinção clara entre estados "Liquidado" e "Pendente".
+
+Análise de Inadimplência: Relatório segmentado por turma/curso para identificação de atrasos de pagamento.
+
+Impacto de Bolsas e Penalizações: Relatório de "Abdicação de Receita" (bolsas concedidas) e totalização de receitas provenientes de multas e juros de mora.
+
+Conciliação Automática: Resumo de liquidações confirmadas via integração bancária.
+
+3. Relatórios Académicos e de Retenção
+Aproveitamento e Assiduidade: Mapas de notas (Pautas) e controlo de faltas por aluno e professor.
+
+Gestão de Fluxo: Estatísticas de novas matrículas vs. desistências para cálculo de taxa de retenção.
+
+Listagem de Beneficiários: Identificação de alunos com bolsas de estudo ativas.
+
+4. Auditoria, Administração e Transversalidade
+Log de Segurança: Histórico completo de transações financeiras (criação, edição e anulação) para fins de auditoria interna.
+
+Dados Biográficos: Exportação de fichas de alunos incluindo o Nº de Processo gerado automaticamente.
+
+Comunicações: Histórico de notificações e SMS enviados através do módulo "Comunicar".
+
+Património: Controlo de stock de uniformes e bens da instituição.
+
+5. Requisitos Funcionais Transversais (UX/Data)
+Isolamento de Dados (Multi-tenancy): Todos os relatórios devem filtrar automaticamente os dados apenas pelo Institution_ID do utilizador logado.
+
+Filtros Avançados: Capacidade de cruzamento de dados por data, curso, turma e status financeiro.
+
+Exportação e Automação: Suporte a formatos PDF e Excel/CSV, com funcionalidade de agendamento de relatórios para envio automático por e-mail (ex: Fecho de Dia).
