@@ -38,6 +38,10 @@ interface GeneratedRef {
   entidade: string; referencia: string; valor: number; validade: string;
   propinas: { id: number; mes: string; ano: string; valor_base: number; multa: number; total: number; }[];
 }
+interface GPOResult {
+  transaction_id: string; redirect_url: string; valor: number;
+  propinas: { id: number; mes: string; ano: string; valor_base: number; multa: number; total: number; }[];
+}
 interface Ocorrencia {
   id: number; tipo: string; descricao: string; registado_por: string;
   data_ocorrencia: string; created_at: string;
@@ -329,6 +333,405 @@ function CombinedRefModal({ ref: generated, onClose, schoolName }: { ref: Genera
             {copiedAll ? <><Check size={16}/>Copiado!</> : <><Copy size={16}/>Copiar Dados de Pagamento</>}
           </button>
         </div>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─── Checkout Wizard (3-step payment flow) ─── */
+function CheckoutWizard({
+  propinas, total, availableMethods, token, schoolName, onClose, onSuccess,
+}: {
+  propinas: Propina[]; total: number; availableMethods: AvailableMethods;
+  token: string; schoolName?: string;
+  onClose: () => void; onSuccess: (ref?: GeneratedRef) => void;
+}) {
+  const hasBoth = availableMethods.allow_reference && availableMethods.allow_gpo_mcx;
+  const effectiveDefault = availableMethods.allow_reference ? "reference" : "gpo_mcx";
+  const [step, setStep] = useState(1);
+  const [method, setMethod] = useState<"reference" | "gpo_mcx">(effectiveDefault);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [refResult, setRefResult] = useState<GeneratedRef | null>(null);
+  const [gpoResult, setGpoResult] = useState<GPOResult | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  const totalSteps = hasBoth ? 3 : 2;
+  const STEP_LABELS = hasBoth ? ["Resumo", "Método", "Confirmação"] : ["Resumo", "Confirmação"];
+  const effectiveMethod = hasBoth ? method : effectiveDefault;
+  const isLastStep = step === totalSteps;
+  const isActionStep = step === (hasBoth ? 2 : 1);
+
+  const handleProceed = async () => {
+    setError(""); setLoading(true);
+    try {
+      const ids = propinas.map(p => p.id);
+      if (effectiveMethod === "reference") {
+        const res = await fetch(`${API}/guardian/pagamentos/gerar`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ propina_ids: ids, method: "reference" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Erro ao gerar referência.");
+        setRefResult(data);
+        setStep(totalSteps);
+        onSuccess(data);
+      } else {
+        const res = await fetch(`${API}/guardian/pagamentos/gpo-checkout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ propina_ids: ids }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar pagamento GPO.");
+        setGpoResult(data);
+        setStep(totalSteps);
+      }
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const copyRefAll = () => {
+    if (!refResult) return;
+    const txt = `Entidade: ${refResult.entidade}\nReferência: ${refResult.referencia}\nValor: ${fmt(refResult.valor)}\nValidade: ${fmtDate(refResult.validade)}`;
+    navigator.clipboard.writeText(txt).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 2500); });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
+      <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 280, damping: 30 }}
+        className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl rounded-t-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-5 py-4 text-white shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Banknote size={18}/>
+              <span className="font-semibold">Pagar Propinas</span>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
+              <X size={16}/>
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {STEP_LABELS.map((s, i) => (
+              <div key={i} className="flex items-center gap-1.5 flex-1">
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-all
+                  ${step > i+1 ? "bg-emerald-400 text-white" : step === i+1 ? "bg-white text-blue-700" : "bg-white/20 text-white/60"}`}>
+                  {step > i+1 ? <Check size={12}/> : i+1}
+                </div>
+                <span className={`text-xs whitespace-nowrap hidden sm:block ${step === i+1 ? "text-white font-semibold" : "text-white/50"}`}>{s}</span>
+                {i < STEP_LABELS.length - 1 && <div className="flex-1 h-px bg-white/20 mx-1"/>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+
+          {/* Step 1: Summary */}
+          {step === 1 && (
+            <>
+              <div>
+                <p className="font-semibold text-gray-900 mb-1">Resumo do pagamento</p>
+                {schoolName && (
+                  <p className="text-xs text-gray-500 mb-3">
+                    <span className="opacity-70">Beneficiário:</span>{" "}
+                    <span className="font-semibold text-gray-700">{schoolName}</span>
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {propinas.map((p, i) => (
+                    <div key={i} className={`flex justify-between items-center rounded-xl px-3 py-2.5 text-sm ${
+                      p.estado === "VENCIDO" ? "bg-red-50 border border-red-100" : "bg-gray-50"}`}>
+                      <div>
+                        <span className="font-semibold text-gray-900">{p.mes} {p.ano}</span>
+                        {Number(p.multa) > 0 && <span className="ml-2 text-xs text-red-500 font-medium">+multa</span>}
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-gray-900">{fmt(p.total)}</span>
+                        {Number(p.multa) > 0 && (
+                          <p className="text-xs text-red-400">{fmt(p.valor_base)} + {fmt(p.multa)}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-center border-t-2 border-gray-200 pt-2 px-3">
+                    <span className="font-bold text-gray-900">Total</span>
+                    <span className="font-bold text-blue-700 text-lg">{fmt(total)}</span>
+                  </div>
+                </div>
+              </div>
+              {propinas.some(p => Number(p.multa) > 0) && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                  <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5"/>
+                  <p className="text-red-700 text-xs">Este pagamento inclui multas por atraso. O valor total já contempla as penalizações aplicadas.</p>
+                </div>
+              )}
+              {!hasBoth && (
+                <div className={`rounded-xl p-3 flex gap-2 ${effectiveDefault === "gpo_mcx" ? "bg-emerald-50 border border-emerald-200" : "bg-blue-50 border border-blue-200"}`}>
+                  {effectiveDefault === "gpo_mcx"
+                    ? <Zap size={14} className="text-emerald-500 shrink-0 mt-0.5"/>
+                    : <CreditCard size={14} className="text-blue-500 shrink-0 mt-0.5"/>}
+                  <p className={`text-xs ${effectiveDefault === "gpo_mcx" ? "text-emerald-800" : "text-blue-800"}`}>
+                    {effectiveDefault === "gpo_mcx"
+                      ? "Será redirecionado para o portal EMIS/GPO para concluir o pagamento em tempo real."
+                      : "Será gerada uma referência de pagamento para usar no ATM, Multicaixa ou internet banking."}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Step 2 (only when hasBoth): Method selection */}
+          {hasBoth && step === 2 && (
+            <>
+              <div>
+                <p className="font-semibold text-gray-900 mb-1">Método de pagamento</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Selecione como pretende pagar <span className="font-semibold text-gray-800">{fmt(total)}</span>.
+                </p>
+                <div className="space-y-3">
+                  <button onClick={() => setMethod("reference")}
+                    className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all
+                      ${method === "reference" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${method === "reference" ? "bg-blue-100" : "bg-gray-100"}`}>
+                      <CreditCard size={18} className={method === "reference" ? "text-blue-600" : "text-gray-400"}/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="font-semibold text-gray-900 text-sm">Referência Bancária</p>
+                        {method === "reference" && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Seleccionado</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">ATM, internet banking ou Multicaixa com entidade e referência.</p>
+                      <div className="flex gap-1.5 mt-1.5">
+                        {["ATM","Multicaixa","Internet Banking"].map(l => (
+                          <span key={l} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{l}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all
+                      ${method === "reference" ? "border-blue-500 bg-blue-500" : "border-gray-300"}`}>
+                      {method === "reference" && <div className="w-2 h-2 rounded-full bg-white"/>}
+                    </div>
+                  </button>
+
+                  <button onClick={() => setMethod("gpo_mcx")}
+                    className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all
+                      ${method === "gpo_mcx" ? "border-emerald-500 bg-emerald-50" : "border-gray-200 hover:border-gray-300"}`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${method === "gpo_mcx" ? "bg-emerald-100" : "bg-gray-100"}`}>
+                      <Zap size={18} className={method === "gpo_mcx" ? "text-emerald-600" : "text-gray-400"}/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="font-semibold text-gray-900 text-sm">Multicaixa Express / GPO</p>
+                        {method === "gpo_mcx" && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Seleccionado</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">Pagamento online imediato via portal GPO ou app Multicaixa Express.</p>
+                      <div className="flex gap-1.5 mt-1.5">
+                        {["Tempo Real","Online","MCX Express"].map(l => (
+                          <span key={l} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">{l}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all
+                      ${method === "gpo_mcx" ? "border-emerald-500 bg-emerald-500" : "border-gray-300"}`}>
+                      {method === "gpo_mcx" && <div className="w-2 h-2 rounded-full bg-white"/>}
+                    </div>
+                  </button>
+                </div>
+              </div>
+              <AnimatePresence>
+                {error && (
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                    className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                    <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5"/>
+                    <p className="text-red-700 text-sm">{error}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          )}
+
+          {/* Last step: Result */}
+          {isLastStep && (
+            <>
+              {/* Reference result */}
+              {refResult && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
+                      <CheckCircle size={20} className="text-emerald-600"/>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">Referência gerada com sucesso</p>
+                      <p className="text-xs text-gray-500">
+                        {refResult.propinas.length} {refResult.propinas.length === 1 ? "mês" : "meses"} —
+                        válida até <span className="font-semibold">{fmtShort(refResult.validade)}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-0.5">Entidade</p>
+                      <p className="text-3xl font-bold text-gray-900 font-mono">{refResult.entidade}</p>
+                    </div>
+                    <div className="border-t pt-3">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-0.5">Referência</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-2xl font-bold text-blue-700 font-mono tracking-widest">
+                          {refResult.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
+                        </p>
+                        <CopyBtn text={refResult.referencia}/>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-0.5">Total a pagar</p>
+                        <p className="font-bold text-gray-900 text-lg">{fmt(refResult.valor)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-0.5">Válida até</p>
+                        <p className="font-semibold text-gray-900 text-sm">{fmtShort(refResult.validade)}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {refResult.propinas.map((p, i) => (
+                      <div key={i} className="flex justify-between text-xs bg-gray-50 rounded-lg px-3 py-2">
+                        <span className="text-gray-700 font-medium">{p.mes} {p.ano}</span>
+                        <span className="font-semibold text-gray-900">
+                          {fmt(p.total)}
+                          {p.multa > 0 && <span className="text-red-500 ml-1">(+{fmt(p.multa)})</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex gap-2">
+                    <Info size={14} className="text-blue-500 shrink-0 mt-0.5"/>
+                    <p className="text-blue-800 text-xs">Use esta referência no ATM, Multicaixa Express ou internet banking com a entidade, referência e valor exactos.</p>
+                  </div>
+                  <button onClick={copyRefAll}
+                    className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                    {copiedAll ? <><Check size={16}/>Copiado!</> : <><Copy size={16}/>Copiar Dados de Pagamento</>}
+                  </button>
+                </motion.div>
+              )}
+
+              {/* GPO result */}
+              {gpoResult && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
+                      <ShieldCheck size={20} className="text-emerald-600"/>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">Sessão GPO criada e registada</p>
+                      <p className="text-xs text-gray-500">O registo de auditoria foi guardado antes do redirecionamento.</p>
+                    </div>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-0.5">Total a pagar</p>
+                      <p className="font-bold text-emerald-800 text-2xl">{fmt(gpoResult.valor)}</p>
+                    </div>
+                    <div className="border-t border-emerald-200 pt-3">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-0.5">ID da transacção</p>
+                      <p className="font-mono text-xs text-gray-700 break-all">{gpoResult.transaction_id}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {gpoResult.propinas.map((p, i) => (
+                      <div key={i} className="flex justify-between text-xs bg-gray-50 rounded-lg px-3 py-2">
+                        <span className="text-gray-700 font-medium">{p.mes} {p.ano}</span>
+                        <span className="font-semibold text-gray-900">
+                          {fmt(p.total)}
+                          {p.multa > 0 && <span className="text-red-500 ml-1">(+{fmt(p.multa)})</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2">
+                    <ShieldCheck size={14} className="text-amber-600 shrink-0 mt-0.5"/>
+                    <p className="text-amber-800 text-xs">A sua tentativa de pagamento foi registada. Será redirecionado para o portal EMIS/GPO para concluir. Em caso de dúvida, use a referência interna acima.</p>
+                  </div>
+                  <a href={gpoResult.redirect_url} target="_blank" rel="noopener noreferrer"
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                    <Zap size={16}/> Ir para o Portal GPO / MCX Express
+                  </a>
+                </motion.div>
+              )}
+
+              {/* Error on final step (no result yet) */}
+              {!refResult && !gpoResult && (
+                <div className="flex flex-col items-center py-8 gap-4 text-center">
+                  <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center">
+                    <AlertTriangle size={26} className="text-red-500"/>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">Erro ao processar</p>
+                    <p className="text-sm text-gray-500 mt-1">{error || "Ocorreu um erro inesperado."}</p>
+                  </div>
+                  <button onClick={() => { setStep(hasBoth ? 2 : 1); setError(""); }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition-colors">
+                    <ChevronLeft size={15}/> Tentar novamente
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer navigation */}
+        {!isLastStep && (
+          <div className="border-t border-gray-100 px-5 py-4 flex gap-3 shrink-0">
+            {step > 1 ? (
+              <button onClick={() => { setStep(s => s - 1); setError(""); }}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition-colors">
+                <ChevronLeft size={16}/> Anterior
+              </button>
+            ) : (
+              <button onClick={onClose}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-500 text-sm font-semibold hover:bg-gray-50 transition-colors">
+                Cancelar
+              </button>
+            )}
+            <div className="flex-1"/>
+            {isActionStep ? (
+              <button onClick={handleProceed} disabled={loading}
+                className={`flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-white text-sm font-semibold transition-colors disabled:opacity-60
+                  ${effectiveMethod === "gpo_mcx" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"}`}>
+                {loading
+                  ? <><RefreshCw size={15} className="animate-spin"/>A processar...</>
+                  : effectiveMethod === "gpo_mcx"
+                    ? <><Zap size={15}/>Iniciar GPO / MCX</>
+                    : <><CreditCard size={15}/>Gerar Referência</>}
+              </button>
+            ) : (
+              <button onClick={() => setStep(s => s + 1)}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors">
+                Seguinte <ChevronRight size={16}/>
+              </button>
+            )}
+          </div>
+        )}
+        {isLastStep && (
+          <div className="border-t border-gray-100 px-5 py-4 shrink-0">
+            <button onClick={onClose}
+              className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-500 text-sm font-semibold hover:bg-gray-50 transition-colors">
+              Fechar
+            </button>
+          </div>
+        )}
       </motion.div>
     </div>
   );
@@ -1138,12 +1541,11 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   // Modals
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
   const [generatedRef, setGeneratedRef] = useState<GeneratedRef|null>(null);
+  const [showCheckout, setShowCheckout] = useState(false);
 
   // Filter + selection
   const [filterEstado, setFilterEstado] = useState<FilterEstado>("TODOS");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [generating, setGenerating] = useState(false);
-  const [genError, setGenError] = useState("");
 
   // Occurrences
   const [studentTab, setStudentTab] = useState<StudentTab>("propinas");
@@ -1301,22 +1703,11 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const selectedPropinas = selectablePropinas.filter(p => selectedIds.has(p.id));
   const selectedTotal = selectedPropinas.reduce((s,p)=>s+Number(p.total),0);
 
-  // Generate combined reference
-  const handleGerarReferencia = async () => {
-    setGenError(""); setGenerating(true);
-    try {
-      const res = await fetch(`${API}/guardian/pagamentos/gerar`, {
-        method:"POST", headers,
-        body: JSON.stringify({ propina_ids: [...selectedIds] }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao gerar referência.");
-      setGeneratedRef(data);
-      setSelectedIds(new Set());
-      // Reload to show updated references on cards
-      if (selectedStudent) loadPropinas(selectedStudent.id);
-    } catch(err: any) { setGenError(err.message); }
-    finally { setGenerating(false); }
+  // Called by CheckoutWizard when a reference is successfully generated
+  const handleCheckoutSuccess = (ref?: GeneratedRef) => {
+    setSelectedIds(new Set());
+    setShowCheckout(false);
+    if (selectedStudent) loadPropinas(selectedStudent.id);
   };
 
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
@@ -1648,13 +2039,6 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               </div>
             )}
 
-            {genError && (
-              <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
-                <AlertTriangle size={13} className="text-red-500"/>
-                <p className="text-red-700 text-xs">{genError}</p>
-              </div>
-            )}
-
             {/* List */}
             {loadingPropinas ? (
               <div className="flex items-center justify-center py-10"><RefreshCw size={20} className="animate-spin text-blue-600"/></div>
@@ -1941,10 +2325,10 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                   className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
                   <X size={18}/>
                 </button>
-                <button onClick={handleGerarReferencia} disabled={generating}
-                  className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-xl transition-all flex items-center gap-2">
-                  {generating ? <RefreshCw size={16} className="animate-spin"/> : <Zap size={16}/>}
-                  {generating ? "A gerar..." : "Gerar Referência"}
+                <button onClick={() => setShowCheckout(true)}
+                  className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold px-5 py-2.5 rounded-xl transition-all flex items-center gap-2">
+                  <Banknote size={16}/>
+                  Pagar
                 </button>
               </div>
             </div>
@@ -1956,6 +2340,17 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       <AnimatePresence>
         {viewPropina && <RefModal propina={viewPropina} onClose={()=>setViewPropina(null)} schoolName={selectedStudent?.school_name}/>}
         {generatedRef && <CombinedRefModal ref={generatedRef} onClose={()=>setGeneratedRef(null)} schoolName={selectedStudent?.school_name}/>}
+        {showCheckout && (
+          <CheckoutWizard
+            propinas={selectedPropinas}
+            total={selectedTotal}
+            availableMethods={availableMethods}
+            token={token}
+            schoolName={selectedStudent?.school_name}
+            onClose={() => setShowCheckout(false)}
+            onSuccess={handleCheckoutSuccess}
+          />
+        )}
         {showDDWizard && (
           <DirectDebitWizard
             onClose={() => setShowDDWizard(false)}

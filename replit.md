@@ -42,6 +42,16 @@ The core business logic centers on the tuition fee system and its flexible penal
 ## SMS Notification System
 A multi-tenant SMS notification system allows schools to configure providers (mock, Africa's Talking, Twilio, custom HTTP), manage templates, and send messages manually or automatically via events (`nova_fatura`, `pagamento_confirmado`, `multa_aplicada`, `atraso_pagamento`). It includes an SMS fallback mechanism for guardians without portal accounts.
 
+## Checkout Wizard (Guardian Portal)
+A 3-step checkout wizard (`CheckoutWizard`) replaces the old single-button "Gerar Referência" flow in the guardian portal:
+- **Step 1 – Resumo**: Lists selected propinas with individual breakdowns and total; warns about multas.
+- **Step 2 – Método** (only when both Reference + GPO/MCX are enabled): Radio selection between Referência Bancária and Multicaixa Express/GPO.
+- **Step 3 – Confirmação**: Shows result inline — either the generated EMIS reference (entidade/referência/valor/validade + copy-all button) or the GPO session (transaction ID + redirect link to portal GPO).
+- When only one method is available, Step 2 is skipped and the flow goes directly from Resumo → Confirmação.
+- GPO checkout persists an audit record in `gpo_checkout_attempts` BEFORE redirecting, ensuring full traceability.
+- New API endpoint: `POST /api/guardian/pagamentos/gpo-checkout` (auth-protected, school-level GPO flag validated).
+- New DB table: `gpo_checkout_attempts` (encarregado_id, school_id, propina_ids JSONB, valor, transaction_id UNIQUE, status, redirect_url).
+
 ## Multimodal Payment System
 Payment methods are configurable per institution by Superadmin, allowing for reference-based payments, GPO/MCX integration, and direct debit. The system validates available methods for guardians.
 

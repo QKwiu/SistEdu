@@ -406,6 +406,77 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
   });
 });
 
+// POST /guardian/pagamentos/gpo-checkout — audit + EMIS GPO initiation
+router.post("/guardian/pagamentos/gpo-checkout", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { propina_ids } = req.body as { propina_ids: number[] };
+  if (!Array.isArray(propina_ids) || propina_ids.length === 0)
+    return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+
+  // Resolve school_id and validate GPO is enabled
+  const schoolLookup = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (schoolLookup.rows.length === 0)
+    return res.status(400).json({ error: "Sem educandos associados." });
+
+  const school_id = schoolLookup.rows[0].school_id;
+  const settingsRow = await pool.query("SELECT settings FROM school_settings WHERE school_id = $1", [school_id]);
+  const m = settingsRow.rows[0]?.settings?.pagamento?.metodos_pagamento ?? {};
+  if (!m.allow_gpo_mcx)
+    return res.status(403).json({ error: "Pagamento via Multicaixa Express não está disponível nesta escola." });
+
+  // Verify all propinas belong to guardian's students and are unpaid
+  const placeholders = propina_ids.map((_,i) => `$${i+2}`).join(",");
+  const checkRes = await pool.query(`
+    SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa
+    FROM propinas p
+    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+    WHERE ea.encarregado_id = $1 AND p.id IN (${placeholders}) AND p.status != 'pago'
+  `, [guardian.id, ...propina_ids]);
+
+  if (checkRes.rows.length !== propina_ids.length)
+    return res.status(403).json({ error: "Propinas inválidas ou já pagas." });
+
+  const totalValor = checkRes.rows.reduce((s: number, r: any) => s + Number(r.montante) + Number(r.multa), 0);
+
+  // Generate unique transaction ID
+  const txnSuffix = randomBytes(4).toString("hex").toUpperCase();
+  const transaction_id = `GPO-${Date.now()}-${txnSuffix}`;
+
+  // Simulated EMIS GPO redirect URL (production would call real EMIS GPO API)
+  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=kiwara&escola=${school_id}`;
+
+  // Persist audit record BEFORE any redirect — ensures traceability
+  await pool.query(
+    `INSERT INTO gpo_checkout_attempts
+       (encarregado_id, school_id, propina_ids, valor, transaction_id, status, redirect_url)
+     VALUES ($1, $2, $3, $4, $5, 'INITIATED', $6)`,
+    [guardian.id, school_id, JSON.stringify(propina_ids), totalValor, transaction_id, redirect_url]
+  );
+
+  console.log(`[GPO] Checkout iniciado — txn=${transaction_id} encarregado=${guardian.id} valor=${totalValor} propinas=${propina_ids.join(",")}`);
+
+  const propinas_detail = checkRes.rows.map((r: any) => ({
+    id: r.id, mes: r.mes, ano: r.ano,
+    valor_base: Number(r.montante),
+    multa: Number(r.multa),
+    total: Number(r.montante) + Number(r.multa),
+  }));
+
+  return res.json({
+    transaction_id,
+    redirect_url,
+    valor: totalValor,
+    propinas: propinas_detail,
+  });
+});
+
 // GET /guardian/alunos/:id/ocorrencias
 router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
@@ -432,6 +503,21 @@ router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, 
 
 // Ensure tables exist
 pool.query(`ALTER TABLE schools ADD COLUMN IF NOT EXISTS logo_url TEXT`).catch(() => {});
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS gpo_checkout_attempts (
+    id SERIAL PRIMARY KEY,
+    encarregado_id INTEGER NOT NULL,
+    school_id INTEGER NOT NULL,
+    propina_ids JSONB NOT NULL,
+    valor NUMERIC NOT NULL,
+    transaction_id VARCHAR(100) NOT NULL UNIQUE,
+    status VARCHAR(20) NOT NULL DEFAULT 'INITIATED',
+    redirect_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(() => {});
 
 pool.query(`
   CREATE TABLE IF NOT EXISTS comunicados (
