@@ -9,7 +9,8 @@ import {
   TrendingUp, TrendingDown, Users, FileText, AlertTriangle,
   CheckCircle2, Download, RefreshCw, BarChart3, PieChart as PieIcon,
   BookOpen, Shield, MessageSquare, BadgePercent, ArrowDownToLine,
-  Banknote, Calendar, Filter, ChevronDown,
+  Banknote, Calendar, Filter, ChevronDown, Zap, Scale, Info,
+  XCircle,
 } from "lucide-react";
 
 const API = "/api";
@@ -88,22 +89,43 @@ function FinanceiroTab({ token }: { token: string }) {
   const [receita, setReceita] = useState<any[]>([]);
   const [funil, setFunil] = useState<any>(null);
   const [inadimplencia, setInadimplencia] = useState<any[]>([]);
+  const [multasAnalise, setMultasAnalise] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [aplicandoMultas, setAplicandoMultas] = useState(false);
+  const [aplicarResult, setAplicarResult] = useState<any>(null);
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, rc, fn, in_] = await Promise.all([
+      const [ov, rc, fn, in_, ma] = await Promise.all([
         fetch(`${API}/school/relatorios/overview`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/receita-mensal`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/funil-pagamentos`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/inadimplencia-turma`, { headers }).then(r => r.json()),
+        fetch(`${API}/school/relatorios/multas-analise`, { headers }).then(r => r.json()),
       ]);
-      setOverview(ov); setReceita(rc); setFunil(fn); setInadimplencia(in_);
+      setOverview(ov); setReceita(rc); setFunil(fn); setInadimplencia(in_); setMultasAnalise(ma);
     } catch {}
     setLoading(false);
   }, [token]);
+
+  const aplicarMultas = async () => {
+    setAplicandoMultas(true);
+    setAplicarResult(null);
+    try {
+      const res = await fetch(`${API}/school/relatorios/multas-aplicar`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      setAplicarResult(data);
+      await load();
+    } catch {
+      setAplicarResult({ error: "Erro de comunicação com o servidor" });
+    }
+    setAplicandoMultas(false);
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -219,6 +241,194 @@ function FinanceiroTab({ token }: { token: string }) {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Análise e Equacionamento de Multas ── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-amber-50 to-orange-50">
+          <div className="flex items-center gap-2">
+            <Scale className="w-4 h-4 text-amber-600"/>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Análise e Equacionamento de Multas</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Simulação das multas devidas com base na regra configurada — compara valores aplicados vs. calculados
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={aplicarMultas}
+            disabled={aplicandoMultas || !multasAnalise?.resumo?.tem_regra || (multasAnalise?.resumo?.total_delta ?? 0) === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors whitespace-nowrap"
+          >
+            {aplicandoMultas ? (
+              <><RefreshCw className="w-3.5 h-3.5 animate-spin"/> A aplicar...</>
+            ) : (
+              <><Zap className="w-3.5 h-3.5"/> Rectificar Multas</>
+            )}
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Regra configurada */}
+          {multasAnalise?.regra ? (
+            <div className="flex items-start gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+              <Info className="w-3.5 h-3.5 text-indigo-500 mt-0.5 flex-shrink-0"/>
+              <p className="text-xs text-slate-600">
+                <strong className="text-slate-800">Regra activa:</strong>{" "}
+                {multasAnalise.regra.tipo_calculo === "fixa"
+                  ? `Multa fixa de ${AOA(multasAnalise.regra.valor_fixo)} por propina vencida após o dia ${multasAnalise.regra.dia_limite}`
+                  : multasAnalise.regra.tipo_calculo === "percentual"
+                  ? `${multasAnalise.regra.percentagem}% do valor da propina após o dia ${multasAnalise.regra.dia_limite}`
+                  : `Modelo ${multasAnalise.regra.modelo} — escalonado por dias de atraso`}
+                {" · "}
+                <span className={multasAnalise.regra.aplica_automatico ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>
+                  {multasAnalise.regra.aplica_automatico ? "Aplicação automática activa" : "Aplicação manual (automático desactivado)"}
+                </span>
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+              <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0"/>
+              <p className="text-xs text-red-700 font-medium">Nenhuma regra de multa configurada. Configure em Definições → Regras de Multa.</p>
+            </div>
+          )}
+
+          {/* KPIs de multas */}
+          {multasAnalise?.resumo && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                <p className="text-[10px] text-slate-500 font-medium">Propinas em Atraso</p>
+                <p className="text-xl font-bold text-slate-800">{multasAnalise.resumo.total_vencidas}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">vencidas ou pendentes</p>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
+                <p className="text-[10px] text-amber-600 font-medium">Multas Aplicadas (BD)</p>
+                <p className="text-xl font-bold text-amber-800">{AOA(multasAnalise.resumo.total_multa_aplicada)}</p>
+                <p className="text-[10px] text-amber-500 mt-0.5">valor actual no sistema</p>
+              </div>
+              <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-200">
+                <p className="text-[10px] text-indigo-600 font-medium">Multas Calculadas (Regra)</p>
+                <p className="text-xl font-bold text-indigo-800">{AOA(multasAnalise.resumo.total_multa_calculada)}</p>
+                <p className="text-[10px] text-indigo-500 mt-0.5">conforme regra vigente</p>
+              </div>
+              <div className={`rounded-xl p-3 border ${
+                (multasAnalise.resumo.total_delta ?? 0) > 0
+                  ? "bg-red-50 border-red-200"
+                  : "bg-emerald-50 border-emerald-200"
+              }`}>
+                <p className={`text-[10px] font-medium ${(multasAnalise.resumo.total_delta ?? 0) > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                  Diferença (Delta)
+                </p>
+                <p className={`text-xl font-bold ${(multasAnalise.resumo.total_delta ?? 0) > 0 ? "text-red-800" : "text-emerald-800"}`}>
+                  {(multasAnalise.resumo.total_delta ?? 0) >= 0 ? "+" : ""}{AOA(multasAnalise.resumo.total_delta ?? 0)}
+                </p>
+                <p className={`text-[10px] mt-0.5 ${(multasAnalise.resumo.total_delta ?? 0) > 0 ? "text-red-500" : "text-emerald-500"}`}>
+                  {(multasAnalise.resumo.total_delta ?? 0) > 0 ? "valores em falta no sistema" : "sistema actualizado"}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Badges de estado */}
+          {multasAnalise?.resumo && (
+            <div className="flex flex-wrap gap-2">
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-semibold">
+                <CheckCircle2 className="w-3 h-3"/> {multasAnalise.resumo.count_correctas} correctas
+              </span>
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[11px] font-semibold">
+                <XCircle className="w-3 h-3"/> {multasAnalise.resumo.count_sem_multa} sem multa aplicada
+              </span>
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-[11px] font-semibold">
+                <AlertTriangle className="w-3 h-3"/> {multasAnalise.resumo.count_multa_incorrecta} com valor incorrecto
+              </span>
+            </div>
+          )}
+
+          {/* Resultado da aplicação */}
+          {aplicarResult && (
+            <div className={`flex items-start gap-2 rounded-xl px-3 py-2 border text-xs ${
+              aplicarResult.error
+                ? "bg-red-50 border-red-200 text-red-700"
+                : "bg-emerald-50 border-emerald-200 text-emerald-700"
+            }`}>
+              {aplicarResult.error ? (
+                <><XCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5"/> <span>{aplicarResult.error}</span></>
+              ) : (
+                <><CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5"/>
+                <span>
+                  <strong>{aplicarResult.actualizadas}</strong> propinas rectificadas com sucesso
+                  {aplicarResult.sem_alteracao > 0 && ` · ${aplicarResult.sem_alteracao} já estavam correctas`}
+                </span></>
+              )}
+            </div>
+          )}
+
+          {/* Tabela de detalhe por propina */}
+          {(multasAnalise?.propinas ?? []).length > 0 && (
+            <div className="overflow-auto rounded-xl border border-slate-200">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200">
+                    {["Aluno", "Turma", "Propina", "Dias Atraso", "Multa BD", "Multa Calculada", "Delta", "Estado"].map(h => (
+                      <th key={h} className="text-left px-3 py-2 text-slate-500 font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {multasAnalise.propinas.map((p: any, i: number) => (
+                    <tr key={i} className={`border-b border-slate-100 transition-colors ${
+                      p.estado_multa === "sem_multa" ? "bg-red-50 hover:bg-red-100" :
+                      p.estado_multa === "incorrecta" ? "bg-amber-50 hover:bg-amber-100" :
+                      "hover:bg-slate-50"
+                    }`}>
+                      <td className="px-3 py-2 font-medium text-slate-800 max-w-[120px] truncate">{p.aluno_nome}</td>
+                      <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.turma}</td>
+                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{p.mes} {p.ano}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                          p.dias_atraso > 60 ? "bg-red-100 text-red-700" :
+                          p.dias_atraso > 30 ? "bg-amber-100 text-amber-700" :
+                          "bg-slate-100 text-slate-600"
+                        }`}>{p.dias_atraso}d</span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                        {p.multa_actual > 0 ? AOA(p.multa_actual) : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-3 py-2 font-semibold text-indigo-700 whitespace-nowrap">
+                        {p.multa_calculada > 0 ? AOA(p.multa_calculada) : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {p.delta !== 0 ? (
+                          <span className={`font-bold ${p.delta > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                            {p.delta > 0 ? "+" : ""}{AOA(p.delta)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          p.estado_multa === "correcta" ? "bg-emerald-100 text-emerald-700" :
+                          p.estado_multa === "sem_multa" ? "bg-red-100 text-red-700" :
+                          p.estado_multa === "incorrecta" ? "bg-amber-100 text-amber-700" :
+                          "bg-slate-100 text-slate-500"
+                        }`}>
+                          {p.estado_multa === "correcta" ? "✓ Correcta" :
+                           p.estado_multa === "sem_multa" ? "Sem multa" :
+                           p.estado_multa === "incorrecta" ? "Valor errado" : "Sem regra"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {(multasAnalise?.propinas ?? []).length === 0 && (
+            <p className="text-xs text-slate-400 text-center py-6">Nenhuma propina vencida encontrada para análise</p>
           )}
         </div>
       </div>

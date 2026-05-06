@@ -514,4 +514,236 @@ router.get("/school/relatorios/export/propinas", schoolAuth, async (req: any, re
   }
 });
 
+/* ─── Multa calculation helper (mirrors applyFinesForSchool logic) ─── */
+function calcMultaParaPropina(
+  montante: number,
+  dataVencimento: Date,
+  regra: any
+): number {
+  if (!regra) return 0;
+  const now = new Date();
+  const today = now.getDate();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth();
+
+  const isPreviousMonth =
+    dataVencimento.getFullYear() < thisYear ||
+    (dataVencimento.getFullYear() === thisYear && dataVencimento.getMonth() < thisMonth);
+
+  const isOverdue = dataVencimento < now;
+  if (!isOverdue) return 0;
+
+  const modelo = Number(regra.modelo ?? 1);
+  let multa = 0;
+
+  if (modelo === 1) {
+    if (isPreviousMonth || today > Number(regra.dia_limite)) {
+      multa = montante * (Number(regra.percentagem) / 100);
+    }
+  } else if (modelo === 2) {
+    const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
+    if (isPreviousMonth && brackets.length > 0) {
+      multa = montante * (Number(brackets[brackets.length - 1].percentagem) / 100);
+    } else {
+      for (const b of brackets) {
+        if (today >= Number(b.dia_inicio) && today <= Number(b.dia_fim)) {
+          multa = montante * (Number(b.percentagem) / 100);
+          break;
+        }
+      }
+      if (multa === 0 && brackets.length > 0 && today > Number(brackets[brackets.length - 1].dia_fim)) {
+        multa = montante * (Number(brackets[brackets.length - 1].percentagem) / 100);
+      }
+    }
+  } else if (modelo === 3) {
+    if (isPreviousMonth || today > Number(regra.dia_limite)) {
+      multa = Number(regra.valor_fixo);
+    }
+  }
+
+  return multa;
+}
+
+/* ─── GET /school/relatorios/multas-analise ─── */
+router.get("/school/relatorios/multas-analise", schoolAuth, async (req: any, res) => {
+  try {
+    const sid = req.schoolId;
+
+    const [propinasRes, regraRes] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          p.id, p.mes, p.ano, p.montante, COALESCE(p.multa, 0) AS multa_actual,
+          p.status, p.data_vencimento,
+          st.nome AS aluno_nome, st.id AS student_id,
+          COALESCE(t.nome, 'Sem Turma') AS turma,
+          EXTRACT(DAY FROM now() - p.data_vencimento)::int AS dias_atraso
+        FROM propinas p
+        JOIN students st ON st.id = p.student_id
+        LEFT JOIN turmas t ON t.id = st.turma_id
+        WHERE p.school_id = ${sid}
+          AND p.status IN ('vencido', 'pendente')
+          AND p.data_vencimento < now()
+        ORDER BY p.data_vencimento ASC
+      `),
+      db.execute(sql`
+        SELECT * FROM multa_regras WHERE school_id = ${sid} LIMIT 1
+      `),
+    ]);
+
+    const regra = regraRes.rows[0] ?? null;
+    const propinas = propinasRes.rows as any[];
+
+    let totalMultaAplicada = 0;
+    let totalMultaCalculada = 0;
+    let totalDelta = 0;
+    let countSemMulta = 0;
+    let countMultaErrada = 0;
+    let countCorretas = 0;
+
+    const detalhes = propinas.map((p: any) => {
+      const montante = Number(p.montante);
+      const multaActual = Number(p.multa_actual);
+      const dataVenc = new Date(p.data_vencimento);
+      const multaCalculada = calcMultaParaPropina(montante, dataVenc, regra);
+      const delta = multaCalculada - multaActual;
+
+      totalMultaAplicada += multaActual;
+      totalMultaCalculada += multaCalculada;
+      totalDelta += delta;
+
+      let estadoMulta: "correcta" | "sem_multa" | "incorrecta" | "sem_regra";
+      if (!regra) {
+        estadoMulta = "sem_regra";
+      } else if (multaCalculada === 0 && multaActual === 0) {
+        estadoMulta = "correcta";
+        countCorretas++;
+      } else if (multaActual === 0 && multaCalculada > 0) {
+        estadoMulta = "sem_multa";
+        countSemMulta++;
+      } else if (Math.abs(delta) > 0.01) {
+        estadoMulta = "incorrecta";
+        countMultaErrada++;
+      } else {
+        estadoMulta = "correcta";
+        countCorretas++;
+      }
+
+      return {
+        id: p.id,
+        aluno_nome: p.aluno_nome,
+        turma: p.turma,
+        mes: p.mes,
+        ano: p.ano,
+        montante,
+        multa_actual: multaActual,
+        multa_calculada: multaCalculada,
+        delta,
+        dias_atraso: Number(p.dias_atraso),
+        status: p.status,
+        estado_multa: estadoMulta,
+      };
+    });
+
+    const regraInfo = regra ? {
+      modelo: Number(regra.modelo),
+      tipo_calculo: regra.tipo_calculo,
+      dia_limite: Number(regra.dia_limite),
+      valor_fixo: Number(regra.valor_fixo ?? 0),
+      percentagem: Number(regra.percentagem ?? 0),
+      aplica_automatico: regra.aplica_automatico,
+      brackets: regra.brackets ?? [],
+    } : null;
+
+    res.json({
+      resumo: {
+        total_vencidas: propinas.length,
+        total_multa_aplicada: totalMultaAplicada,
+        total_multa_calculada: totalMultaCalculada,
+        total_delta: totalDelta,
+        count_sem_multa: countSemMulta,
+        count_multa_incorrecta: countMultaErrada,
+        count_correctas: countCorretas,
+        tem_regra: !!regra,
+        aplica_automatico: regra?.aplica_automatico ?? false,
+      },
+      regra: regraInfo,
+      propinas: detalhes,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ─── POST /school/relatorios/multas-aplicar ─── */
+router.post("/school/relatorios/multas-aplicar", schoolAuth, async (req: any, res) => {
+  try {
+    const sid = req.schoolId;
+
+    const [propinasRes, regraRes] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          p.id, p.montante, COALESCE(p.multa, 0) AS multa_actual,
+          p.status, p.data_vencimento, p.mes, p.ano
+        FROM propinas p
+        WHERE p.school_id = ${sid}
+          AND p.status IN ('vencido', 'pendente')
+          AND p.data_vencimento < now()
+      `),
+      db.execute(sql`SELECT * FROM multa_regras WHERE school_id = ${sid} LIMIT 1`),
+    ]);
+
+    const regra = regraRes.rows[0] ?? null;
+    if (!regra) {
+      return res.status(400).json({ error: "Nenhuma regra de multa configurada para esta escola" });
+    }
+
+    const propinas = propinasRes.rows as any[];
+    let actualizadas = 0;
+    let sem_alteracao = 0;
+
+    for (const p of propinas) {
+      const montante = Number(p.montante);
+      const multaActual = Number(p.multa_actual);
+      const dataVenc = new Date(p.data_vencimento);
+      const multaCalculada = calcMultaParaPropina(montante, dataVenc, regra);
+
+      const novoStatus = "vencido";
+      const mudouMulta = Math.abs(multaCalculada - multaActual) > 0.01;
+      const mudouStatus = p.status !== novoStatus;
+
+      if (mudouMulta || mudouStatus) {
+        await db.execute(sql`
+          UPDATE propinas
+          SET multa = ${multaCalculada}, status = ${novoStatus}
+          WHERE id = ${p.id} AND school_id = ${sid}
+        `);
+
+        if (mudouMulta) {
+          await db.execute(sql`
+            INSERT INTO propina_ajustes
+              (propina_id, tipo, multa_anterior, multa_nova, motivo, created_by, created_at)
+            VALUES
+              (${p.id}, 'ajuste_valor', ${multaActual}, ${multaCalculada},
+               ${'Rectificação automática via relatório — regra: ' + regra.tipo_calculo},
+               'sistema', now())
+          `);
+        }
+        actualizadas++;
+      } else {
+        sem_alteracao++;
+      }
+    }
+
+    res.json({
+      ok: true,
+      actualizadas,
+      sem_alteracao,
+      total_processadas: propinas.length,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;
+
