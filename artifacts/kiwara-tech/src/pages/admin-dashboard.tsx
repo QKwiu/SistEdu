@@ -6480,8 +6480,7 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const H = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-  const BASE = `/api/admin/rbac/${schoolId}`;
+  const BASE = `/admin/rbac/${schoolId}`;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -6490,11 +6489,11 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
       if (q) p.set("q", q);
       if (filterRole) p.set("role_id", filterRole);
       if (filterStatus) p.set("status", filterStatus);
-      const r = await fetch(`${BASE}/staff?${p}`, { headers: H });
+      const r = await api(`${BASE}/staff?${p}`);
       setUsers(await r.json());
     } catch {}
     setLoading(false);
-  }, [token, schoolId, q, filterRole, filterStatus]);
+  }, [schoolId, q, filterRole, filterStatus]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -6514,9 +6513,9 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
       const body = { ...form, role_id: form.role_id || null };
       let res;
       if (editing) {
-        res = await fetch(`${BASE}/staff/${editing.id}`, { method: "PUT", headers: H, body: JSON.stringify(body) });
+        res = await api(`${BASE}/staff/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
       } else {
-        res = await fetch(`${BASE}/staff`, { method: "POST", headers: H, body: JSON.stringify(body) });
+        res = await api(`${BASE}/staff`, { method: "POST", body: JSON.stringify(body) });
       }
       const data = await res.json();
       if (!res.ok) { alert(data.error ?? "Erro"); setSaving(false); return; }
@@ -6529,9 +6528,7 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
 
   const handleToggle = async (u: any, status: string) => {
     try {
-      await fetch(`${BASE}/staff/${u.id}/toggle-status`, {
-        method: "POST", headers: H, body: JSON.stringify({ status }),
-      });
+      await api(`${BASE}/staff/${u.id}/toggle-status`, { method: "POST", body: JSON.stringify({ status }) });
       await load();
     } catch {}
   };
@@ -6539,7 +6536,7 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
   const handleResetPassword = async (u: any) => {
     setActionLoading(true); setActionResult(null);
     try {
-      const res = await fetch(`${BASE}/staff/${u.id}/reset-password`, { method: "POST", headers: H });
+      const res = await api(`${BASE}/staff/${u.id}/reset-password`, { method: "POST" });
       const data = await res.json();
       setActionResult(data.temp_password ?? "Erro");
     } catch {}
@@ -6549,7 +6546,7 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
   const handleDelete = async (u: any) => {
     setActionLoading(true);
     try {
-      await fetch(`${BASE}/staff/${u.id}`, { method: "DELETE", headers: H });
+      await api(`${BASE}/staff/${u.id}`, { method: "DELETE" });
       setActionTarget(null); setActionType(null); await load();
     } catch {}
     setActionLoading(false);
@@ -6808,8 +6805,7 @@ function AdminRBACPerfis({ token, schoolId, onRolesChange }: { token: string; sc
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
 
-  const H = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-  const BASE = `/api/admin/rbac/${schoolId}`;
+  const BASE = `/admin/rbac/${schoolId}`;
 
   const buildDefault = () => {
     const p: Record<string, Record<string, boolean>> = {};
@@ -6820,12 +6816,12 @@ function AdminRBACPerfis({ token, schoolId, onRolesChange }: { token: string; sc
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${BASE}/roles`, { headers: H });
+      const r = await api(`${BASE}/roles`);
       const data = await r.json();
       setRoles(data); onRolesChange(data);
     } catch {}
     setLoading(false);
-  }, [token, schoolId]);
+  }, [schoolId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -6855,9 +6851,9 @@ function AdminRBACPerfis({ token, schoolId, onRolesChange }: { token: string; sc
       const permsArr = RBAC_MODULES.map(m => ({ modulo: m.key, ...(permissions[m.key] ?? {}) }));
       const body = { ...form, permissions: permsArr };
       if (editing) {
-        await fetch(`${BASE}/roles/${editing.id}`, { method: "PUT", headers: H, body: JSON.stringify(body) });
+        await api(`${BASE}/roles/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
       } else {
-        await fetch(`${BASE}/roles`, { method: "POST", headers: H, body: JSON.stringify(body) });
+        await api(`${BASE}/roles`, { method: "POST", body: JSON.stringify(body) });
       }
       setShowModal(false); await load();
     } catch {}
@@ -6866,7 +6862,7 @@ function AdminRBACPerfis({ token, schoolId, onRolesChange }: { token: string; sc
 
   const handleDelete = async (role: any) => {
     try {
-      const res = await fetch(`${BASE}/roles/${role.id}`, { method: "DELETE", headers: H });
+      const res = await api(`${BASE}/roles/${role.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!data.ok) { alert(data.error ?? "Erro ao eliminar"); return; }
       setConfirmDelete(null); await load();
@@ -7028,20 +7024,19 @@ function AdminRBACAuditoria({ token, schoolId }: { token: string; schoolId: numb
   const [page, setPage] = useState(0);
   const [filterAcao, setFilterAcao] = useState("");
   const LIMIT = 25;
-  const H = { Authorization: `Bearer ${token}` };
-  const BASE = `/api/admin/rbac/${schoolId}`;
+  const BASE = `/admin/rbac/${schoolId}`;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const p = new URLSearchParams({ limit: String(LIMIT), offset: String(page * LIMIT) });
       if (filterAcao) p.set("acao", filterAcao);
-      const r = await fetch(`${BASE}/audit-log?${p}`, { headers: H });
+      const r = await api(`${BASE}/audit-log?${p}`);
       const data = await r.json();
       setRows(data.rows ?? []); setTotal(data.total ?? 0);
     } catch {}
     setLoading(false);
-  }, [token, schoolId, page, filterAcao]);
+  }, [schoolId, page, filterAcao]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -7129,13 +7124,15 @@ function AdminRBACView() {
   const [tab, setTab] = useState<AdminRBACTab>("utilizadores");
   const [roles, setRoles] = useState<any[]>([]);
   const [loadingSchools, setLoadingSchools] = useState(true);
-  const H = { Authorization: `Bearer ${token}` };
-
   useEffect(() => {
     setLoadingSchools(true);
-    fetch(`${API}/admin/colegios`, { headers: H })
+    api("/admin/colegios")
       .then(r => r.json())
-      .then((data: any[]) => { setSchools(data); if (data.length > 0) setSchoolId(data[0].id); })
+      .then((data: any[]) => {
+        if (!Array.isArray(data)) return;
+        setSchools(data);
+        if (data.length > 0) setSchoolId(data[0].id);
+      })
       .catch(() => {})
       .finally(() => setLoadingSchools(false));
   }, []);
@@ -7143,7 +7140,7 @@ function AdminRBACView() {
   useEffect(() => {
     if (!schoolId) return;
     setSummary(null);
-    fetch(`${API}/admin/rbac/${schoolId}/summary`, { headers: H })
+    api(`/admin/rbac/${schoolId}/summary`)
       .then(r => r.json()).then(setSummary).catch(() => {});
   }, [schoolId, tab]);
 
