@@ -20,6 +20,7 @@ import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
 import { StudentRegistrationForm } from "@/components/student-form";
 import ReportsDashboard from "./ReportsDashboard";
+import AccessManagement from "./AccessManagement";
 
 const API = "/api";
 const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -50,7 +51,7 @@ interface Propina {
 }
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos";
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -6567,6 +6568,7 @@ export default function Dashboard() {
     { key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>, label: "Débito Direto", badge: ddPendingCount },
     { key: "emolumentos", icon: <Receipt className="w-5 h-5"/>, label: "Emolumentos" },
     { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
+    { key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>, label: "Gestão de Acessos" },
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -6721,6 +6723,9 @@ export default function Dashboard() {
             )}
             {view === "relatorios" && token && (
               <ReportsDashboard key="relatorios" token={token}/>
+            )}
+            {view === "gestao_acessos" && token && (
+              <AccessManagement key="gestao_acessos" token={token}/>
             )}
           </AnimatePresence>
         )}

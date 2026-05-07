@@ -1,0 +1,30 @@
+Implementação do Módulo de Gestão de Acessos e Permissões (Perfil Admin)
+Objetivo: Estabelecer uma estrutura robusta de RBAC (Role-Based Access Control) que segure a hierarquia entre a Administração Central da plataforma e os Gestores das Instituições de Ensino.
+
+1. Matriz de Hierarquia de Acessos
+O sistema deve suportar três níveis principais de utilizadores com permissões granulares:
+
+Super Admin (Kiwara Tech): Acesso total ao sistema, gestão de todas as instituições, configuração de gateways globais (EMIS/SMS) e auditoria de logs de sistema.
+
+Gestor da Instituição (Admin Local): Acesso restrito aos dados da sua própria instituição (Institution_ID). Pode gerir utilizadores internos (Secretaria, Tesouraria, Professores).
+
+Perfis Operacionais (Staff): Perfis com permissões limitadas (ex: Secretaria apenas lê dados de alunos; Tesouraria apenas gere faturas).
+
+2. Funcionalidades do Painel de Gestão de Acessos
+Criação e Edição de Roles: Interface para definir o que cada "papel" pode Fazer (Create, Read, Update, Delete - CRUD) em cada módulo.
+
+Atribuição Dinâmica: Capacidade de associar um utilizador a uma ou mais roles.
+
+Revogação e Bloqueio: Botão de "pânico" para desativar instantaneamente o acesso de qualquer utilizador ou de uma instituição inteira (Kill Switch).
+
+3. Requisitos Técnicos de Segurança
+Middleware de Autorização: Cada pedido ao Backend deve passar por um verificador de permissões que valida se o User_Token tem autoridade para realizar aquela ação específica.
+
+Isolamento de Tenant: Garantir que um Admin da Instituição A nunca consiga visualizar ou editar utilizadores da Instituição B via manipulação de IDs na URL/API.
+
+Logs de Auditoria: Registo obrigatório de "Quem fez o quê e quando" (User, Action, Timestamp, IP) para todas as alterações de permissões.
+
+4. Interface de Gestor de Utilizadores (UI)
+Listagem de utilizadores com filtros por Role e Status.
+
+Botão para Reset de Password e configuração de MFA (Autenticação de Dois Fatores) para perfis administrativos.
