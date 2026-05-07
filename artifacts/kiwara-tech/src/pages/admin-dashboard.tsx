@@ -6709,6 +6709,11 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
                       <option value="">Sem perfil</option>
                       {roles.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
                     </select>
+                    {roles.length === 0 && (
+                      <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
+                        <span>⚠</span> Ainda não existem perfis para este colégio. Crie primeiro no separador <strong>Perfis (RBAC)</strong>.
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2 pt-1">
                     <button onClick={() => setShowModal(false)}
@@ -7143,6 +7148,15 @@ function AdminRBACView() {
     api(`/admin/rbac/${schoolId}/summary`)
       .then(r => r.json()).then(setSummary).catch(() => {});
   }, [schoolId, tab]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    setRoles([]);
+    api(`/admin/rbac/${schoolId}/roles`)
+      .then(r => r.json())
+      .then((data: any[]) => { if (Array.isArray(data)) setRoles(data); })
+      .catch(() => {});
+  }, [schoolId]);
 
   const selectedSchool = schools.find(s => s.id === schoolId);
 
