@@ -49,7 +49,8 @@ interface Propina {
   transaction_id?: string; metodo_pagamento?: string;
   pagamento_origem?: "manual" | "online";
 }
-interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; }
+interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
+interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
 type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos";
 
@@ -570,11 +571,24 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
   const [result, setResult] = useState<GeneratedRef | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // Emolumentos state
+  const [emolumentos, setEmolumentos] = useState<any[]>([]);
+  const [emolItems, setEmolItems] = useState<EmolItem[]>([]);
+  const [showEmolSection, setShowEmolSection] = useState(false);
+  const [emolForm, setEmolForm] = useState({ emolumento_id: "", student_id: "", quantidade: "1" });
+  const [emolKey, setEmolKey] = useState(0);
+
+  useEffect(() => {
+    fetch(`${API}/school/emolumentos`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then((data: any[]) => { if (Array.isArray(data)) setEmolumentos(data.filter(e => e.activo !== false)); })
+      .catch(() => {});
+  }, [token]);
 
   const pending = propinas.filter(p => p.status === "pendente" || p.status === "vencido");
 
-  // Distinct months present in pending propinas (sorted by year+month index)
   const availableMeses = Array.from(
     new Map(pending.map(p => [`${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}`, `${p.mes} ${p.ano}`])).entries()
   ).sort((a, b) => a[0].localeCompare(b[0])).map(e => ({ key: e[0], label: e[1] }));
@@ -584,24 +598,59 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
     .filter(p => !filterMes || `${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}` === filterMes);
 
   const toggleId = (id: number) => setSelectedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-
   const selectAll = () => setSelectedIds(new Set(filtered.map(p => p.id)));
   const clearAll  = () => setSelectedIds(new Set());
   const allSelected = filtered.length > 0 && filtered.every(p => selectedIds.has(p.id));
 
-  const selectedTotal = [...selectedIds].reduce((sum, id) => {
+  const propinaTotal = [...selectedIds].reduce((sum, id) => {
     const p = pending.find(x => x.id === id);
     return sum + (p ? Number(p.montante) + Number(p.multa) : 0);
   }, 0);
 
+  const emolTotal = emolItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
+  const grandTotal = propinaTotal + emolTotal;
+
+  const addEmolItem = () => {
+    if (!emolForm.emolumento_id) return;
+    const em = emolumentos.find(e => String(e.id) === emolForm.emolumento_id);
+    if (!em) return;
+    const aluno = alunos.find(a => String(a.id) === emolForm.student_id);
+    const qty = Math.max(1, Number(emolForm.quantidade) || 1);
+    setEmolItems(prev => [...prev, {
+      key: emolKey,
+      emolumento_id: em.id,
+      emolumento_nome: em.nome,
+      emolumento_tipo: em.tipo,
+      student_id: aluno?.id ?? null,
+      aluno_nome: aluno?.nome ?? "Geral",
+      descricao: em.nome,
+      montante: Number(em.montante),
+      quantidade: qty,
+    }]);
+    setEmolKey(k => k + 1);
+    setEmolForm({ emolumento_id: "", student_id: "", quantidade: "1" });
+  };
+
+  const removeEmolItem = (key: number) => setEmolItems(prev => prev.filter(i => i.key !== key));
+
   const submit = async () => {
-    if (!selectedIds.size) return setError("Selecione pelo menos uma propina.");
+    if (!selectedIds.size && !emolItems.length)
+      return setError("Selecione pelo menos uma propina ou adicione um emolumento.");
     setError(""); setSaving(true);
     try {
       const res = await fetch(`${API}/school/propinas/referencia`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ propina_ids: [...selectedIds] }),
+        body: JSON.stringify({
+          propina_ids: [...selectedIds],
+          emolumento_items: emolItems.map(i => ({
+            emolumento_id: i.emolumento_id,
+            student_id: i.student_id,
+            descricao: i.descricao,
+            montante: i.montante,
+            quantidade: i.quantidade,
+          })),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao gerar referência.");
@@ -611,46 +660,63 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
     finally { setSaving(false); }
   };
 
-  const copy = (text: string) => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  };
 
+  /* ── Result screen ── */
   if (result) {
+    const hasBreakdown = (result.total_multa ?? 0) > 0 || (result.total_emolumentos ?? 0) > 0;
     return (
       <div className="p-6 space-y-5">
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 text-center">
           <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3"/>
           <p className="font-bold text-emerald-900 text-lg mb-1">Referência Gerada</p>
-          <p className="text-emerald-700 text-sm">Referência Multicaixa válida até {fmtDate(result.validade)}</p>
+          <p className="text-emerald-700 text-sm">Multicaixa válida até {fmtDate(result.validade)}</p>
         </div>
-        {/* Breakdown: base + multa + total */}
-        {(result.total_multa !== undefined && result.total_multa > 0) && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm space-y-1">
-            <div className="flex justify-between text-slate-600">
-              <span>Propinas (base)</span>
-              <span className="font-semibold">{fmt(result.total_base ?? 0)} Kz</span>
-            </div>
-            <div className="flex justify-between text-red-600">
-              <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5"/>Multa por atraso aplicada</span>
-              <span className="font-semibold">+ {fmt(result.total_multa)} Kz</span>
-            </div>
-            <div className="flex justify-between text-slate-900 font-bold border-t border-amber-200 pt-1 mt-1">
+
+        {hasBreakdown && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm space-y-1.5">
+            {(result.total_base ?? 0) > 0 && (
+              <div className="flex justify-between text-slate-600">
+                <span>Propinas (base)</span>
+                <span className="font-semibold">{fmt(result.total_base ?? 0)} Kz</span>
+              </div>
+            )}
+            {(result.total_multa ?? 0) > 0 && (
+              <div className="flex justify-between text-red-600">
+                <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5"/>Multa por atraso</span>
+                <span className="font-semibold">+ {fmt(result.total_multa ?? 0)} Kz</span>
+              </div>
+            )}
+            {(result.total_emolumentos ?? 0) > 0 && (
+              <div className="flex justify-between text-indigo-600">
+                <span className="flex items-center gap-1"><Receipt className="w-3.5 h-3.5"/>Emolumentos</span>
+                <span className="font-semibold">+ {fmt(result.total_emolumentos ?? 0)} Kz</span>
+              </div>
+            )}
+            <div className="flex justify-between text-slate-900 font-bold border-t border-slate-200 pt-1.5 mt-1">
               <span>Total da Referência</span>
               <span>{fmt(result.valor)} Kz</span>
             </div>
           </div>
         )}
+
         <div className="space-y-3">
           {[
-            { label: "Entidade", value: result.entidade },
-            { label: "Referência", value: result.referencia },
+            { label: "Entidade",    value: result.entidade },
+            { label: "Referência",  value: result.referencia },
             { label: "Valor Total", value: fmt(result.valor) + " Kz" },
-            { label: "Válida até", value: fmtDate(result.validade) },
+            { label: "Válida até",  value: fmtDate(result.validade) },
           ].map(row => (
             <div key={row.label} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
               <span className="text-sm text-slate-500">{row.label}</span>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-slate-900 font-mono">{row.value}</span>
-                <button onClick={() => copy(row.value)} className="text-slate-300 hover:text-primary transition-colors">
-                  {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4"/>}
+                <button onClick={() => copy(row.value, row.label)} className="text-slate-300 hover:text-primary transition-colors">
+                  {copied === row.label ? <CheckCircle2 className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4"/>}
                 </button>
               </div>
             </div>
@@ -661,11 +727,16 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
     );
   }
 
+  /* ── Selection screen ── */
   return (
-    <div className="p-6 space-y-4">
-      {/* Filters */}
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Filtrar por aluno">
+    <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+
+      {/* ── Section 1: Propinas ── */}
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+          <Banknote className="w-3.5 h-3.5"/>Propinas Pendentes
+        </p>
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <select className={selectCls} value={filterAluno}
             onChange={e => { setFilterAluno(e.target.value); setSelectedIds(new Set()); }}>
             <option value="">Todos os alunos</option>
@@ -673,87 +744,176 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
               <option key={a.id} value={a.id}>{a.nome}</option>
             ))}
           </select>
-        </Field>
-        <Field label="Filtrar por mês">
           <select className={selectCls} value={filterMes}
             onChange={e => { setFilterMes(e.target.value); setSelectedIds(new Set()); }}>
             <option value="">Todos os meses</option>
-            {availableMeses.map(m => (
-              <option key={m.key} value={m.key}>{m.label}</option>
-            ))}
+            {availableMeses.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
-        </Field>
-      </div>
-
-      {pending.length === 0 ? (
-        <div className="py-8 text-center">
-          <CheckCircle2 className="w-10 h-10 text-emerald-300 mx-auto mb-2"/>
-          <p className="text-slate-500 font-medium">Sem propinas pendentes</p>
         </div>
-      ) : (
-        <>
-          {/* Select all / clear bar */}
-          <div className="flex items-center justify-between py-1">
-            <p className="text-xs text-slate-500">{filtered.length} propina(s) visível(eis)</p>
-            <div className="flex gap-2">
+
+        {pending.length === 0 ? (
+          <div className="py-6 text-center bg-slate-50 rounded-xl">
+            <CheckCircle2 className="w-8 h-8 text-emerald-300 mx-auto mb-1.5"/>
+            <p className="text-slate-500 text-sm font-medium">Sem propinas pendentes</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs text-slate-400">{filtered.length} propina(s) visível(eis)</p>
               <button type="button" onClick={allSelected ? clearAll : selectAll}
                 className="text-xs font-semibold text-primary hover:underline">
                 {allSelected ? "Desseleccionar todos" : "Seleccionar todos"}
               </button>
-              {selectedIds.size > 0 && !allSelected && (
-                <button type="button" onClick={clearAll} className="text-xs text-slate-400 hover:text-slate-600">Limpar</button>
-              )}
             </div>
-          </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {filtered.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-4">Nenhuma propina corresponde aos filtros.</p>
+              ) : filtered.map(p => {
+                const sel = selectedIds.has(p.id);
+                return (
+                  <button type="button" key={p.id} onClick={() => toggleId(p.id)}
+                    className={`w-full text-left rounded-xl border p-3 flex items-center gap-3 transition-all ${sel ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300 bg-white"}`}>
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${sel ? "bg-primary border-primary" : "border-slate-300"}`}>
+                      {sel && <CheckCircle2 className="w-3 h-3 text-white"/>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{p.aluno_nome}</p>
+                      <p className="text-xs text-slate-500">{p.mes} {p.ano} — {p.turma}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-sm font-bold text-slate-900 block">{fmt(Number(p.montante) + Number(p.multa))} Kz</span>
+                      {p.status === "vencido" && <span className="text-xs text-red-500 font-medium">Vencida</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-            {filtered.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-6">Nenhuma propina corresponde aos filtros.</p>
-            ) : filtered.map(p => {
-              const sel = selectedIds.has(p.id);
-              return (
-                <button type="button" key={p.id} onClick={() => toggleId(p.id)}
-                  className={`w-full text-left rounded-xl border p-3 flex items-center gap-3 transition-all ${sel ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300 bg-white"}`}>
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${sel ? "bg-primary border-primary" : "border-slate-300"}`}>
-                    {sel && <CheckCircle2 className="w-3 h-3 text-white"/>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 truncate">{p.aluno_nome}</p>
-                    <p className="text-xs text-slate-500">{p.mes} {p.ano} — {p.turma}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-sm font-bold text-slate-900 block">{fmt(Number(p.montante) + Number(p.multa))}</span>
-                    {p.status === "vencido" && <span className="text-xs text-red-500 font-medium">Vencida</span>}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+      {/* ── Section 2: Emolumentos Adicionais ── */}
+      <div className="border border-slate-200 rounded-xl overflow-hidden">
+        <button type="button"
+          onClick={() => setShowEmolSection(s => !s)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors">
+          <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1.5">
+            <Receipt className="w-3.5 h-3.5 text-indigo-500"/>
+            Emolumentos Adicionais
+            {emolItems.length > 0 && (
+              <span className="ml-1 bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{emolItems.length}</span>
+            )}
+          </span>
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showEmolSection ? "rotate-180" : ""}`}/>
+        </button>
 
-      {selectedIds.size > 0 && (
-        <div className="bg-slate-900 rounded-xl px-4 py-3 flex items-center justify-between">
-          <div>
-            <p className="text-white font-bold text-lg">{fmt(selectedTotal)}</p>
-            <p className="text-slate-400 text-xs">{selectedIds.size} propina(s) seleccionada(s)</p>
+        {showEmolSection && (
+          <div className="p-4 space-y-3 bg-white">
+            {/* Add emolumento form */}
+            <div className="grid grid-cols-1 gap-2">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1">Tipo de Emolumento *</label>
+                <select value={emolForm.emolumento_id}
+                  onChange={e => setEmolForm(f => ({ ...f, emolumento_id: e.target.value }))}
+                  className={selectCls}>
+                  <option value="">Seleccionar emolumento…</option>
+                  {emolumentos.map(em => (
+                    <option key={em.id} value={em.id}>
+                      {em.nome} — {fmt(Number(em.montante))} Kz {em.is_global ? "(Global)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Aluno (opcional)</label>
+                  <select value={emolForm.student_id}
+                    onChange={e => setEmolForm(f => ({ ...f, student_id: e.target.value }))}
+                    className={selectCls}>
+                    <option value="">Geral / Todos</option>
+                    {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Quantidade</label>
+                  <input type="number" min="1" value={emolForm.quantidade}
+                    onChange={e => setEmolForm(f => ({ ...f, quantidade: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                </div>
+              </div>
+              <button type="button" onClick={addEmolItem}
+                disabled={!emolForm.emolumento_id}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors">
+                <Plus className="w-4 h-4"/> Adicionar à Referência
+              </button>
+            </div>
+
+            {/* Added items list */}
+            {emolItems.length > 0 && (
+              <div className="space-y-2 pt-1 border-t border-slate-100">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Itens adicionados</p>
+                {emolItems.map(item => (
+                  <div key={item.key} className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{item.emolumento_nome}</p>
+                      <p className="text-xs text-slate-500">{item.aluno_nome} · {item.quantidade}× · {fmt(item.montante * item.quantidade)} Kz</p>
+                    </div>
+                    <button type="button" onClick={() => removeEmolItem(item.key)}
+                      className="text-slate-400 hover:text-red-500 p-1 transition-colors shrink-0">
+                      <X className="w-4 h-4"/>
+                    </button>
+                  </div>
+                ))}
+                <div className="flex justify-between items-center text-sm font-bold text-indigo-700 pt-1">
+                  <span>Subtotal emolumentos</span>
+                  <span>{fmt(emolTotal)} Kz</span>
+                </div>
+              </div>
+            )}
           </div>
-          <button onClick={clearAll} className="text-slate-400 hover:text-white p-1"><X className="w-4 h-4"/></button>
+        )}
+      </div>
+
+      {/* ── Grand total bar ── */}
+      {(selectedIds.size > 0 || emolItems.length > 0) && (
+        <div className="bg-slate-900 rounded-xl px-4 py-3 space-y-1.5">
+          {selectedIds.size > 0 && emolItems.length > 0 && (
+            <div className="flex justify-between text-slate-400 text-xs">
+              <span>{selectedIds.size} propina(s)</span>
+              <span>{fmt(propinaTotal)} Kz</span>
+            </div>
+          )}
+          {emolItems.length > 0 && selectedIds.size > 0 && (
+            <div className="flex justify-between text-slate-400 text-xs">
+              <span>{emolItems.length} emolumento(s)</span>
+              <span>{fmt(emolTotal)} Kz</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-white font-bold text-lg">{fmt(grandTotal)} Kz</p>
+              <p className="text-slate-400 text-xs">
+                {[selectedIds.size > 0 && `${selectedIds.size} propina(s)`, emolItems.length > 0 && `${emolItems.length} emolumento(s)`].filter(Boolean).join(" + ")}
+              </p>
+            </div>
+            <button onClick={() => { setSelectedIds(new Set()); setEmolItems([]); }}
+              className="text-slate-400 hover:text-white p-1"><X className="w-4 h-4"/></button>
+          </div>
         </div>
       )}
 
-      {/* Automatic fine notice */}
+      {/* Fine notice */}
       {[...selectedIds].some(id => pending.find(p => p.id === id)?.status === "vencido") && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-start gap-2 text-amber-800 text-xs">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600"/>
-          <span>As propinas vencidas incluídas terão a multa por atraso calculada automaticamente com base nas regras configuradas e incorporada no total da referência.</span>
+          <span>As propinas vencidas incluídas terão a multa por atraso calculada automaticamente e incorporada no total.</span>
         </div>
       )}
 
       <Feedback error={error}/>
       <div className="flex gap-3">
         <Button type="button" variant="outline" onClick={onClose} className="flex-1">Cancelar</Button>
-        <Button onClick={submit} disabled={saving || !selectedIds.size} className="flex-1">
+        <Button onClick={submit} disabled={saving || (!selectedIds.size && !emolItems.length)} className="flex-1">
           {saving ? <><RefreshCw className="w-4 h-4 animate-spin mr-2"/>A gerar...</> : "Gerar Referência"}
         </Button>
       </div>

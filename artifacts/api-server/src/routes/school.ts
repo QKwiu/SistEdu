@@ -33,6 +33,24 @@ const alunoUpload = upload.fields([
 
 const router = Router();
 
+/* ─── Cobranças avulsas (emolumentos): DB migration ─── */
+pool.query(`
+  CREATE TABLE IF NOT EXISTS cobrancas (
+    id SERIAL PRIMARY KEY,
+    school_id TEXT NOT NULL,
+    student_id INTEGER REFERENCES students(id) ON DELETE CASCADE,
+    emolumento_id INTEGER REFERENCES emolumentos(id),
+    descricao TEXT NOT NULL,
+    montante NUMERIC(12,2) NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','pago')),
+    referencia TEXT,
+    entidade TEXT,
+    validade DATE,
+    created_at TIMESTAMPTZ DEFAULT now()
+  )
+`).catch(console.error);
+
 /* ─── Bolsas de estudo: DB migration ─── */
 pool.query(`
   CREATE TABLE IF NOT EXISTS bolsa_tipos (
@@ -1171,38 +1189,67 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { propina_ids } = req.body;
-  if (!propina_ids?.length) return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+  const { propina_ids = [], emolumento_items = [] } = req.body;
+  if (!propina_ids?.length && !emolumento_items?.length)
+    return res.status(400).json({ error: "Selecione pelo menos uma propina ou emolumento." });
 
-  // Verify all propinas belong to this school
-  const pRes = await pool.query(
-    `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
-     FROM propinas p
-     JOIN students s ON s.id = p.student_id
-     WHERE p.id = ANY($1) AND s.school_id = $2`,
-    [propina_ids, school.school_id]
-  );
+  let freshPropinas: any[] = [];
 
-  if (!pRes.rows.length) return res.status(404).json({ error: "Propinas não encontradas." });
-  const alreadyPaid = pRes.rows.filter(p => p.status === "pago");
-  if (alreadyPaid.length) return res.status(400).json({ error: "Uma ou mais propinas já estão pagas." });
+  if (propina_ids.length) {
+    const pRes = await pool.query(
+      `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
+       FROM propinas p
+       JOIN students s ON s.id = p.student_id
+       WHERE p.id = ANY($1) AND s.school_id = $2`,
+      [propina_ids, school.school_id]
+    );
+    if (!pRes.rows.length) return res.status(404).json({ error: "Propinas não encontradas." });
+    const alreadyPaid = pRes.rows.filter((p: any) => p.status === "pago");
+    if (alreadyPaid.length) return res.status(400).json({ error: "Uma ou mais propinas já estão pagas." });
 
-  /* Apply fines before computing reference total */
-  await applyFinesForSchool(school.school_id);
+    await applyFinesForSchool(school.school_id);
 
-  /* Re-fetch propinas with fresh multa values */
-  const freshRes = await pool.query(
-    `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
-     FROM propinas p
-     JOIN students s ON s.id = p.student_id
-     WHERE p.id = ANY($1) AND s.school_id = $2`,
-    [propina_ids, school.school_id]
-  );
-  const freshPropinas = freshRes.rows;
+    const freshRes = await pool.query(
+      `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
+       FROM propinas p
+       JOIN students s ON s.id = p.student_id
+       WHERE p.id = ANY($1) AND s.school_id = $2`,
+      [propina_ids, school.school_id]
+    );
+    freshPropinas = freshRes.rows;
+  }
 
-  const total = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
-  const latestMes = freshPropinas[freshPropinas.length - 1];
-  const validade = lastDayOfMonth(latestMes.mes, latestMes.ano);
+  // Validate emolumento_items
+  const validItems: any[] = [];
+  for (const item of emolumento_items) {
+    const { emolumento_id, student_id, descricao, montante, quantidade = 1 } = item;
+    if (!descricao || !montante) continue;
+    // Verify emolumento belongs to this school (or is global)
+    if (emolumento_id) {
+      const emCheck = await pool.query(
+        `SELECT id FROM emolumentos WHERE id=$1 AND (school_id=$2 OR school_id IS NULL)`,
+        [emolumento_id, school.school_id]
+      );
+      if (!emCheck.rows.length) continue;
+    }
+    validItems.push({ emolumento_id: emolumento_id ?? null, student_id: student_id ?? null, descricao, montante: Number(montante), quantidade: Number(quantidade) || 1 });
+  }
+
+  const totalPropinas = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
+  const totalEmolumentos = validItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
+  const total = totalPropinas + totalEmolumentos;
+
+  // Compute validade: last day of latest propina month OR 30 days from now if only emolumentos
+  let validade: Date;
+  if (freshPropinas.length) {
+    const latestMes = freshPropinas[freshPropinas.length - 1];
+    validade = lastDayOfMonth(latestMes.mes, latestMes.ano);
+  } else {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    validade = d;
+  }
+
   const referencia = generateRef();
   const entidade = "00112";
 
@@ -1217,6 +1264,17 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
     );
   }
 
+  // Insert cobrancas for each emolumento item
+  const cobrancasCreated: any[] = [];
+  for (const item of validItems) {
+    const r = await pool.query(
+      `INSERT INTO cobrancas (school_id, student_id, emolumento_id, descricao, montante, quantidade, status, referencia, entidade, validade)
+       VALUES ($1,$2,$3,$4,$5,$6,'pendente',$7,$8,$9) RETURNING *`,
+      [school.school_id, item.student_id, item.emolumento_id, item.descricao, item.montante, item.quantidade, referencia, entidade, validade]
+    );
+    cobrancasCreated.push(r.rows[0]);
+  }
+
   const totalMulta = freshPropinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
   const totalBase  = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante), 0);
 
@@ -1226,9 +1284,27 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
     valor: total,
     total_base: totalBase,
     total_multa: totalMulta,
+    total_emolumentos: totalEmolumentos,
     validade: validade.toISOString(),
     propinas: freshPropinas,
+    cobrancas: cobrancasCreated,
   });
+});
+
+/* ─── GET /school/cobrancas — list pending charges ─── */
+router.get("/school/cobrancas", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT c.*, s.nome AS aluno_nome, e.nome AS emolumento_nome, e.tipo AS emolumento_tipo
+     FROM cobrancas c
+     LEFT JOIN students s ON s.id = c.student_id
+     LEFT JOIN emolumentos e ON e.id = c.emolumento_id
+     WHERE c.school_id = $1
+     ORDER BY c.created_at DESC`,
+    [school.school_id]
+  );
+  res.json(r.rows);
 });
 
 /* ─── GET /school/propinas/:id/ajustes ─── */

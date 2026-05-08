@@ -36,7 +36,16 @@ interface Propina {
 }
 interface GeneratedRef {
   entidade: string; referencia: string; valor: number; validade: string;
+  total_emolumentos?: number;
   propinas: { id: number; mes: string; ano: string; valor_base: number; multa: number; total: number; }[];
+  cobrancas?: { id: number; descricao: string; montante: string; quantidade: number; emolumento_nome?: string; }[];
+}
+interface EmolItem {
+  emolumento_id: number | null;
+  student_id: number | null;
+  descricao: string;
+  montante: number;
+  quantidade: number;
 }
 interface GPOResult {
   transaction_id: string; redirect_url: string; valor: number;
@@ -340,10 +349,10 @@ function CombinedRefModal({ ref: generated, onClose, schoolName }: { ref: Genera
 
 /* ─── Checkout Wizard (3-step payment flow) ─── */
 function CheckoutWizard({
-  propinas, total, availableMethods, token, schoolName, onClose, onSuccess,
+  propinas, total, availableMethods, token, schoolName, alunos, onClose, onSuccess,
 }: {
   propinas: Propina[]; total: number; availableMethods: AvailableMethods;
-  token: string; schoolName?: string;
+  token: string; schoolName?: string; alunos?: Student[];
   onClose: () => void; onSuccess: (ref?: GeneratedRef) => void;
 }) {
   const hasBoth = availableMethods.allow_reference && availableMethods.allow_gpo_mcx;
@@ -355,6 +364,34 @@ function CheckoutWizard({
   const [refResult, setRefResult] = useState<GeneratedRef | null>(null);
   const [gpoResult, setGpoResult] = useState<GPOResult | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [emolList, setEmolList] = useState<{id:number;tipo:string;nome:string;montante:string}[]>([]);
+  const [emolItems, setEmolItems] = useState<EmolItem[]>([]);
+  const [selEmolId, setSelEmolId] = useState("");
+  const [selStudentId, setSelStudentId] = useState("");
+  const [selQty, setSelQty] = useState(1);
+  const [emolOpen, setEmolOpen] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/guardian/emolumentos`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setEmolList(d); }).catch(() => {});
+  }, [token]);
+
+  const emolTotal = emolItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
+  const grandTotal = total + emolTotal;
+
+  const addEmol = () => {
+    if (!selEmolId) return;
+    const found = emolList.find(e => e.id === Number(selEmolId));
+    if (!found) return;
+    setEmolItems(prev => [...prev, {
+      emolumento_id: found.id,
+      student_id: selStudentId ? Number(selStudentId) : null,
+      descricao: found.nome,
+      montante: Number(found.montante),
+      quantidade: selQty,
+    }]);
+    setSelEmolId(""); setSelStudentId(""); setSelQty(1);
+  };
 
   const totalSteps = hasBoth ? 3 : 2;
   const STEP_LABELS = hasBoth ? ["Resumo", "Método", "Confirmação"] : ["Resumo", "Confirmação"];
@@ -370,7 +407,7 @@ function CheckoutWizard({
         const res = await fetch(`${API}/guardian/pagamentos/gerar`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ propina_ids: ids, method: "reference" }),
+          body: JSON.stringify({ propina_ids: ids, method: "reference", emolumento_items: emolItems }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Erro ao gerar referência.");
@@ -462,11 +499,77 @@ function CheckoutWizard({
                     </div>
                   ))}
                   <div className="flex justify-between items-center border-t-2 border-gray-200 pt-2 px-3">
-                    <span className="font-bold text-gray-900">Total</span>
-                    <span className="font-bold text-blue-700 text-lg">{fmt(total)}</span>
+                    <span className={`font-bold text-gray-900 ${emolItems.length > 0 ? "text-sm" : ""}`}>
+                      {emolItems.length > 0 ? "Subtotal Propinas" : "Total"}
+                    </span>
+                    <span className={`font-bold text-blue-700 ${emolItems.length > 0 ? "" : "text-lg"}`}>{fmt(total)}</span>
                   </div>
+                  {emolItems.map((item, i) => (
+                    <div key={i} className="flex justify-between items-center bg-blue-50 rounded-lg px-3 py-2 text-sm">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-gray-700 font-medium truncate">{item.descricao}</span>
+                        {item.quantidade > 1 && <span className="text-gray-500 text-xs ml-1">×{item.quantidade}</span>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-900">{fmt(item.montante * item.quantidade)}</span>
+                        <button onClick={() => setEmolItems(prev => prev.filter((_,j) => j !== i))}
+                          className="text-gray-400 hover:text-red-500 transition-colors"><X size={14}/></button>
+                      </div>
+                    </div>
+                  ))}
+                  {emolItems.length > 0 && (
+                    <div className="flex justify-between items-center border-t-2 border-blue-200 pt-2 px-3">
+                      <span className="font-bold text-gray-900">Total</span>
+                      <span className="font-bold text-blue-700 text-lg">{fmt(grandTotal)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Emolumentos Adicionais — collapsible selector */}
+              {emolList.length > 0 && (
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <button onClick={() => setEmolOpen(o => !o)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-700">Emolumentos Adicionais</span>
+                      {emolItems.length > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">{emolItems.length}</span>
+                      )}
+                    </div>
+                    <ChevronRight size={16} className={`text-gray-400 transition-transform ${emolOpen ? "rotate-90" : ""}`}/>
+                  </button>
+                  {emolOpen && (
+                    <div className="border-t border-gray-200 p-3 space-y-2 bg-gray-50">
+                      <select value={selEmolId} onChange={e => setSelEmolId(e.target.value)}
+                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Tipo de Emolumento *</option>
+                        {emolList.map(e => (
+                          <option key={e.id} value={e.id}>{e.nome} — {fmt(Number(e.montante))}</option>
+                        ))}
+                      </select>
+                      {alunos && alunos.length > 1 && (
+                        <select value={selStudentId} onChange={e => setSelStudentId(e.target.value)}
+                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="">Aluno (opcional)</option>
+                          {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                        </select>
+                      )}
+                      <div className="flex gap-2">
+                        <input type="number" min={1} value={selQty}
+                          onChange={e => setSelQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Qtd."/>
+                        <button onClick={addEmol} disabled={!selEmolId}
+                          className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
+                          Adicionar à Referência
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {propinas.some(p => Number(p.multa) > 0) && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
                   <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5"/>
@@ -494,7 +597,7 @@ function CheckoutWizard({
               <div>
                 <p className="font-semibold text-gray-900 mb-1">Método de pagamento</p>
                 <p className="text-xs text-gray-500 mb-3">
-                  Selecione como pretende pagar <span className="font-semibold text-gray-800">{fmt(total)}</span>.
+                  Selecione como pretende pagar <span className="font-semibold text-gray-800">{fmt(grandTotal)}</span>.
                 </p>
                 <div className="space-y-3">
                   <button onClick={() => setMethod("reference")}
@@ -615,6 +718,24 @@ function CheckoutWizard({
                         </span>
                       </div>
                     ))}
+                    {refResult.cobrancas && refResult.cobrancas.length > 0 && (
+                      <>
+                        {refResult.cobrancas.map((c, i) => (
+                          <div key={`c-${i}`} className="flex justify-between text-xs bg-blue-50 rounded-lg px-3 py-2">
+                            <span className="text-gray-700 font-medium">
+                              {c.descricao}{Number(c.quantidade) > 1 ? ` ×${c.quantidade}` : ""}
+                            </span>
+                            <span className="font-semibold text-gray-900">
+                              {fmt(Number(c.montante) * Number(c.quantidade))}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-xs px-3 py-1 text-blue-700 font-semibold">
+                          <span>Emolumentos</span>
+                          <span>{fmt(refResult.total_emolumentos ?? 0)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex gap-2">
                     <Info size={14} className="text-blue-500 shrink-0 mt-0.5"/>
@@ -2347,6 +2468,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             availableMethods={availableMethods}
             token={token}
             schoolName={selectedStudent?.school_name}
+            alunos={students}
             onClose={() => setShowCheckout(false)}
             onSuccess={handleCheckoutSuccess}
           />

@@ -310,14 +310,22 @@ router.get("/guardian/payments/available-methods", authMiddleware, async (req: a
   return res.json({ ...metodos, direct_debit: directDebit });
 });
 
-// POST /guardian/pagamentos/gerar — gera referência combinada para vários meses
+// Generate random 9-digit Multicaixa reference
+function generateRef(): string {
+  const digits = randomBytes(5).readUInt32BE(0) % 900000000 + 100000000;
+  return String(digits);
+}
+
+// POST /guardian/pagamentos/gerar — gera referência combinada para propinas e/ou emolumentos
 router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { propina_ids, method } = req.body as { propina_ids: number[]; method?: string };
-  if (!Array.isArray(propina_ids) || propina_ids.length === 0)
-    return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+  const { propina_ids = [], method, emolumento_items = [] } = req.body as {
+    propina_ids: number[]; method?: string; emolumento_items?: any[];
+  };
+  if (!propina_ids?.length && !emolumento_items?.length)
+    return res.status(400).json({ error: "Selecione pelo menos uma propina ou emolumento." });
 
   // Validate that the requested payment method is enabled for this school
   const schoolLookup = await pool.query(
@@ -339,49 +347,77 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
       return res.status(403).json({ error: "Débito direto não está disponível nesta escola." });
   }
 
+  const schoolId = schoolLookup.rows[0]?.school_id ?? null;
+
   // Verify all propinas belong to guardian's students
-  const placeholders = propina_ids.map((_,i) => `$${i+2}`).join(",");
-  const checkRes = await pool.query(`
-    SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, p.status
-    FROM propinas p
-    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
-    WHERE ea.encarregado_id = $1 AND p.id IN (${placeholders}) AND p.status != 'pago'
-  `, [guardian.id, ...propina_ids]);
-
-  if (checkRes.rows.length !== propina_ids.length)
-    return res.status(403).json({ error: "Propinas inválidas ou já pagas." });
-
-  // Deterministic reference from sorted IDs
-  const sorted = [...propina_ids].sort((a,b) => a-b);
-  const seed = sorted.join("-");
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  let checkRows: any[] = [];
+  if (propina_ids.length) {
+    const placeholders = propina_ids.map((_,i) => `$${i+2}`).join(",");
+    const checkRes = await pool.query(`
+      SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, p.status
+      FROM propinas p
+      JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+      WHERE ea.encarregado_id = $1 AND p.id IN (${placeholders}) AND p.status != 'pago'
+    `, [guardian.id, ...propina_ids]);
+    if (checkRes.rows.length !== propina_ids.length)
+      return res.status(403).json({ error: "Propinas inválidas ou já pagas." });
+    checkRows = checkRes.rows;
   }
-  const refNum = String(Math.abs(hash) % 900000000 + 100000000);
+
+  // Validate emolumento_items against school's emolumentos
+  const validItems: any[] = [];
+  for (const item of emolumento_items) {
+    const { emolumento_id, student_id, descricao, montante, quantidade = 1 } = item;
+    if (!descricao || !montante) continue;
+    if (emolumento_id && schoolId !== null) {
+      const emCheck = await pool.query(
+        `SELECT id FROM emolumentos WHERE id=$1 AND (school_id=$2 OR school_id IS NULL)`,
+        [emolumento_id, schoolId]
+      );
+      if (!emCheck.rows.length) continue;
+    }
+    validItems.push({ emolumento_id: emolumento_id ?? null, student_id: student_id ?? null, descricao, montante: Number(montante), quantidade: Number(quantidade) || 1 });
+  }
+
+  // Reference number: deterministic from propina IDs, or random if only emolumentos
+  let refNum: string;
+  if (propina_ids.length) {
+    const sorted = [...propina_ids].sort((a,b) => a-b);
+    const seed = sorted.join("-");
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+    refNum = String(Math.abs(hash) % 900000000 + 100000000);
+  } else {
+    refNum = generateRef();
+  }
 
   const ENTIDADE = "00456";
-  const totalValor = checkRes.rows.reduce((s: number, r: any) => s + Number(r.montante) + Number(r.multa), 0);
+  const totalPropinas = checkRows.reduce((s: number, r: any) => s + Number(r.montante) + Number(r.multa), 0);
+  const totalEmolumentos = validItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
+  const totalValor = totalPropinas + totalEmolumentos;
 
-  // Validade = last day (23:59:59) of the LATEST month selected
-  const MES_NUM: Record<string, number> = {
-    'Janeiro':1,'Fevereiro':2,'Março':3,'Abril':4,'Maio':5,'Junho':6,
-    'Julho':7,'Agosto':8,'Setembro':9,'Outubro':10,'Novembro':11,'Dezembro':12
-  };
-  const latest = checkRes.rows.reduce((acc: any, r: any) => {
-    const rYear = parseInt(r.ano);
-    const rMonth = MES_NUM[r.mes] ?? 1;
-    if (!acc || rYear > acc.year || (rYear === acc.year && rMonth > acc.month)) {
-      return { year: rYear, month: rMonth };
-    }
-    return acc;
-  }, null);
-  const lastDay = new Date(latest.year, latest.month, 0); // day 0 = last day of previous month
-  lastDay.setHours(23, 59, 59, 0);
-  const validade = lastDay.toISOString();
+  // Validade: last day of latest month (propinas) or 30 days from now (emolumentos-only)
+  let validade: string;
+  if (checkRows.length) {
+    const MES_NUM: Record<string, number> = {
+      'Janeiro':1,'Fevereiro':2,'Março':3,'Abril':4,'Maio':5,'Junho':6,
+      'Julho':7,'Agosto':8,'Setembro':9,'Outubro':10,'Novembro':11,'Dezembro':12
+    };
+    const latest = checkRows.reduce((acc: any, r: any) => {
+      const rYear = parseInt(r.ano), rMonth = MES_NUM[r.mes] ?? 1;
+      if (!acc || rYear > acc.year || (rYear === acc.year && rMonth > acc.month)) return { year: rYear, month: rMonth };
+      return acc;
+    }, null);
+    const lastDay = new Date(latest.year, latest.month, 0);
+    lastDay.setHours(23, 59, 59, 0);
+    validade = lastDay.toISOString();
+  } else {
+    const d = new Date(); d.setDate(d.getDate() + 30);
+    validade = d.toISOString();
+  }
 
-  // Upsert pagamentos record for each propina with combined reference
-  for (const row of checkRes.rows) {
+  // Upsert pagamentos for each propina
+  for (const row of checkRows) {
     await pool.query(`
       INSERT INTO pagamentos (propina_id, entidade, referencia, valor, validade, estado)
       VALUES ($1, $2, $3, $4, $5, 'PENDENTE')
@@ -390,7 +426,18 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
     `, [row.id, ENTIDADE, refNum, totalValor, validade]);
   }
 
-  const propinaDetails = checkRes.rows.map((r: any) => ({
+  // Insert cobrancas for each emolumento item
+  const cobrancasCreated: any[] = [];
+  for (const item of validItems) {
+    const r = await pool.query(
+      `INSERT INTO cobrancas (school_id, student_id, emolumento_id, descricao, montante, quantidade, status, referencia, entidade, validade)
+       VALUES ($1,$2,$3,$4,$5,$6,'pendente',$7,$8,$9) RETURNING *`,
+      [String(schoolId), item.student_id, item.emolumento_id, item.descricao, item.montante, item.quantidade, refNum, ENTIDADE, validade]
+    );
+    cobrancasCreated.push(r.rows[0]);
+  }
+
+  const propinaDetails = checkRows.map((r: any) => ({
     id: r.id, mes: r.mes, ano: r.ano,
     valor_base: Number(r.montante),
     multa: Number(r.multa),
@@ -401,9 +448,36 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
     entidade: ENTIDADE,
     referencia: refNum,
     valor: totalValor,
+    total_base: totalPropinas,
+    total_emolumentos: totalEmolumentos,
     validade,
     propinas: propinaDetails,
+    cobrancas: cobrancasCreated,
   });
+});
+
+// GET /guardian/emolumentos — available non-propina emolumentos for the guardian's school
+router.get("/guardian/emolumentos", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const schoolLookup = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (!schoolLookup.rows.length) return res.json([]);
+  const sid = schoolLookup.rows[0].school_id;
+
+  const r = await pool.query(
+    `SELECT id, tipo, nome, montante, ano_lectivo
+     FROM emolumentos
+     WHERE (school_id = $1 OR school_id IS NULL) AND tipo != 'propina' AND activo = TRUE
+     ORDER BY tipo, nome`,
+    [sid]
+  );
+  return res.json(r.rows);
 });
 
 // POST /guardian/pagamentos/gpo-checkout — audit + EMIS GPO initiation
