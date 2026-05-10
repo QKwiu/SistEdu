@@ -7287,7 +7287,7 @@ export default function AdminDashboard() {
 
   const NAV = [
     { id: "stats" as const, label: "Visão Geral", icon: <LayoutDashboard className="w-5 h-5" /> },
-    { id: "colegios" as const, label: "Colégios", icon: <Building2 className="w-5 h-5" /> },
+    { id: "colegios" as const, label: "Instituições", icon: <Building2 className="w-5 h-5" /> },
     { id: "emolumentos_globais" as const, label: "Emolumentos Globais", icon: <Receipt className="w-5 h-5" /> },
     { id: "sms" as const, label: "SMS & Comunicação", icon: <Smartphone className="w-5 h-5" /> },
     { id: "gestao_acessos" as const, label: "Gestão de Acessos", icon: <Lock className="w-5 h-5" /> },
