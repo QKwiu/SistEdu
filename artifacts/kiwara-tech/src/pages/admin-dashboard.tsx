@@ -5154,7 +5154,7 @@ function BolsasAdminPanel({ schoolId }: { schoolId: number }) {
 }
 
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "propinas" | "pacotes" | "bolsas" | "iban" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "pacotes" | "bolsas" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -5186,9 +5186,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "emolumentos" as const, label: "Emolumentos", icon: <Receipt className="w-4 h-4" /> },
     ...(currentSchool.usa_pacotes ? [{ id: "pacotes" as const, label: "Pacotes", icon: <BadgePercent className="w-4 h-4" /> }] : []),
     { id: "bolsas" as const, label: "Bolsas", icon: <GraduationCap className="w-4 h-4" /> },
-    { id: "propinas" as const, label: "Propinas", icon: <CreditCard className="w-4 h-4" /> },
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
-    { id: "iban" as const, label: "IBAN", icon: <Landmark className="w-4 h-4" /> },
     { id: "debito_direto" as const, label: "Débito Direto", icon: <ArrowLeftRight className="w-4 h-4" />, badge: pendingDDCount > 0 ? pendingDDCount : undefined },
     { id: "comunicar" as const, label: "Comunicar", icon: <Megaphone className="w-4 h-4" /> },
     { id: "configuracoes" as const, label: "Configurações", icon: <SlidersHorizontal className="w-4 h-4" /> },
