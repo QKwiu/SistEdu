@@ -42,7 +42,7 @@ interface Stats {
   total_encarregados: number; total_turmas: number;
 }
 const INSTITUTION_TYPES = [
-  { value: "colegio_geral",    label: "Colégio / Escola de Ensino Geral",   portal: "encarregado" },
+  { value: "colegio_geral",    label: "Instituição de Ensino Geral",         portal: "encarregado" },
   { value: "centro_infantil",  label: "Centro Infantil / Creche",            portal: "encarregado" },
   { value: "centro_formacao",  label: "Centro de Formação",                  portal: "aluno"       },
   { value: "universidade",     label: "Universidade / Ensino Superior",      portal: "aluno"       },
@@ -151,7 +151,7 @@ function Badge({ text, color }: { text: string; color: "green" | "amber" | "red"
 function StatsView({ stats }: { stats: Stats | null }) {
   if (!stats) return <div className="flex items-center justify-center h-64"><RefreshCw className="w-6 h-6 animate-spin text-slate-300" /></div>;
   const cards = [
-    { icon: <Building2 className="w-6 h-6 text-blue-500" />, label: "Colégios", value: stats.total_colegios, bg: "bg-blue-50" },
+    { icon: <Building2 className="w-6 h-6 text-blue-500" />, label: "Instituições de Ensino", value: stats.total_colegios, bg: "bg-blue-50" },
     { icon: <Users className="w-6 h-6 text-violet-500" />, label: "Alunos", value: fmt(stats.total_alunos), bg: "bg-violet-50" },
     { icon: <GraduationCap className="w-6 h-6 text-emerald-500" />, label: "Turmas", value: fmt(stats.total_turmas), bg: "bg-emerald-50" },
     { icon: <Receipt className="w-6 h-6 text-amber-500" />, label: "Propinas Vencidas", value: fmt(stats.propinas_vencidas), bg: "bg-amber-50" },
@@ -256,7 +256,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
         body: JSON.stringify({ ...form, usa_pacotes: usaPacotes, settings, institution_type: institutionType, portal_nomenclatura: portalNomenclatura }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao criar colégio.");
+      if (!res.ok) throw new Error(data.error ?? "Erro ao criar instituição de ensino.");
       onCreated({ ...data, total_alunos: 0, total_turmas: 0, usa_pacotes: !!data.usa_pacotes, institution_type: data.institution_type, portal_nomenclatura: data.portal_nomenclatura });
     } catch (err: any) { setError(err.message); }
     finally { setSaving(false); }
@@ -297,7 +297,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
   );
 
   return (
-    <Modal title="Criar Colégio" onClose={onClose} xl>
+    <Modal title="Criar Instituição de Ensino" onClose={onClose} xl>
       <form onSubmit={submit} className="flex flex-col h-full">
         {/* Tab bar */}
         <div className="overflow-x-auto border-b border-slate-100 px-4 pt-3 shrink-0">
@@ -319,8 +319,8 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
           {/* ── BÁSICO ── */}
           {activeTab === "basico" && (
             <div className="space-y-4">
-              <Field label="Nome do colégio" required>
-                <input className={inp} placeholder="ex: Colégio Nossa Senhora de Fátima" value={form.name} onChange={f("name")} required />
+              <Field label="Nome da instituição de ensino" required>
+                <input className={inp} placeholder="ex: Instituto Nossa Senhora de Fátima" value={form.name} onChange={f("name")} required />
               </Field>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="NIF">
@@ -646,7 +646,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
               </button>
               <button type="submit" disabled={saving}
                 className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center gap-2">
-                {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A criar...</> : "Criar Colégio"}
+                {saving ? <><RefreshCw className="w-4 h-4 animate-spin" />A criar...</> : "Criar Instituição de Ensino"}
               </button>
             </div>
           </div>
@@ -1804,7 +1804,7 @@ function EmolumentosPanel({ schoolId, initial, multaRegra, onUpdated }: {
                 </div>
                 <p className="text-xs text-amber-700 -mt-2">
                   A multa é automaticamente adicionada à propina: <strong>Propina + Multa = Total pago pelo encarregado.</strong>
-                  Seleccione como a multa por atraso será calculada para este colégio.
+                  Seleccione como a multa por atraso será calculada para esta instituição de ensino.
                 </p>
 
                 {/* 3 model cards */}
@@ -2012,7 +2012,7 @@ function IBANPanel({ schoolId, currentIban, onUpdated }: { schoolId: number; cur
         Será exibido nas referências de pagamento e documentos oficiais.
       </p>
       <form onSubmit={submit} className="space-y-4">
-        <Field label="IBAN do colégio" required>
+        <Field label="IBAN da instituição de ensino" required>
           <div className="relative">
             <Landmark className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -2464,7 +2464,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
             <div className="py-14 text-center text-slate-400">
               <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-300"/>
               <p className="font-semibold">Sem multas em aberto</p>
-              <p className="text-sm mt-0.5">Nenhum aluno tem multas por regularizar neste colégio.</p>
+              <p className="text-sm mt-0.5">Nenhum aluno tem multas por regularizar nesta instituição de ensino.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -2528,7 +2528,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <Landmark className="w-4 h-4 text-blue-600"/>
-              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Receita do Colégio</p>
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Receita da Instituição de Ensino</p>
             </div>
             <p className="text-2xl font-bold text-blue-800">{fmtCur(stats.receita_escola)}</p>
             <p className="text-xs text-blue-600 mt-0.5">Após dedução de comissão</p>
@@ -2676,7 +2676,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
-                      <p className="text-blue-600 font-semibold uppercase mb-1">Colégio</p>
+                      <p className="text-blue-600 font-semibold uppercase mb-1">Instituição de Ensino</p>
                       <p className="text-blue-900 font-bold text-lg">{fmtCur(recResult.split?.escola ?? 0)}</p>
                     </div>
                     <div className="bg-violet-50 border border-violet-100 rounded-xl p-3">
@@ -2743,7 +2743,7 @@ function AlunosComMultasAdmin({ schoolId }: { schoolId: number }) {
     <div className="py-14 text-center text-slate-400">
       <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-300"/>
       <p className="font-semibold">Sem multas em aberto</p>
-      <p className="text-sm mt-0.5">Nenhum aluno tem multas por regularizar neste colégio.</p>
+      <p className="text-sm mt-0.5">Nenhum aluno tem multas por regularizar nesta instituição de ensino.</p>
     </div>
   );
 
@@ -3050,7 +3050,7 @@ function AlunoFichaSlideOver({
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-slate-400"/>
-                  Nenhum pacote ou emolumento configurado para este colégio.
+                  Nenhum pacote ou emolumento configurado para esta instituição de ensino.
                 </div>
               )}
             </div>
@@ -3453,8 +3453,8 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
           {errBasic && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0"/>{errBasic}</div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome do colégio *</label>
-              <input className={inp} value={basic.name} onChange={e => setBasic(p => ({ ...p, name: e.target.value }))} placeholder="Nome do colégio"/>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome da instituição de ensino *</label>
+              <input className={inp} value={basic.name} onChange={e => setBasic(p => ({ ...p, name: e.target.value }))} placeholder="Nome da instituição de ensino"/>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">NIF</label>
@@ -3531,7 +3531,7 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
             <Banknote className="w-4 h-4 text-primary"/>
             <div>
               <h3 className="font-semibold text-slate-800">Configuração Financeira</h3>
-              <p className="text-xs text-slate-400">Regras financeiras aplicadas a este colégio. Para configuração avançada vá a <strong>Configurações</strong>.</p>
+              <p className="text-xs text-slate-400">Regras financeiras aplicadas a esta instituição de ensino. Para configuração avançada vá a <strong>Configurações</strong>.</p>
             </div>
           </div>
           <SaveBtn saving={savingFin} saved={savedFin} onClick={saveFin}/>
@@ -3605,7 +3605,7 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
       {/* ── Redefinir palavra-passe ── */}
       <div className="bg-white border border-slate-100 rounded-2xl p-5">
         <h3 className="font-semibold text-slate-800 mb-1">Redefinir Palavra-passe</h3>
-        <p className="text-sm text-slate-500 mb-4">Define uma nova palavra-passe de acesso para este colégio.</p>
+        <p className="text-sm text-slate-500 mb-4">Define uma nova palavra-passe de acesso para esta instituição de ensino.</p>
         {errPass && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2 mb-3"><AlertCircle className="w-4 h-4 shrink-0"/>{errPass}</div>}
         <div className="flex gap-3 items-center">
           <div className="relative flex-1 max-w-xs">
@@ -4070,7 +4070,7 @@ function SettingsView({ schoolId }: { schoolId: number }) {
           </SettingRow>
           {T.manutencao_activa && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 text-sm text-amber-800 my-2">
-              <AlertTriangle className="w-4 h-4 shrink-0"/> Modo de manutenção activo — o colégio não consegue aceder à plataforma.
+              <AlertTriangle className="w-4 h-4 shrink-0"/> Modo de manutenção activo — a instituição de ensino não consegue aceder à plataforma.
             </div>
           )}
         </SectionCard>
@@ -5060,7 +5060,7 @@ function BolsasAdminPanel({ schoolId }: { schoolId: number }) {
         <GraduationCap className="w-5 h-5 text-primary"/>
         <div>
           <h3 className="font-semibold text-slate-900">Bolsas de Estudo</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Vista de leitura — gestão apenas no portal do colégio.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Vista de leitura — gestão apenas no portal da instituição de ensino.</p>
         </div>
       </div>
 
@@ -5087,7 +5087,7 @@ function BolsasAdminPanel({ schoolId }: { schoolId: number }) {
           <div>
             <h4 className="text-sm font-bold text-slate-700 mb-3">Tipologias ({tipos.length})</h4>
             {tipos.length === 0 ? (
-              <p className="text-xs text-slate-400 italic">Nenhuma tipologia configurada neste colégio.</p>
+              <p className="text-xs text-slate-400 italic">Nenhuma tipologia configurada nesta instituição de ensino.</p>
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
                 {tipos.map(t => (
@@ -5327,7 +5327,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
       {tab === "emolumentos" && (
         <div className="space-y-0">
           <div className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-6">
-            <h3 className="font-semibold text-slate-900 mb-1">Emolumentos do colégio</h3>
+            <h3 className="font-semibold text-slate-900 mb-1">Emolumentos da instituição de ensino</h3>
             <p className="text-sm text-slate-500 mb-5">Defina os tipos e valores de propinas, matrículas e outros encargos.</p>
             <EmolumentosPanel
               schoolId={currentSchool.id}
@@ -5340,7 +5340,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
       )}
       {tab === "propinas" && (
         <div className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-6">
-          <h3 className="font-semibold text-slate-900 mb-1">Propinas do colégio</h3>
+          <h3 className="font-semibold text-slate-900 mb-1">Propinas da instituição de ensino</h3>
           <p className="text-sm text-slate-500 mb-5">
             Consulte e ajuste propinas de todos os alunos. Use as acções (⋯) para perdão, ajuste de valor, reagendamento ou registo de justificação.
           </p>
@@ -5354,7 +5354,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
             <h3 className="font-semibold text-slate-900">Reconciliação Financeira</h3>
           </div>
           <p className="text-sm text-slate-500 mb-6">
-            Consulte referências internas, reconcilie pagamentos recebidos e acompanhe a distribuição de receitas entre colégio e plataforma.
+            Consulte referências internas, reconcilie pagamentos recebidos e acompanhe a distribuição de receitas entre a instituição de ensino e a plataforma.
           </p>
           <ReconciliacaoAdminPanel schoolId={currentSchool.id} commissionRate={currentSchool.commission_rate} />
         </div>
@@ -5437,10 +5437,10 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
-        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Colégios ({colegios.length})</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Instituições de Ensino ({colegios.length})</h2>
         <button onClick={() => setShowModal(true)}
           className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors w-full sm:w-auto justify-center">
-          <Plus className="w-4 h-4" /> Criar Colégio
+          <Plus className="w-4 h-4" /> Criar Instituição de Ensino
         </button>
       </div>
 
@@ -5459,12 +5459,12 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
         <div className="text-center py-16">
           <Building2 className="w-12 h-12 text-slate-200 mx-auto mb-3" />
           <p className="text-slate-500 font-semibold">
-            {search ? "Nenhum colégio encontrado" : "Nenhum colégio registado"}
+            {search ? "Nenhuma instituição de ensino encontrada" : "Nenhuma instituição de ensino registada"}
           </p>
           {!search && (
             <button onClick={() => setShowModal(true)}
               className="mt-4 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold mx-auto hover:bg-primary/90 transition-colors">
-              <Plus className="w-4 h-4" /> Criar primeiro colégio
+              <Plus className="w-4 h-4" /> Criar primeira Instituição de Ensino
             </button>
           )}
         </div>
@@ -5643,7 +5643,7 @@ function GlobalEmolumentosAdminView() {
             <Receipt className="w-5 h-5 text-primary"/> Emolumentos Globais
           </h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            Tabela de referência visível por todas as instituições (apenas leitura para os colégios)
+            Tabela de referência visível por todas as instituições (apenas leitura para as instituições de ensino)
           </p>
         </div>
         <button onClick={() => { setShowForm(s => !s); setFormErr(""); }}
@@ -5656,7 +5656,7 @@ function GlobalEmolumentosAdminView() {
         <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/>
         <p className="text-xs text-amber-800">
           <strong>Emolumentos Globais</strong> são templates de referência criados pela administração central.
-          Ficam visíveis no portal de cada instituição como «leitura apenas» — cada colégio pode adicionar os seus próprios localmente.
+          Ficam visíveis no portal de cada instituição como «leitura apenas» — cada instituição de ensino pode adicionar os seus próprios localmente.
         </p>
       </div>
 
@@ -5768,7 +5768,7 @@ function GlobalEmolumentosAdminView() {
           <Receipt className="w-10 h-10 opacity-30"/>
           <div className="text-center">
             <p className="text-sm font-medium text-slate-500">Nenhum emolumento global configurado</p>
-            <p className="text-xs text-slate-400 mt-1">Adicione templates de referência visíveis por todos os colégios</p>
+            <p className="text-xs text-slate-400 mt-1">Adicione templates de referência visíveis por todas as instituições de ensino</p>
           </div>
         </div>
       ) : (
@@ -6003,7 +6003,7 @@ function AdminSMSView() {
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Smartphone className="w-6 h-6 text-primary"/> Gestão Global de SMS
           </h2>
-          <p className="text-sm text-slate-500 mt-0.5">Configure o provedor, monitorize envios e comunique com todos os colégios.</p>
+          <p className="text-sm text-slate-500 mt-0.5">Configure o provedor, monitorize envios e comunique com todas as instituições de ensino.</p>
         </div>
         {logsStats && (
           <div className="flex gap-3">
@@ -6037,7 +6037,7 @@ function AdminSMSView() {
       {activeTab === "provider" && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
           <h3 className="font-semibold text-slate-900">Configuração Global do Provedor SMS</h3>
-          <p className="text-sm text-slate-500">Esta configuração é usada como padrão. Cada colégio pode sobrepor com as suas próprias credenciais.</p>
+          <p className="text-sm text-slate-500">Esta configuração é usada como padrão. Cada instituição de ensino pode sobrepor com as suas próprias credenciais.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Provedor</label>
@@ -6084,8 +6084,8 @@ function AdminSMSView() {
             <MessageSquare className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0"/>
             <div className="text-sm text-blue-800">
               <p className="font-semibold mb-1">Templates globais da plataforma</p>
-              <p>Estes templates são usados como padrão para todos os colégios. Cada colégio pode personalizar os seus próprios templates nas configurações de Comunicação, que têm prioridade sobre estes.</p>
-              <p className="mt-1 text-blue-600">Ordem de prioridade: <strong>Template do colégio</strong> → Template global (este) → Padrão do sistema</p>
+              <p>Estes templates são usados como padrão para todas as instituições de ensino. Cada instituição de ensino pode personalizar os seus próprios templates nas configurações de Comunicação, que têm prioridade sobre estes.</p>
+              <p className="mt-1 text-blue-600">Ordem de prioridade: <strong>Template da instituição de ensino</strong> → Template global (este) → Padrão do sistema</p>
             </div>
           </div>
 
@@ -6212,7 +6212,7 @@ function AdminSMSView() {
                 )}
               </div>
               {bulkTemplate && (
-                <p className="text-xs text-slate-400">Template carregado — pode editar o texto abaixo antes de enviar. As variáveis {"{..."} serão substituídas automaticamente por cada colégio.</p>
+                <p className="text-xs text-slate-400">Template carregado — pode editar o texto abaixo antes de enviar. As variáveis {"{..."} serão substituídas automaticamente por cada instituição de ensino.</p>
               )}
             </div>
 
@@ -6223,10 +6223,10 @@ function AdminSMSView() {
 
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Colégios Destinatários</h3>
+              <h3 className="font-semibold text-slate-900">Instituições de Ensino Destinatárias</h3>
               <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
                 <input type="checkbox" checked={sendTodos} onChange={e => { setSendTodos(e.target.checked); setSelectedSchools([]); }} className="rounded"/>
-                Todos os colégios
+                Todas as Instituições de Ensino
               </label>
             </div>
             {!sendTodos && (
@@ -6256,7 +6256,7 @@ function AdminSMSView() {
             <button onClick={handleBulkSend} disabled={sending || !bulkMsg.trim() || (!sendTodos && !selectedSchools.length)}
               className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
               {sending ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
-              {sending ? "A enviar..." : sendTodos ? "Enviar para todos os colégios" : `Enviar para ${selectedSchools.length} colégio(s)`}
+              {sending ? "A enviar..." : sendTodos ? "Enviar para todas as instituições de ensino" : `Enviar para ${selectedSchools.length} instituição(ões) de ensino`}
             </button>
           </div>
         </div>
@@ -6304,7 +6304,7 @@ function AdminSMSView() {
                       <div className="mt-0.5">{statusBadge(log.status)}</div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-xs font-semibold text-slate-700">{log.school_name ?? `Colégio #${log.school_id}`}</span>
+                          <span className="text-xs font-semibold text-slate-700">{log.school_name ?? `Instituição de Ensino #${log.school_id}`}</span>
                           <span className="text-xs text-slate-500">{log.telefone}</span>
                           {log.evento && <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{ADMIN_SMS_EVENTS.find(e => e.key === log.evento)?.label ?? log.evento}</span>}
                         </div>
@@ -6336,7 +6336,7 @@ function AdminSMSView() {
           {/* Top schools mini chart */}
           {logsStats?.top_schools?.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-              <h3 className="font-semibold text-slate-900 text-sm">Top Colégios (por SMS enviados)</h3>
+              <h3 className="font-semibold text-slate-900 text-sm">Top Instituições de Ensino (por SMS enviados)</h3>
               {logsStats.top_schools.map((s: any, i: number) => (
                 <div key={i} className="flex items-center gap-3">
                   <span className="text-xs text-slate-500 w-4 text-right">{i + 1}</span>
@@ -6709,7 +6709,7 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
                     </select>
                     {roles.length === 0 && (
                       <p className="mt-1.5 text-xs text-amber-600 flex items-center gap-1">
-                        <span>⚠</span> Ainda não existem perfis para este colégio. Crie primeiro no separador <strong>Perfis (RBAC)</strong>.
+                        <span>⚠</span> Ainda não existem perfis para esta instituição de ensino. Crie primeiro no separador <strong>Perfis (RBAC)</strong>.
                       </p>
                     )}
                   </div>
@@ -7167,7 +7167,7 @@ function AdminRBACView() {
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <Lock className="w-5 h-5 text-indigo-600"/> Gestão de Acessos Institucionais
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">Administração central de perfis e utilizadores de staff por colégio</p>
+            <p className="text-xs text-slate-400 mt-0.5">Administração central de perfis e utilizadores de staff por instituição de ensino</p>
           </div>
         </div>
 
@@ -7363,7 +7363,7 @@ export default function AdminDashboard() {
         {stats && (
           <div className="px-4 py-3 border-t border-white/10 space-y-2">
             <div className="flex justify-between text-xs text-slate-500">
-              <span>Colégios</span>
+              <span>Instituições</span>
               <span className="text-slate-300 font-semibold">{stats.total_colegios}</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500">
@@ -7446,7 +7446,7 @@ export default function AdminDashboard() {
               {stats && (
                 <div className="px-4 py-3 border-t border-white/10 space-y-2">
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span>Colégios</span>
+                    <span>Instituições</span>
                     <span className="text-slate-300 font-semibold">{stats.total_colegios}</span>
                   </div>
                   <div className="flex justify-between text-xs text-slate-500">
