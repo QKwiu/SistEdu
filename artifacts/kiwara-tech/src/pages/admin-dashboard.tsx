@@ -148,29 +148,39 @@ function Badge({ text, color }: { text: string; color: "green" | "amber" | "red"
 }
 
 /* ─── Stats Overview ─── */
-function StatsView({ stats }: { stats: Stats | null }) {
+function StatsView({ stats, onNavigate }: { stats: Stats | null; onNavigate: (view: AdminView) => void }) {
   if (!stats) return <div className="flex items-center justify-center h-64"><RefreshCw className="w-6 h-6 animate-spin text-slate-300" /></div>;
-  const cards = [
-    { icon: <Building2 className="w-6 h-6 text-blue-500" />, label: "Instituições de Ensino", value: stats.total_colegios, bg: "bg-blue-50" },
-    { icon: <Users className="w-6 h-6 text-violet-500" />, label: "Alunos", value: fmt(stats.total_alunos), bg: "bg-violet-50" },
-    { icon: <GraduationCap className="w-6 h-6 text-emerald-500" />, label: "Turmas", value: fmt(stats.total_turmas), bg: "bg-emerald-50" },
-    { icon: <Receipt className="w-6 h-6 text-amber-500" />, label: "Propinas Vencidas", value: fmt(stats.propinas_vencidas), bg: "bg-amber-50" },
-    { icon: <CheckCircle2 className="w-6 h-6 text-emerald-500" />, label: "Propinas Pagas", value: fmt(stats.propinas_pagas), bg: "bg-emerald-50" },
-    { icon: <Banknote className="w-6 h-6 text-red-500" />, label: "Dívida Total", value: fmtCur(stats.divida_total), bg: "bg-red-50" },
-    { icon: <Users className="w-6 h-6 text-indigo-500" />, label: "Encarregados", value: fmt(stats.total_encarregados), bg: "bg-indigo-50" },
-    { icon: <TrendingUp className="w-6 h-6 text-primary" />, label: "Total Propinas", value: fmt(stats.total_propinas), bg: "bg-primary/8" },
+  const cards: { icon: React.ReactNode; label: string; value: string | number; bg: string; dest: AdminView; hint: string }[] = [
+    { icon: <Building2 className="w-6 h-6 text-blue-500" />, label: "Instituições de Ensino", value: stats.total_colegios, bg: "bg-blue-50", dest: "colegios", hint: "Gerir instituições" },
+    { icon: <Users className="w-6 h-6 text-violet-500" />, label: "Alunos", value: fmt(stats.total_alunos), bg: "bg-violet-50", dest: "colegios", hint: "Ver por instituição" },
+    { icon: <GraduationCap className="w-6 h-6 text-emerald-500" />, label: "Turmas", value: fmt(stats.total_turmas), bg: "bg-emerald-50", dest: "colegios", hint: "Ver por instituição" },
+    { icon: <Receipt className="w-6 h-6 text-amber-500" />, label: "Propinas Vencidas", value: fmt(stats.propinas_vencidas), bg: "bg-amber-50", dest: "colegios", hint: "Ver inadimplência" },
+    { icon: <CheckCircle2 className="w-6 h-6 text-emerald-500" />, label: "Propinas Pagas", value: fmt(stats.propinas_pagas), bg: "bg-emerald-50", dest: "colegios", hint: "Ver recebimentos" },
+    { icon: <Banknote className="w-6 h-6 text-red-500" />, label: "Dívida Total", value: fmtCur(stats.divida_total), bg: "bg-red-50", dest: "colegios", hint: "Ver reconciliação" },
+    { icon: <Users className="w-6 h-6 text-indigo-500" />, label: "Encarregados", value: fmt(stats.total_encarregados), bg: "bg-indigo-50", dest: "gestao_acessos", hint: "Ver utilizadores" },
+    { icon: <TrendingUp className="w-6 h-6 text-primary" />, label: "Total Propinas", value: fmt(stats.total_propinas), bg: "bg-primary/8", dest: "colegios", hint: "Ver relatório" },
   ];
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-5">Visão Geral da Plataforma</h2>
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         {cards.map((c, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-            className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-5 shadow-sm">
+          <motion.button key={i} onClick={() => onNavigate(c.dest)}
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+            className="group bg-white border border-slate-100 rounded-2xl p-4 sm:p-5 shadow-sm text-left w-full
+              hover:border-primary/30 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0
+              transition-all duration-200 cursor-pointer relative overflow-hidden">
+            {/* subtle hover tint */}
+            <div className="absolute inset-0 bg-primary/[0.02] opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl pointer-events-none" />
             <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${c.bg} flex items-center justify-center mb-3`}>{c.icon}</div>
             <div className="text-xl sm:text-2xl font-bold text-slate-900">{c.value}</div>
             <div className="text-xs text-slate-500 mt-0.5">{c.label}</div>
-          </motion.div>
+            {/* footer hint */}
+            <div className="flex items-center gap-0.5 mt-3 pt-2.5 border-t border-slate-100">
+              <span className="text-[10px] text-slate-400 group-hover:text-primary transition-colors">{c.hint}</span>
+              <ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-primary group-hover:translate-x-0.5 transition-all ml-auto shrink-0" />
+            </div>
+          </motion.button>
         ))}
       </div>
     </div>
@@ -7484,7 +7494,7 @@ export default function AdminDashboard() {
           ) : null
         ) : (
           <>
-            {view === "stats" && <StatsView stats={stats} />}
+            {view === "stats" && <StatsView stats={stats} onNavigate={navigate} />}
             {view === "colegios" && (
               <ColegiosView onSelect={id => { setSelectedSchoolId(id); setView("colegios"); }} />
             )}
