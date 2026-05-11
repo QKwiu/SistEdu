@@ -52,7 +52,17 @@ interface Propina {
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
 interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes";
+
+/* ─── Evaluation Interfaces ─── */
+interface EvaluationTipo { id: number; nome: string; cor: string; descricao?: string; }
+interface Evaluation {
+  id: number; tipo_id?: number; tipo_nome?: string; tipo_cor?: string; tipo_label?: string;
+  disciplina: string; turma_id?: number; turma_nome?: string; turma_nome_ref?: string;
+  professor: string; data_inicio: string; data_fim: string;
+  sala?: string; estado: string; notas?: string;
+}
+interface EvalNotifConfig { horas_antecedencia: number; notificar_sms: boolean; notificar_portal: boolean; }
 
 interface RecPropina {
   id: number; student_id: number; aluno_nome: string; turma: string;
@@ -6652,6 +6662,541 @@ function EmolumentosView({ token }: { token: string }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   MÓDULO: CALENDÁRIO DE AVALIAÇÕES
+   ══════════════════════════════════════════════════════════ */
+function AvaliacoesView({ token, turmas }: { token: string; turmas: Turma[] }) {
+  type AvTab = "calendario" | "tipologias" | "notificacoes" | "auditoria";
+  const DIAS = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const ESTADO_CLS: Record<string, string> = {
+    rascunho: "bg-amber-100 text-amber-700 border-amber-200",
+    publicado: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    cancelado: "bg-slate-100 text-slate-500 border-slate-200",
+  };
+
+  const [avTab, setAvTab] = useState<AvTab>("calendario");
+  const [avaliacoes, setAvaliacoes] = useState<Evaluation[]>([]);
+  const [tipos, setTipos] = useState<EvaluationTipo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [showForm, setShowForm] = useState(false);
+  const [editEval, setEditEval] = useState<Evaluation | null>(null);
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState("");
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [form, setForm] = useState({ tipo_id: "", disciplina: "", turma_id: "", professor: "", data_inicio: "", data_fim: "", sala: "", notas: "" });
+  const [tipoForm, setTipoForm] = useState({ nome: "", cor: "#3B82F6", descricao: "" });
+  const [savingTipo, setSavingTipo] = useState(false);
+  const [showTipoForm, setShowTipoForm] = useState(false);
+  const [notifConfig, setNotifConfig] = useState<EvalNotifConfig>({ horas_antecedencia: 48, notificar_sms: false, notificar_portal: true });
+  const [savingNotif, setSavingNotif] = useState(false);
+  const [savedNotif, setSavedNotif] = useState(false);
+  const [auditoria, setAuditoria] = useState<any[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const api = (path: string, opts?: RequestInit) =>
+    fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, ...opts });
+
+  const loadAvaliacoes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api(`/school/avaliacoes?mes=${month}&ano=${year}`);
+      if (r.ok) setAvaliacoes(await r.json());
+    } finally { setLoading(false); }
+  }, [month, year]);
+
+  const loadTipos = useCallback(async () => {
+    const r = await api("/school/avaliacoes/tipos");
+    if (r.ok) setTipos(await r.json());
+  }, []);
+
+  const loadNotifConfig = useCallback(async () => {
+    const r = await api("/school/avaliacoes/config-notificacoes");
+    if (r.ok) setNotifConfig(await r.json());
+  }, []);
+
+  const loadAuditoria = useCallback(async () => {
+    setLoadingAudit(true);
+    const r = await api("/school/avaliacoes/auditoria");
+    if (r.ok) setAuditoria(await r.json());
+    setLoadingAudit(false);
+  }, []);
+
+  useEffect(() => { loadAvaliacoes(); }, [month, year]);
+  useEffect(() => { loadTipos(); loadNotifConfig(); }, []);
+
+  const evalsByDay = useMemo(() => {
+    const map: Record<number, Evaluation[]> = {};
+    avaliacoes.forEach(ev => {
+      const d = new Date(ev.data_inicio).getDate();
+      if (!map[d]) map[d] = [];
+      map[d].push(ev);
+    });
+    return map;
+  }, [avaliacoes]);
+
+  const openCreate = () => {
+    setEditEval(null);
+    const now = new Date(); now.setMinutes(0);
+    const end = new Date(now); end.setHours(now.getHours() + 2);
+    const fmt = (d: Date) => d.toISOString().slice(0,16);
+    setForm({ tipo_id: "", disciplina: "", turma_id: "", professor: "", data_inicio: fmt(now), data_fim: fmt(end), sala: "", notas: "" });
+    setConflicts([]); setFormErr(""); setShowForm(true);
+  };
+
+  const openEdit = (ev: Evaluation) => {
+    setEditEval(ev);
+    setForm({
+      tipo_id: ev.tipo_id?.toString() || "",
+      disciplina: ev.disciplina,
+      turma_id: ev.turma_id?.toString() || "",
+      professor: ev.professor,
+      data_inicio: new Date(ev.data_inicio).toISOString().slice(0,16),
+      data_fim: new Date(ev.data_fim).toISOString().slice(0,16),
+      sala: ev.sala || "",
+      notas: ev.notas || "",
+    });
+    setConflicts([]); setFormErr(""); setShowForm(true);
+  };
+
+  const handleSave = async (force = false) => {
+    if (!form.disciplina || !form.professor || !form.data_inicio || !form.data_fim)
+      return setFormErr("Disciplina, professor, data início e fim são obrigatórios.");
+    setSaving(true); setFormErr("");
+    const turma = turmas.find(t => t.id.toString() === form.turma_id);
+    const body = JSON.stringify({
+      tipo_id: form.tipo_id ? Number(form.tipo_id) : null,
+      disciplina: form.disciplina, turma_id: form.turma_id ? Number(form.turma_id) : null,
+      turma_nome: turma?.nome || null, professor: form.professor,
+      data_inicio: new Date(form.data_inicio).toISOString(),
+      data_fim: new Date(form.data_fim).toISOString(),
+      sala: form.sala || null, notas: form.notas || null, force,
+    });
+    const url = editEval ? `/school/avaliacoes/${editEval.id}` : "/school/avaliacoes";
+    const method = editEval ? "PUT" : "POST";
+    try {
+      const r = await api(url, { method, body });
+      const d = await r.json();
+      if (r.status === 409) { setConflicts(d.conflicts || []); setSaving(false); return; }
+      if (!r.ok) { setFormErr(d.error || "Erro ao guardar."); setSaving(false); return; }
+      setShowForm(false); setConflicts([]); loadAvaliacoes();
+    } catch { setFormErr("Erro de rede."); }
+    setSaving(false);
+  };
+
+  const handlePublish = async (id: number, estado: string) => {
+    await api(`/school/avaliacoes/${id}/publicar`, { method: "POST", body: JSON.stringify({ estado }) });
+    loadAvaliacoes();
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Eliminar esta avaliação?")) return;
+    setDeleting(id);
+    await api(`/school/avaliacoes/${id}`, { method: "DELETE" });
+    setDeleting(null); loadAvaliacoes();
+  };
+
+  const handleExportCSV = async () => {
+    const r = await fetch(`${API}/school/avaliacoes/export/csv`, { headers: { Authorization: `Bearer ${token}` } });
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "calendario_avaliacoes.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSaveTipo = async () => {
+    if (!tipoForm.nome.trim()) return;
+    setSavingTipo(true);
+    const r = await api("/school/avaliacoes/tipos", { method: "POST", body: JSON.stringify(tipoForm) });
+    if (r.ok) { loadTipos(); setTipoForm({ nome: "", cor: "#3B82F6", descricao: "" }); setShowTipoForm(false); }
+    setSavingTipo(false);
+  };
+
+  const handleDeleteTipo = async (id: number) => {
+    if (!confirm("Eliminar este tipo de avaliação?")) return;
+    await api(`/school/avaliacoes/tipos/${id}`, { method: "DELETE" });
+    loadTipos();
+  };
+
+  const handleSaveNotif = async () => {
+    setSavingNotif(true);
+    const r = await api("/school/avaliacoes/config-notificacoes", { method: "PUT", body: JSON.stringify(notifConfig) });
+    if (r.ok) { setSavedNotif(true); setTimeout(() => setSavedNotif(false), 2000); }
+    setSavingNotif(false);
+  };
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDow = new Date(year, month - 1, 1).getDay();
+  const fmtDT = (s: string) => new Date(s).toLocaleString("pt-AO", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" });
+  const fmtTime = (s: string) => new Date(s).toLocaleTimeString("pt-AO", { hour:"2-digit", minute:"2-digit" });
+
+  const inp = "w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
+  const sel = "w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+  const dayEvals = selectedDay ? (evalsByDay[selectedDay] || []) : [];
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Calendário de Avaliações</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Gestão de provas, exames e calendário académico</p>
+        </div>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button onClick={handleExportCSV} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+            <Download className="w-4 h-4"/> Exportar CSV
+          </button>
+          <button onClick={openCreate} className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+            <Plus className="w-4 h-4"/> Nova Avaliação
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit mb-6 flex-wrap">
+        {(["calendario","tipologias","notificacoes","auditoria"] as AvTab[]).map(t => (
+          <button key={t} onClick={() => { setAvTab(t); if (t==="auditoria") loadAuditoria(); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${avTab===t?"bg-white shadow text-slate-900":"text-slate-500 hover:text-slate-700"}`}>
+            {t==="calendario"?"Calendário":t==="tipologias"?"Tipologias":t==="notificacoes"?"Notificações":"Auditoria"}
+          </button>
+        ))}
+      </div>
+
+      {/* ══ TAB: CALENDÁRIO ══ */}
+      {avTab === "calendario" && (
+        <div className="space-y-4">
+          {/* Month nav + view toggle */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <button onClick={() => { if (month===1) { setMonth(12); setYear(y=>y-1); } else setMonth(m=>m-1); }}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <ChevronLeft className="w-4 h-4 text-slate-600"/>
+              </button>
+              <span className="font-semibold text-slate-900 min-w-[140px] text-center">{MESES_PT[month-1]} {year}</span>
+              <button onClick={() => { if (month===12) { setMonth(1); setYear(y=>y+1); } else setMonth(m=>m+1); }}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                <ChevronRight className="w-4 h-4 text-slate-600"/>
+              </button>
+            </div>
+            <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+              {(["list","grid"] as const).map(m => (
+                <button key={m} onClick={() => setViewMode(m)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${viewMode===m?"bg-white shadow text-slate-900":"text-slate-500"}`}>
+                  {m==="list"?"Lista":"Grade"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-16"><RefreshCw className="w-6 h-6 animate-spin text-slate-300"/></div>
+          ) : viewMode === "grid" ? (
+            /* Calendar Grid */
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="grid grid-cols-7 border-b border-slate-100">
+                {DIAS.map(d => <div key={d} className="py-2 text-center text-xs font-semibold text-slate-400">{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7">
+                {Array.from({ length: firstDow }).map((_, i) => <div key={`e${i}`} className="min-h-[80px] border-b border-r border-slate-50"/>)}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const isToday = day===new Date().getDate() && month===new Date().getMonth()+1 && year===new Date().getFullYear();
+                  const dayEvs = evalsByDay[day] || [];
+                  return (
+                    <div key={day} onClick={() => setSelectedDay(selectedDay===day ? null : day)}
+                      className={`min-h-[80px] border-b border-r border-slate-50 p-1 cursor-pointer hover:bg-slate-50 transition-colors ${selectedDay===day?"bg-primary/5":""}`}>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold mb-1 ${isToday?"bg-primary text-white":"text-slate-700"}`}>{day}</div>
+                      <div className="space-y-0.5">
+                        {dayEvs.slice(0,2).map(ev => (
+                          <div key={ev.id} className="text-[10px] rounded px-1 truncate text-white"
+                            style={{ backgroundColor: ev.tipo_cor || "#6366f1" }}>
+                            {ev.disciplina}
+                          </div>
+                        ))}
+                        {dayEvs.length > 2 && <div className="text-[10px] text-slate-400">+{dayEvs.length-2}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Selected day detail */}
+              {selectedDay && dayEvals.length > 0 && (
+                <div className="border-t border-slate-100 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-slate-700">Avaliações — dia {selectedDay}</p>
+                  {dayEvals.map(ev => <EvalCard key={ev.id} ev={ev} onEdit={openEdit} onDelete={handleDelete} onPublish={handlePublish} deleting={deleting} ESTADO_CLS={ESTADO_CLS} fmtDT={fmtDT} fmtTime={fmtTime}/>)}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* List View */
+            <div className="space-y-3">
+              {avaliacoes.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                  <CalendarDays className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+                  <p className="font-semibold text-slate-500">Sem avaliações este mês</p>
+                  <p className="text-sm text-slate-400 mt-1">Clique em "Nova Avaliação" para adicionar.</p>
+                </div>
+              ) : avaliacoes.map(ev => (
+                <EvalCard key={ev.id} ev={ev} onEdit={openEdit} onDelete={handleDelete} onPublish={handlePublish} deleting={deleting} ESTADO_CLS={ESTADO_CLS} fmtDT={fmtDT} fmtTime={fmtTime}/>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ TAB: TIPOLOGIAS ══ */}
+      {avTab === "tipologias" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-500">Defina os tipos de avaliação usados nesta instituição.</p>
+            <button onClick={() => setShowTipoForm(s => !s)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+              <Plus className="w-4 h-4"/> {showTipoForm ? "Cancelar" : "Novo tipo"}
+            </button>
+          </div>
+          <AnimatePresence>
+            {showTipoForm && (
+              <motion.div initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:"auto" }} exit={{ opacity:0, height:0 }} className="overflow-hidden">
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div><label className="text-xs font-medium text-slate-500 mb-1 block">Nome *</label>
+                      <input className={inp} value={tipoForm.nome} onChange={e=>setTipoForm(f=>({...f,nome:e.target.value}))} placeholder="ex: Prova Trimestral"/>
+                    </div>
+                    <div><label className="text-xs font-medium text-slate-500 mb-1 block">Cor</label>
+                      <input type="color" className="w-full h-9 rounded-xl border border-slate-200 px-1 cursor-pointer" value={tipoForm.cor} onChange={e=>setTipoForm(f=>({...f,cor:e.target.value}))}/>
+                    </div>
+                    <div><label className="text-xs font-medium text-slate-500 mb-1 block">Descrição</label>
+                      <input className={inp} value={tipoForm.descricao} onChange={e=>setTipoForm(f=>({...f,descricao:e.target.value}))} placeholder="Opcional"/>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button onClick={handleSaveTipo} disabled={savingTipo||!tipoForm.nome.trim()}
+                      className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                      {savingTipo?"A guardar...":"Guardar tipo"}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <div className="space-y-2">
+            {tipos.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400">
+                <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-30"/>
+                <p className="text-sm">Nenhum tipo configurado. Crie o primeiro tipo acima.</p>
+              </div>
+            ) : tipos.map(t => (
+              <div key={t.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: t.cor }}/>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 text-sm">{t.nome}</p>
+                  {t.descricao && <p className="text-xs text-slate-400 truncate">{t.descricao}</p>}
+                </div>
+                <button onClick={() => handleDeleteTipo(t.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                  <Trash2 className="w-4 h-4"/>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══ TAB: NOTIFICAÇÕES ══ */}
+      {avTab === "notificacoes" && (
+        <div className="max-w-lg space-y-5">
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5"/>
+            <p className="text-xs text-blue-700">Configure o período de antecedência com que os encarregados são notificados antes de cada avaliação publicada.</p>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+            <div>
+              <label className="text-sm font-semibold text-slate-700 block mb-1">Horas de antecedência</label>
+              <p className="text-xs text-slate-400 mb-2">Notificar encarregados X horas antes da avaliação.</p>
+              <input type="number" min={1} max={720} className={inp} style={{width:120}}
+                value={notifConfig.horas_antecedencia} onChange={e=>setNotifConfig(c=>({...c,horas_antecedencia:Number(e.target.value)}))}/>
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-slate-100">
+              <div><p className="text-sm font-medium text-slate-700">Notificar via portal</p>
+                <p className="text-xs text-slate-400">Mostrar alerta no portal do encarregado</p></div>
+              <button onClick={()=>setNotifConfig(c=>({...c,notificar_portal:!c.notificar_portal}))}
+                className={`w-11 h-6 rounded-full transition-colors ${notifConfig.notificar_portal?"bg-primary":"bg-slate-200"} relative`}>
+                <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${notifConfig.notificar_portal?"left-6":"left-1"}`}/>
+              </button>
+            </div>
+            <div className="flex items-center justify-between py-2 border-t border-slate-100">
+              <div><p className="text-sm font-medium text-slate-700">Notificar via SMS</p>
+                <p className="text-xs text-slate-400">Enviar SMS de lembrete ao encarregado</p></div>
+              <button onClick={()=>setNotifConfig(c=>({...c,notificar_sms:!c.notificar_sms}))}
+                className={`w-11 h-6 rounded-full transition-colors ${notifConfig.notificar_sms?"bg-primary":"bg-slate-200"} relative`}>
+                <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${notifConfig.notificar_sms?"left-6":"left-1"}`}/>
+              </button>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button onClick={handleSaveNotif} disabled={savingNotif}
+                className="flex items-center gap-2 px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+                {savingNotif ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedNotif ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                {savedNotif ? "Guardado!" : "Guardar configuração"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ TAB: AUDITORIA ══ */}
+      {avTab === "auditoria" && (
+        <div className="space-y-3">
+          {loadingAudit ? (
+            <div className="flex items-center justify-center py-16"><RefreshCw className="w-6 h-6 animate-spin text-slate-300"/></div>
+          ) : auditoria.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">
+              <History className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+              <p className="text-sm">Sem registos de auditoria.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100">
+              {auditoria.map((log, i) => {
+                const acaoCls = log.acao==="criado"?"text-emerald-600":log.acao==="eliminado"?"text-red-600":log.acao==="publicado"?"text-blue-600":"text-amber-600";
+                return (
+                  <div key={i} className="px-5 py-3 flex items-start gap-4">
+                    <div className="mt-0.5 shrink-0">
+                      <span className={`text-xs font-semibold uppercase ${acaoCls}`}>{log.acao}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-800 font-medium">{log.disciplina || `Avaliação #${log.evaluation_id}`}</p>
+                      {log.turma_nome && <p className="text-xs text-slate-400">{log.turma_nome}</p>}
+                    </div>
+                    <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+                      {new Date(log.created_at).toLocaleString("pt-AO",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ MODAL: CRIAR / EDITAR AVALIAÇÃO ══ */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{ scale:0.95, y:20 }} animate={{ scale:1, y:0 }} exit={{ scale:0.95, y:20 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900">{editEval ? "Editar Avaliação" : "Nova Avaliação"}</h3>
+                <button onClick={() => setShowForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
+              </div>
+              <div className="p-5 space-y-4">
+                {formErr && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm">{formErr}</div>}
+                {conflicts.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                    <p className="text-sm font-semibold text-amber-800 flex items-center gap-2 mb-2"><AlertCircle className="w-4 h-4"/> Conflito de horário detectado</p>
+                    {conflicts.map((c,i) => (
+                      <p key={i} className="text-xs text-amber-700">• {c.tipo==="turma"?"Turma ocupada":"Sala ocupada"}: {c.disciplina} ({new Date(c.data_inicio).toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})} – {new Date(c.data_fim).toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})})</p>
+                    ))}
+                    <button onClick={() => handleSave(true)} className="mt-2 text-xs underline text-amber-800">Guardar mesmo assim</button>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div><label className="text-xs font-medium text-slate-500 mb-1 block">Tipo</label>
+                    <select className={sel} value={form.tipo_id} onChange={e=>setForm(f=>({...f,tipo_id:e.target.value}))}>
+                      <option value="">Sem tipo</option>
+                      {tipos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                    </select>
+                  </div>
+                  <div><label className="text-xs font-medium text-slate-500 mb-1 block">Turma</label>
+                    <select className={sel} value={form.turma_id} onChange={e=>setForm(f=>({...f,turma_id:e.target.value}))}>
+                      <option value="">Todas as turmas</option>
+                      {turmas.map(t => <option key={t.id} value={t.id}>{t.nome} – {t.turno}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div><label className="text-xs font-medium text-slate-500 mb-1 block">Disciplina *</label>
+                  <input className={inp} value={form.disciplina} onChange={e=>setForm(f=>({...f,disciplina:e.target.value}))} placeholder="ex: Matemática"/>
+                </div>
+                <div><label className="text-xs font-medium text-slate-500 mb-1 block">Professor *</label>
+                  <input className={inp} value={form.professor} onChange={e=>setForm(f=>({...f,professor:e.target.value}))} placeholder="Nome do professor"/>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs font-medium text-slate-500 mb-1 block">Data/Hora Início *</label>
+                    <input type="datetime-local" className={inp} value={form.data_inicio} onChange={e=>setForm(f=>({...f,data_inicio:e.target.value}))}/>
+                  </div>
+                  <div><label className="text-xs font-medium text-slate-500 mb-1 block">Data/Hora Fim *</label>
+                    <input type="datetime-local" className={inp} value={form.data_fim} onChange={e=>setForm(f=>({...f,data_fim:e.target.value}))}/>
+                  </div>
+                </div>
+                <div><label className="text-xs font-medium text-slate-500 mb-1 block">Sala / Local</label>
+                  <input className={inp} value={form.sala} onChange={e=>setForm(f=>({...f,sala:e.target.value}))} placeholder="ex: Sala 12, Anfiteatro A"/>
+                </div>
+                <div><label className="text-xs font-medium text-slate-500 mb-1 block">Notas</label>
+                  <textarea className={inp} rows={2} value={form.notas} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} placeholder="Informações adicionais..."/>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+                <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button onClick={() => handleSave(false)} disabled={saving}
+                  className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors flex items-center gap-2">
+                  {saving && <RefreshCw className="w-4 h-4 animate-spin"/>}
+                  {saving ? "A guardar..." : editEval ? "Guardar alterações" : "Criar avaliação"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ─── Eval Card (reusable) ─── */
+function EvalCard({ ev, onEdit, onDelete, onPublish, deleting, ESTADO_CLS, fmtDT, fmtTime }: {
+  ev: Evaluation; onEdit: (e: Evaluation) => void; onDelete: (id: number) => void;
+  onPublish: (id: number, estado: string) => void; deleting: number | null;
+  ESTADO_CLS: Record<string,string>; fmtDT: (s:string) => string; fmtTime: (s:string) => string;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex gap-3 items-start">
+      <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: ev.tipo_cor || "#6366f1" }}/>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-slate-900 text-sm">{ev.disciplina}</span>
+              {ev.tipo_nome && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ backgroundColor:(ev.tipo_cor||"#6366f1")+"20", color:ev.tipo_cor||"#6366f1", borderColor:(ev.tipo_cor||"#6366f1")+"40" }}>{ev.tipo_nome}</span>}
+              <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${ESTADO_CLS[ev.estado]}`}>{ev.estado}</span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-3 flex-wrap">
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {fmtDT(ev.data_inicio)} → {fmtTime(ev.data_fim)}</span>
+              {ev.turma_nome && <span className="flex items-center gap-1"><Users className="w-3 h-3"/>{ev.turma_nome}</span>}
+              {ev.sala && <span className="flex items-center gap-1"><School className="w-3 h-3"/>{ev.sala}</span>}
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">Prof. {ev.professor}</p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {ev.estado !== "cancelado" && (
+              <button onClick={() => onPublish(ev.id, ev.estado==="publicado"?"rascunho":"publicado")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${ev.estado==="publicado"?"bg-amber-50 text-amber-700 hover:bg-amber-100":"bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
+                {ev.estado==="publicado"?"Despublicar":"Publicar"}
+              </button>
+            )}
+            <button onClick={() => onEdit(ev)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+            <button onClick={() => onDelete(ev.id)} disabled={deleting===ev.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+              {deleting===ev.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : <Trash2 className="w-3.5 h-3.5"/>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -6729,6 +7274,7 @@ export default function Dashboard() {
     { key: "emolumentos", icon: <Receipt className="w-5 h-5"/>, label: "Emolumentos" },
     { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
     { key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>, label: "Gestão de Acessos" },
+    { key: "avaliacoes", icon: <CalendarDays className="w-5 h-5"/>, label: "Calendário de Avaliações" },
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -6886,6 +7432,11 @@ export default function Dashboard() {
             )}
             {view === "gestao_acessos" && token && (
               <AccessManagement key="gestao_acessos" token={token}/>
+            )}
+            {view === "avaliacoes" && token && (
+              <motion.div key="avaliacoes" initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="flex-1">
+                <AvaliacoesView token={token} turmas={turmas}/>
+              </motion.div>
             )}
           </AnimatePresence>
         )}

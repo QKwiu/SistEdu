@@ -8,7 +8,7 @@ import {
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
   Phone, HelpCircle, RotateCcw, Menu, Bell, ArrowLeftRight,
   FileText, Send, ChevronRight, ChevronLeft, Banknote,
-  BadgeCheck, XCircle, GraduationCap,
+  BadgeCheck, XCircle, GraduationCap, CalendarDays,
 } from "lucide-react";
 
 const API = "/api";
@@ -83,7 +83,7 @@ interface DDSubscription {
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
 type StudentTab = "propinas" | "ocorrencias";
-type ActiveMenu = "facturas" | "ocorrencias" | "comunicados";
+type ActiveMenu = "facturas" | "ocorrencias" | "comunicados" | "avaliacoes";
 
 const TIPO_COLORS_ENC: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   "Comportamento Inadequado": { bg:"bg-red-50", text:"text-red-700", border:"border-red-200", dot:"bg-red-500" },
@@ -1673,6 +1673,10 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [ocorrencias, setOcorrencias] = useState<Ocorrencia[]>([]);
   const [loadingOcorrencias, setLoadingOcorrencias] = useState(false);
 
+  // Avaliações
+  const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
+  const [loadingAvaliacoes, setLoadingAvaliacoes] = useState(false);
+
   const headers = { Authorization:`Bearer ${token}`, "Content-Type":"application/json" };
 
   const loadStudents = useCallback(async () => {
@@ -1753,6 +1757,15 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     } catch { setDdSubscription(null); }
   }, [token]);
 
+  const loadAvaliacoes = useCallback(async () => {
+    setLoadingAvaliacoes(true);
+    try {
+      const res = await fetch(`${API}/guardian/avaliacoes`, { headers });
+      if (res.ok) setAvaliacoes(await res.json());
+    } catch {}
+    finally { setLoadingAvaliacoes(false); }
+  }, [token]);
+
   const marcarLido = async (id: number) => {
     setComunicados(prev => prev.map(c => c.id === id ? { ...c, lido: true } : c));
     try {
@@ -1764,6 +1777,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
+  useEffect(() => { if (activeMenu === "avaliacoes") loadAvaliacoes(); }, [activeMenu]);
 
   // Load per-school data on initial mount (no specific school yet — auto-detect)
   useEffect(() => { loadAvailableMethods(); loadDDSubscription(); }, [token]);
@@ -1837,6 +1851,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     { key: "facturas",    label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
     { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
     { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
+    { key: "avaliacoes",  label: "Calendário de Avaliações",            icon: <CalendarDays size={16} /> },
   ];
 
   if (loadingStudents) return (
@@ -2421,6 +2436,112 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             </div>
           )}
         </>}{/* end comunicados screen */}
+
+        {/* ══ ECRÃ: CALENDÁRIO DE AVALIAÇÕES ══ */}
+        {activeMenu === "avaliacoes" && <>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+              <CalendarDays size={12}/> Calendário de Avaliações
+            </p>
+            <button onClick={loadAvaliacoes} disabled={loadingAvaliacoes}
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 disabled:opacity-50">
+              <RefreshCw size={13} className={loadingAvaliacoes ? "animate-spin" : ""}/>
+            </button>
+          </div>
+
+          {loadingAvaliacoes ? (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw size={24} className="animate-spin text-blue-500"/>
+            </div>
+          ) : avaliacoes.length === 0 ? (
+            <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+              <CalendarDays size={36} className="text-gray-200 mx-auto mb-3"/>
+              <p className="font-semibold text-gray-400">Sem avaliações publicadas</p>
+              <p className="text-gray-300 text-xs mt-1">Ainda não existem avaliações publicadas para os seus educandos.</p>
+            </div>
+          ) : (() => {
+            // group by month
+            const byMonth: Record<string, any[]> = {};
+            avaliacoes.forEach(ev => {
+              const d = new Date(ev.data_inicio);
+              const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+              if (!byMonth[key]) byMonth[key] = [];
+              byMonth[key].push(ev);
+            });
+            const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+            return (
+              <div className="space-y-5 pb-6">
+                {Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([key, evs]) => {
+                  const [yr, mo] = key.split("-");
+                  return (
+                    <div key={key}>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <Calendar size={11}/> {MESES[Number(mo)-1]} {yr}
+                      </p>
+                      <div className="space-y-2">
+                        {evs.map((ev, i) => {
+                          const inicio = new Date(ev.data_inicio);
+                          const fim = new Date(ev.data_fim);
+                          const isUpcoming = inicio > new Date();
+                          const fmtData = (d: Date) => d.toLocaleString("pt-AO", { weekday:"short", day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" });
+                          const fmtHora = (d: Date) => d.toLocaleTimeString("pt-AO", { hour:"2-digit", minute:"2-digit" });
+                          return (
+                            <motion.div key={ev.id} initial={{ opacity:0, y:5 }} animate={{ opacity:1, y:0 }} transition={{ delay: i * 0.04 }}
+                              className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex">
+                              {/* color bar */}
+                              <div className="w-1 shrink-0" style={{ backgroundColor: ev.tipo_cor || "#6366f1" }}/>
+                              <div className="flex-1 p-4">
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                                      <span className="font-bold text-gray-900 text-sm">{ev.disciplina}</span>
+                                      {ev.tipo_nome && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                          style={{ backgroundColor:(ev.tipo_cor||"#6366f1")+"20", color:ev.tipo_cor||"#6366f1" }}>
+                                          {ev.tipo_nome}
+                                        </span>
+                                      )}
+                                      {isUpcoming && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-600 border border-blue-100">
+                                          Próxima
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-gray-500 flex items-center gap-1 mb-0.5">
+                                      <Clock size={10}/> {fmtData(inicio)} → {fmtHora(fim)}
+                                    </p>
+                                    {ev.turma_nome && (
+                                      <p className="text-xs text-gray-400 flex items-center gap-1 mb-0.5">
+                                        <Users size={10}/> {ev.turma_nome}
+                                      </p>
+                                    )}
+                                    {ev.sala && (
+                                      <p className="text-xs text-gray-400 flex items-center gap-1">
+                                        <Calendar size={10}/> Sala: {ev.sala}
+                                      </p>
+                                    )}
+                                    {ev.notas && (
+                                      <p className="text-xs text-gray-400 mt-1 italic">{ev.notas}</p>
+                                    )}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-xl font-black text-gray-900 leading-none">{String(inicio.getDate()).padStart(2,"0")}</p>
+                                    <p className="text-xs text-gray-400">{MESES[inicio.getMonth()].slice(0,3)}</p>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-gray-400 mt-2">Prof. {ev.professor} {ev.escola_nome ? `· ${ev.escola_nome}` : ""}</p>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </>}{/* end avaliacoes screen */}
 
         <div className="text-center pt-2">
           <p className="text-xs text-gray-300">Kiwara Escolar — {portalLabel}</p>
