@@ -169,10 +169,14 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
   if (check.rows.length === 0) return res.status(403).json({ error: "Acesso negado." });
 
   // Auto-update vencido status and apply multa based on school rule
+  // Process both 'pendente' (not yet marked overdue) and 'vencido' with multa=0 (already overdue but fine not yet calculated)
   const overdueRes = await pool.query(
-    `SELECT p.id, p.montante, p.multa, p.school_id, p.data_vencimento
+    `SELECT p.id, p.montante, p.multa, p.school_id, p.data_vencimento, p.status
      FROM propinas p
-     WHERE p.student_id=$1 AND p.status='pendente' AND p.data_vencimento < NOW()`,
+     WHERE p.student_id=$1
+       AND p.data_vencimento < NOW()
+       AND p.status IN ('pendente','vencido')
+       AND (p.baixa_manual IS NULL OR p.baixa_manual = false)`,
     [id]
   );
 
@@ -204,6 +208,7 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
         } else if (modelo === 2) {
           const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
           if (isPreviousMonth && brackets.length > 0) {
+            // Past month: apply highest bracket
             multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
           } else {
             for (const b of brackets) {

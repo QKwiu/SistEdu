@@ -1679,7 +1679,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     setLoadingPropinas(true);
     setSelectedIds(new Set());
     try {
-      const res = await fetch(`${API}/guardian/alunos/${id}/propinas`, {headers});
+      const res = await fetch(`${API}/guardian/alunos/${id}/propinas?_t=${Date.now()}`, { headers, cache: "no-store" });
       if (!res.ok) return;
       setPropinas(await res.json());
     } catch {}
