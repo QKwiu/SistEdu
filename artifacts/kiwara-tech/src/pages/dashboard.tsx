@@ -7010,20 +7010,18 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
                   </>
                 )}
 
-                {/* Visibility toggle — always shown when a selection/manual mode is active */}
-                {(isLocked || manualMode || !!editItem) && (
-                  <div className="flex items-center justify-between py-3 border-t border-slate-100">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-700">Visível no portal</p>
-                      <p className="text-xs text-slate-400">Encarregados podem ver e pagar</p>
-                    </div>
-                    <button onClick={() => setForm(f => ({ ...f, visivel_portal: !f.visivel_portal }))}
-                      style={{ height: 22, width: 40, backgroundColor: form.visivel_portal ? "var(--primary)" : "#e2e8f0" }}
-                      className="rounded-full relative transition-colors shrink-0">
-                      <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal ? "left-[21px]" : "left-[3px]"}`}/>
-                    </button>
+                {/* Visibility toggle — always visible */}
+                <div className="flex items-center justify-between py-3 border-t border-slate-100">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">Visível no portal</p>
+                    <p className="text-xs text-slate-400">Encarregados podem ver e pagar</p>
                   </div>
-                )}
+                  <button type="button" onClick={() => setForm(f => ({ ...f, visivel_portal: !f.visivel_portal }))}
+                    style={{ height: 22, width: 40, backgroundColor: form.visivel_portal ? "var(--primary)" : "#e2e8f0" }}
+                    className="rounded-full relative transition-colors shrink-0 flex-shrink-0">
+                    <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal ? "left-[21px]" : "left-[3px]"}`}/>
+                  </button>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
