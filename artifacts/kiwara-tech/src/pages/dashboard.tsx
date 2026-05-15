@@ -6614,12 +6614,26 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [toggling, setToggling] = useState<number | null>(null);
-  const [showPredefined, setShowPredefined] = useState(false);
+
+  // Dropdown state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [selectedPredefined, setSelectedPredefined] = useState<any | null>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const h = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const api = (p: string, o?: RequestInit) => fetch(`${API}${p}`, { headers: h, ...o });
   const fmtKz = (n: number) => Number(n).toLocaleString("pt-AO") + " Kz";
   const inp = "w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
+  const inpLocked = "w-full px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 text-sm text-slate-500 cursor-not-allowed";
+
+  const TIPO_LABEL: Record<string, string> = {
+    propina: "Propina", transporte: "Transporte", atl: "ATL",
+    confirmacao_matricula: "Matrícula", seguro: "Seguro",
+    extracurricular: "Extracurricular", outro: "Taxa", multa: "Multa"
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -6637,21 +6651,72 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Emolumentos not yet in store (by name match)
-  const predefined = emolumentos.filter(e =>
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Emolumentos not yet in store
+  const predefinedNotInStore = emolumentos.filter(e =>
     !items.some(it => it.nome.toLowerCase() === e.nome.toLowerCase())
   );
 
-  const openCreate = (prefill?: { nome: string; preco: string; categoria: string }) => {
-    setEditItem(null);
-    setForm({ nome: prefill?.nome || "", descricao: "", preco: prefill?.preco || "", stock: "", categoria: prefill?.categoria || "", visivel_portal: true });
-    setFormErr(""); setShowForm(true); setShowPredefined(false);
+  // Filtered + grouped dropdown options
+  const q = searchQuery.toLowerCase().trim();
+  const filteredOptions = emolumentos.filter(e =>
+    !q || e.nome.toLowerCase().includes(q) || (TIPO_LABEL[e.tipo] || e.tipo).toLowerCase().includes(q)
+  );
+  const grouped = filteredOptions.reduce((acc: Record<string, any[]>, e) => {
+    const cat = TIPO_LABEL[e.tipo] || e.tipo || "Outros";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(e);
+    return acc;
+  }, {});
+  const groupKeys = Object.keys(grouped).sort();
+
+  const alreadyInStore = (nome: string) => items.some(it => it.nome.toLowerCase() === nome.toLowerCase());
+
+  const selectPredefined = (e: any) => {
+    setSelectedPredefined(e);
+    setForm(f => ({ ...f, nome: e.nome, preco: String(e.montante), categoria: TIPO_LABEL[e.tipo] || e.tipo, descricao: "" }));
+    setSearchQuery(e.nome);
+    setDropdownOpen(false);
+    setManualMode(false);
+    setFormErr("");
   };
+
+  const clearSelection = () => {
+    setSelectedPredefined(null);
+    setSearchQuery("");
+    setForm(f => ({ ...f, nome: "", preco: "", categoria: "", descricao: "" }));
+    setTimeout(() => { searchRef.current?.focus(); setDropdownOpen(true); }, 50);
+  };
+
+  const openCreate = () => {
+    setEditItem(null);
+    setSelectedPredefined(null);
+    setSearchQuery("");
+    setManualMode(false);
+    setForm({ nome: "", descricao: "", preco: "", stock: "", categoria: "", visivel_portal: true });
+    setFormErr(""); setShowForm(true);
+    setTimeout(() => { searchRef.current?.focus(); setDropdownOpen(true); }, 100);
+  };
+
   const openEdit = (it: StoreItemDB) => {
     setEditItem(it);
+    setSelectedPredefined(null);
+    setSearchQuery("");
+    setManualMode(true);
     setForm({ nome: it.nome, descricao: it.descricao || "", preco: String(it.preco), stock: it.stock !== null ? String(it.stock) : "", categoria: it.categoria || "", visivel_portal: it.visivel_portal });
     setFormErr(""); setShowForm(true);
   };
+
   const handleSave = async () => {
     if (!form.nome.trim() || !form.preco) return setFormErr("Nome e preço são obrigatórios.");
     setSaving(true); setFormErr("");
@@ -6661,6 +6726,7 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
     if (!r.ok) { setFormErr(d.error || "Erro ao guardar."); setSaving(false); return; }
     setShowForm(false); loadData(); setSaving(false);
   };
+
   const handleDelete = async (id: number) => {
     if (!confirm("Eliminar este artigo?")) return;
     setDeleting(id);
@@ -6676,11 +6742,7 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
     await api(`/school/store/items/${id}/toggle-ativo`, { method: "PATCH" }); loadData();
   };
 
-  const TIPO_LABEL: Record<string, string> = {
-    propina: "Propina", transporte: "Transporte", atl: "ATL",
-    confirmacao_matricula: "Matrícula", seguro: "Seguro",
-    extracurricular: "Extracurricular", outro: "Taxa"
-  };
+  const isLocked = !!selectedPredefined && !manualMode;
 
   return (
     <div>
@@ -6688,50 +6750,20 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <div>
           <h2 className="text-base font-bold text-slate-700">Artigos & Serviços</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Itens disponíveis para venda/cobrança no portal do encarregado</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Itens disponíveis para venda/cobrança no portal
+            {predefinedNotInStore.length > 0 && (
+              <span className="ml-2 inline-flex items-center gap-1 text-blue-600 font-semibold">
+                <Zap className="w-3 h-3"/> {predefinedNotInStore.length} pré-definido{predefinedNotInStore.length !== 1 ? "s" : ""} por adicionar
+              </span>
+            )}
+          </p>
         </div>
-        <div className="flex gap-2">
-          {predefined.length > 0 && (
-            <button onClick={() => setShowPredefined(v => !v)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 transition-colors">
-              <Zap className="w-4 h-4"/> Pré-definidos ({predefined.length})
-            </button>
-          )}
-          <button onClick={() => openCreate()}
-            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
-            <Plus className="w-4 h-4"/> Novo Artigo
-          </button>
-        </div>
+        <button onClick={openCreate}
+          className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+          <Plus className="w-4 h-4"/> Novo Artigo
+        </button>
       </div>
-
-      {/* Pre-defined panel */}
-      <AnimatePresence>
-        {showPredefined && predefined.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="mb-5 bg-blue-50 border border-blue-100 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="w-4 h-4 text-blue-600"/>
-              <p className="text-sm font-bold text-blue-800">Artigos Pré-definidos da Instituição</p>
-              <p className="text-xs text-blue-500 ml-auto">Seleccione para adicionar à loja</p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {predefined.map((e: any) => (
-                <button key={e.id} onClick={() => openCreate({ nome: e.nome, preco: String(e.montante), categoria: TIPO_LABEL[e.tipo] || e.tipo })}
-                  className="flex items-center justify-between gap-2 p-3 bg-white rounded-xl border border-blue-100 hover:border-blue-400 hover:shadow-sm transition-all text-left group">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">{e.nome}</p>
-                    <p className="text-xs text-slate-400">{TIPO_LABEL[e.tipo] || e.tipo}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-slate-700">{fmtKz(Number(e.montante))}</p>
-                    <p className="text-xs text-blue-500 group-hover:text-blue-700 font-medium">+ Adicionar</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Items table */}
       {loading ? (
@@ -6740,13 +6772,14 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
         <div className="bg-white border border-slate-200 rounded-2xl p-14 text-center">
           <Package className="w-12 h-12 text-slate-200 mx-auto mb-3"/>
           <p className="font-semibold text-slate-500">Nenhum artigo configurado</p>
-          <p className="text-sm text-slate-400 mt-1 mb-4">Adicione artigos que os encarregados poderão comprar no portal.</p>
-          {predefined.length > 0 && (
-            <button onClick={() => setShowPredefined(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 mr-2">
-              <Zap className="w-3.5 h-3.5 inline mr-1"/>Ver Pré-definidos
-            </button>
-          )}
-          <button onClick={() => openCreate()} className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90">Novo Artigo</button>
+          <p className="text-sm text-slate-400 mt-1 mb-4">
+            {predefinedNotInStore.length > 0
+              ? `Tem ${predefinedNotInStore.length} artigo(s) pré-definido(s) prontos a adicionar ao portal.`
+              : "Adicione artigos que os encarregados poderão comprar no portal."}
+          </p>
+          <button onClick={openCreate} className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90">
+            <Plus className="w-3.5 h-3.5 inline mr-1"/>Adicionar Artigo
+          </button>
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -6805,57 +6838,200 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
         </div>
       )}
 
-      {/* Modal criar/editar */}
+      {/* ── MODAL CRIAR / EDITAR ARTIGO ── */}
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+
+              {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                <h3 className="font-bold text-slate-900">{editItem ? "Editar Artigo" : "Novo Artigo"}</h3>
+                <h3 className="font-bold text-slate-900">{editItem ? "Editar Artigo" : "Adicionar Artigo"}</h3>
                 <button onClick={() => setShowForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
               </div>
+
               <div className="p-5 space-y-4">
                 {formErr && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm">{formErr}</div>}
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Nome do artigo *</label>
-                  <input className={inp} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="ex: Uniforme Completo, Propina"/>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Categoria</label>
-                  <input className={inp} value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))} placeholder="ex: Vestuário, Propina, Taxa"/>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Descrição</label>
-                  <textarea className={inp} rows={2} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Descrição breve (opcional)"/>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+
+                {/* ── SMART SELECTOR (only when creating, not editing) ── */}
+                {!editItem && (
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 mb-1 block">Preço (Kz) *</label>
-                    <input type="number" min={0} className={inp} value={form.preco} onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} placeholder="0"/>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-semibold text-slate-500">
+                        {manualMode ? "Modo manual" : "Seleccionar artigo pré-definido"}
+                      </label>
+                      <button onClick={() => { setManualMode(v => !v); setSelectedPredefined(null); setSearchQuery(""); setForm(f => ({ ...f, nome: "", preco: "", categoria: "", descricao: "" })); }}
+                        className="text-xs text-primary font-semibold hover:underline">
+                        {manualMode ? "← Usar pré-definido" : "Criar do zero"}
+                      </button>
+                    </div>
+
+                    {!manualMode && (
+                      <div className="relative" ref={dropdownRef}>
+                        {/* Search input */}
+                        {!selectedPredefined ? (
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"/>
+                            <input ref={searchRef}
+                              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              placeholder="Pesquisar artigo — ex: Uniforme, Propina..."
+                              value={searchQuery}
+                              onChange={e => { setSearchQuery(e.target.value); setDropdownOpen(true); }}
+                              onFocus={() => setDropdownOpen(true)}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                            <CheckCircle2 className="w-4 h-4 text-primary shrink-0"/>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 truncate">{selectedPredefined.nome}</p>
+                              <p className="text-xs text-slate-500">{TIPO_LABEL[selectedPredefined.tipo] || selectedPredefined.tipo} · {fmtKz(Number(selectedPredefined.montante))}</p>
+                            </div>
+                            <button onClick={clearSelection} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 shrink-0"><X className="w-3.5 h-3.5"/></button>
+                          </div>
+                        )}
+
+                        {/* Dropdown list */}
+                        <AnimatePresence>
+                          {dropdownOpen && !selectedPredefined && (
+                            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                              className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                              {groupKeys.length === 0 ? (
+                                <div className="px-4 py-8 text-center">
+                                  <p className="text-sm text-slate-400">
+                                    {emolumentos.length === 0 ? "Sem artigos pré-definidos. Use \"Criar do zero\" para adicionar manualmente." : "Nenhum resultado para a pesquisa."}
+                                  </p>
+                                </div>
+                              ) : (
+                                groupKeys.map(cat => (
+                                  <div key={cat}>
+                                    <div className="px-3 py-1.5 bg-slate-50 border-y border-slate-100 sticky top-0">
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cat}</p>
+                                    </div>
+                                    {grouped[cat].map((e: any) => {
+                                      const inStore = alreadyInStore(e.nome);
+                                      return (
+                                        <button key={e.id} onClick={() => !inStore && selectPredefined(e)}
+                                          className={`w-full flex items-center justify-between px-4 py-2.5 text-left transition-colors group ${inStore ? "opacity-40 cursor-not-allowed" : "hover:bg-primary/5"}`}>
+                                          <div className="min-w-0">
+                                            <p className="text-sm font-medium text-slate-800 truncate">{e.nome}</p>
+                                            {inStore && <p className="text-[11px] text-slate-400">já na loja</p>}
+                                          </div>
+                                          <div className="text-right shrink-0 ml-3">
+                                            <p className="text-sm font-bold text-slate-700">{fmtKz(Number(e.montante))}</p>
+                                            {!inStore && <p className="text-[11px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity">+ Seleccionar</p>}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ))
+                              )}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+
+                    {/* Duplicate warning */}
+                    {!selectedPredefined && !manualMode && form.nome && alreadyInStore(form.nome) && (
+                      <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/>
+                        <p className="text-xs text-amber-700">Este artigo já existe na loja. Seleccione-o da lista para evitar duplicados.</p>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 mb-1 block">Stock (vazio = ilimitado)</label>
-                    <input type="number" min={0} className={inp} value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} placeholder="∞"/>
+                )}
+
+                {/* ── FORM FIELDS ── */}
+                {(manualMode || !!editItem) && (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-1 block">Nome do artigo *</label>
+                      <input className={inp} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="ex: Uniforme Completo, Propina"/>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-1 block">Categoria</label>
+                      <input className={inp} value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))} placeholder="ex: Vestuário, Propina, Taxa"/>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-1 block">Descrição</label>
+                      <textarea className={inp} rows={2} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Descrição breve (opcional)"/>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Preço (Kz) *</label>
+                        <input type="number" min={0} className={inp} value={form.preco} onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} placeholder="0"/>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Stock (vazio = ilimitado)</label>
+                        <input type="number" min={0} className={inp} value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} placeholder="∞"/>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* When pre-defined selected: show locked fields + only editable stock */}
+                {isLocked && (
+                  <>
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-3 border border-slate-100">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">Dados do artigo (pré-definido)</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-xs text-slate-400 mb-0.5">Nome</p>
+                          <p className="text-sm font-semibold text-slate-800">{form.nome}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400 mb-0.5">Preço</p>
+                          <p className="text-sm font-bold text-slate-800">{fmtKz(Number(form.preco))}</p>
+                        </div>
+                      </div>
+                      {form.categoria && (
+                        <div>
+                          <p className="text-xs text-slate-400 mb-0.5">Categoria</p>
+                          <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-medium">{form.categoria}</span>
+                        </div>
+                      )}
+                      <button onClick={() => setManualMode(true)} className="text-xs text-primary font-semibold hover:underline flex items-center gap-1">
+                        <Pencil className="w-3 h-3"/> Editar dados manualmente
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-1 block">Descrição para o portal</label>
+                      <textarea className={inp} rows={2} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Descrição adicional (opcional)"/>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-1 block">Stock (vazio = ilimitado)</label>
+                      <input type="number" min={0} className={inp} value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} placeholder="∞ ilimitado"/>
+                    </div>
+                  </>
+                )}
+
+                {/* Visibility toggle — always shown when a selection/manual mode is active */}
+                {(isLocked || manualMode || !!editItem) && (
+                  <div className="flex items-center justify-between py-3 border-t border-slate-100">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700">Visível no portal</p>
+                      <p className="text-xs text-slate-400">Encarregados podem ver e pagar</p>
+                    </div>
+                    <button onClick={() => setForm(f => ({ ...f, visivel_portal: !f.visivel_portal }))}
+                      style={{ height: 22, width: 40, backgroundColor: form.visivel_portal ? "var(--primary)" : "#e2e8f0" }}
+                      className="rounded-full relative transition-colors shrink-0">
+                      <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal ? "left-[21px]" : "left-[3px]"}`}/>
+                    </button>
                   </div>
-                </div>
-                <div className="flex items-center justify-between py-3 border-t border-slate-100">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700">Visível no portal</p>
-                    <p className="text-xs text-slate-400">Encarregados podem ver e pagar</p>
-                  </div>
-                  <button onClick={() => setForm(f => ({ ...f, visivel_portal: !f.visivel_portal }))}
-                    style={{ height: 22, width: 40, backgroundColor: form.visivel_portal ? "var(--primary)" : "#e2e8f0" }}
-                    className="rounded-full relative transition-colors">
-                    <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal ? "left-[21px]" : "left-[3px]"}`}/>
-                  </button>
-                </div>
+                )}
               </div>
+
               <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
                 <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 flex items-center gap-2">
-                  {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin"/>}{saving ? "A guardar..." : editItem ? "Guardar alterações" : "Criar artigo"}
+                <button onClick={handleSave} disabled={saving || (!editItem && !isLocked && !manualMode && !form.nome.trim())}
+                  className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 flex items-center gap-2">
+                  {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin"/>}
+                  {saving ? "A guardar..." : editItem ? "Guardar alterações" : "Adicionar à loja"}
                 </button>
               </div>
             </motion.div>
