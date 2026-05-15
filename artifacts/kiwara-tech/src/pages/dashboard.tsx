@@ -7262,72 +7262,110 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
                       <p className="text-sm">Sem eventos. Clique em "Novo Evento" para adicionar.</p>
                     </div>
                   ) : cal.tipo==="aulas" ? (
-                    <div className="space-y-3">
-                      {DIAS.map((dia, idx) => {
-                        const dayEvts = (eventos[cal.id]||[]).filter(e => Number(e.dia_semana)===idx);
-                        if (!dayEvts.length) return null;
-                        return (
-                          <div key={idx}>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5">{dia}</p>
-                            <div className="space-y-1.5">
-                              {dayEvts.map(ev => (
-                                <div key={ev.id} className="bg-white rounded-xl border border-slate-200 p-3 flex items-center gap-3">
-                                  <div className="w-1 self-stretch rounded-full shrink-0" style={{backgroundColor:ev.tipo_prova_cor||"#3B82F6"}}/>
-                                  <div className="flex-1 min-w-0">
-                                    <span className="font-semibold text-slate-900 text-sm">{ev.titulo}</span>
-                                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap">
-                                      {ev.hora_inicio_aula && <span>{ev.hora_inicio_aula.slice(0,5)} - {ev.hora_fim_aula?.slice(0,5)}</span>}
-                                      {ev.professor && <span>Prof. {ev.professor}</span>}
-                                      {ev.sala && <span>Sala {ev.sala}</span>}
-                                      {ev.turma_nome && <span>{ev.turma_nome}</span>}
-                                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Dia</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Disciplina / Título</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Horário</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Professor</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Sala</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
+                            <th className="px-4 py-2.5"/>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {DIAS.map((dia, idx) => {
+                            const dayEvts = (eventos[cal.id]||[]).filter(e => Number(e.dia_semana)===idx);
+                            if (!dayEvts.length) return null;
+                            return dayEvts.map((ev, i) => (
+                              <tr key={ev.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                                {i===0 && (
+                                  <td rowSpan={dayEvts.length} className="px-4 py-3 align-top">
+                                    <span className="inline-block text-xs font-bold text-slate-500 uppercase tracking-wide bg-slate-100 px-2 py-1 rounded-lg whitespace-nowrap">{dia}</span>
+                                  </td>
+                                )}
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor:ev.tipo_prova_cor||"#3B82F6"}}/>
+                                    <span className="font-semibold text-slate-900">{ev.titulo}</span>
                                   </div>
-                                  <div className="flex items-center gap-1">
+                                </td>
+                                <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                                  {ev.hora_inicio_aula ? `${ev.hora_inicio_aula.slice(0,5)} – ${ev.hora_fim_aula?.slice(0,5)||""}` : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-slate-500">{ev.professor||"—"}</td>
+                                <td className="px-4 py-3 text-slate-500">{ev.sala||"—"}</td>
+                                <td className="px-4 py-3 text-slate-500">{ev.turma_nome||"—"}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1 justify-end">
                                     <button onClick={() => openEvtForm(cal.id, cal, ev)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
                                     <button onClick={() => deleteEvt(cal.id, ev.id)} disabled={deletingEvt===ev.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
                                       {deletingEvt===ev.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
                                     </button>
                                   </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
+                                </td>
+                              </tr>
+                            ));
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {(eventos[cal.id]||[]).map(ev => (
-                        <div key={ev.id} className="bg-white rounded-xl border border-slate-200 p-3 flex items-center gap-3">
-                          <div className="w-10 text-center shrink-0">
-                            <p className="text-lg font-black text-slate-900 leading-none">{ev.data_inicio?new Date(ev.data_inicio).getDate():"?"}</p>
-                            <p className="text-xs text-slate-400">{ev.data_inicio?MESES[new Date(ev.data_inicio).getMonth()]:""}</p>
-                          </div>
-                          <div className="w-0.5 h-10 bg-slate-100 rounded-full shrink-0"/>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold text-slate-900 text-sm">{ev.titulo}</span>
-                              {ev.tipo_prova_nome && (
-                                <span className="text-xs px-2 py-0.5 rounded-full" style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"20",color:ev.tipo_prova_cor||"#3B82F6"}}>
-                                  {ev.tipo_prova_nome}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap">
-                              {ev.data_inicio && <span>{fmtDT(ev.data_inicio)}{ev.data_fim?` → ${new Date(ev.data_fim).toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})}`:""}</span>}
-                              {ev.professor && <span>Prof. {ev.professor}</span>}
-                              {ev.sala && <span>Sala {ev.sala}</span>}
-                              {ev.turma_nome && <span>{ev.turma_nome}</span>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => openEvtForm(cal.id, cal, ev)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
-                            <button onClick={() => deleteEvt(cal.id, ev.id)} disabled={deletingEvt===ev.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
-                              {deletingEvt===ev.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Data</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Título / Disciplina</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Tipo</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Professor</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Sala</th>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
+                            <th className="px-4 py-2.5"/>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...(eventos[cal.id]||[])].sort((a,b)=>(a.data_inicio||"").localeCompare(b.data_inicio||"")).map(ev => {
+                            const d = ev.data_inicio ? new Date(ev.data_inicio) : null;
+                            return (
+                              <tr key={ev.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  {d ? (
+                                    <div className="flex flex-col">
+                                      <span className="font-bold text-slate-900 text-base leading-none">{String(d.getDate()).padStart(2,"0")}</span>
+                                      <span className="text-xs text-slate-400">{MESES[d.getMonth()]} {d.getFullYear()}</span>
+                                      <span className="text-xs text-slate-400 mt-0.5">{d.toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})}</span>
+                                    </div>
+                                  ) : "—"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="font-semibold text-slate-900">{ev.titulo}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {ev.tipo_prova_nome ? (
+                                    <span className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap" style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"20",color:ev.tipo_prova_cor||"#3B82F6"}}>
+                                      {ev.tipo_prova_nome}
+                                    </span>
+                                  ) : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-slate-500">{ev.professor||"—"}</td>
+                                <td className="px-4 py-3 text-slate-500">{ev.sala||"—"}</td>
+                                <td className="px-4 py-3 text-slate-500">{ev.turma_nome||"—"}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1 justify-end">
+                                    <button onClick={() => openEvtForm(cal.id, cal, ev)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
+                                    <button onClick={() => deleteEvt(cal.id, ev.id)} disabled={deletingEvt===ev.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
+                                      {deletingEvt===ev.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>

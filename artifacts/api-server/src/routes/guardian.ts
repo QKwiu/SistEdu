@@ -966,9 +966,7 @@ router.get("/guardian/horario", authMiddleware, async (req: any, res) => {
        AND (ce.turma_id IS NULL OR ce.turma_id = ANY($2))
        AND c.tipo = 'aulas'
        AND c.publicado = true
-       AND c.vigencia_inicio <= CURRENT_DATE
        AND c.vigencia_fim >= CURRENT_DATE
-       AND ce.publicado = true
      ORDER BY ce.dia_semana ASC NULLS LAST, ce.hora_inicio_aula ASC NULLS LAST`,
     [schoolIds, turmaIds.length ? turmaIds : [-1]]
   );
@@ -997,10 +995,7 @@ router.get("/guardian/provas", authMiddleware, async (req: any, res) => {
        AND (ce.turma_id IS NULL OR ce.turma_id = ANY($2))
        AND c.tipo = 'provas'
        AND c.publicado = true
-       AND c.vigencia_inicio <= CURRENT_DATE
        AND c.vigencia_fim >= CURRENT_DATE
-       AND ce.publicado = true
-       AND ce.data_inicio >= NOW() - INTERVAL '7 days'
      ORDER BY ce.data_inicio ASC`,
     [schoolIds, turmaIds.length ? turmaIds : [-1]]
   );
