@@ -6834,7 +6834,7 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
                     <td className="px-4 py-3 text-center">
                       <button onClick={() => handleTogglePortal(it.id)} disabled={toggling===it.id} title={it.visivel_portal ? "Visível no portal" : "Oculto no portal"}
                         className="inline-flex items-center justify-center rounded-full transition-colors relative"
-                        style={{ height: 22, width: 40, backgroundColor: it.visivel_portal ? "var(--primary)" : "#e2e8f0" }}>
+                        style={{ height: 22, width: 40, backgroundColor: it.visivel_portal ? "hsl(var(--primary))" : "#e2e8f0" }}>
                         {toggling===it.id ? <RefreshCw className="w-3 h-3 text-white animate-spin absolute"/> :
                           <div className={`w-4 h-4 rounded-full bg-white shadow absolute transition-all ${it.visivel_portal ? "right-[3px]" : "left-[3px]"}`}/>}
                       </button>
@@ -7040,7 +7040,7 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
                     <p className="text-xs text-slate-400">Encarregados podem ver e pagar</p>
                   </div>
                   <button type="button" onClick={() => setForm(f => ({ ...f, visivel_portal: !f.visivel_portal }))}
-                    style={{ height: 22, width: 40, backgroundColor: form.visivel_portal ? "var(--primary)" : "#e2e8f0" }}
+                    style={{ height: 22, width: 40, backgroundColor: form.visivel_portal ? "hsl(var(--primary))" : "#e2e8f0" }}
                     className="rounded-full relative transition-colors shrink-0 flex-shrink-0">
                     <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal ? "left-[21px]" : "left-[3px]"}`}/>
                   </button>
@@ -7458,7 +7458,7 @@ function StoreManagementView({ token, onPendingChange }: { token: string; onPend
                       <td className="px-4 py-3 text-center">
                         <button onClick={() => handleTogglePortal(it.id)} title={it.visivel_portal?"Visível no portal":"Oculto no portal"}
                           className={`inline-flex items-center justify-center w-10 rounded-full transition-colors`}
-                          style={{ height:22, width:40, backgroundColor: it.visivel_portal?"var(--primary)":"#e2e8f0" }}>
+                          style={{ height:22, width:40, backgroundColor: it.visivel_portal?"hsl(var(--primary))":"#e2e8f0" }}>
                           <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${it.visivel_portal?"translate-x-2.5":"-translate-x-2.5"}`} style={{ transform: it.visivel_portal?"translateX(8px)":"translateX(-8px)" }}/>
                         </button>
                       </td>
@@ -7594,7 +7594,7 @@ function StoreManagementView({ token, onPendingChange }: { token: string; onPend
                     <p className="text-sm font-semibold text-slate-700">Visível no portal</p>
                     <p className="text-xs text-slate-400">Encarregados podem ver e comprar</p>
                   </div>
-                  <button onClick={()=>setForm(f=>({...f,visivel_portal:!f.visivel_portal}))} style={{height:22,width:40,backgroundColor:form.visivel_portal?"var(--primary)":"#e2e8f0"}}
+                  <button onClick={()=>setForm(f=>({...f,visivel_portal:!f.visivel_portal}))} style={{height:22,width:40,backgroundColor:form.visivel_portal?"hsl(var(--primary))":"#e2e8f0"}}
                     className="rounded-full relative transition-colors">
                     <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal?"left-[21px]":"left-[3px]"}`}/>
                   </button>
