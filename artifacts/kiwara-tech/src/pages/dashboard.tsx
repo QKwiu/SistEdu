@@ -7141,11 +7141,11 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
   const openEvtForm = (calId: number, cal: any, evt?: any) => {
     setEditEvt(evt||null); setEvtError(null);
     if (evt) {
-      setEvtForm({...evt, data_inicio: evt.data_inicio ? evt.data_inicio.slice(0,16) : "", data_fim: evt.data_fim ? evt.data_fim.slice(0,16) : ""});
+      setEvtForm({...evt, data_inicio: evt.data_inicio ? evt.data_inicio.slice(0,16) : "", data_fim: evt.data_fim ? evt.data_fim.slice(0,16) : "", dias_semana: [Number(evt.dia_semana)]});
     } else {
       const base: Record<string,any> = { titulo:"", turma_id:"", professor:"", sala:"", descricao:"", tipo_prova_id:"", publicado:true };
       if (cal.tipo==="provas") { base.data_inicio=""; base.data_fim=""; }
-      else { base.dia_semana="0"; base.hora_inicio_aula="08:00"; base.hora_fim_aula="09:00"; }
+      else { base.dias_semana=[0,1,2,3,4]; base.hora_inicio_aula="08:00"; base.hora_fim_aula="09:00"; }
       setEvtForm(base);
     }
     setShowEvtForm(calId);
@@ -7153,12 +7153,24 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
   const saveEvt = async (calId: number) => {
     setSavingEvt(true); setEvtError(null);
     try {
-      const url = editEvt ? `${API}/school/calendarios/${calId}/eventos/${editEvt.id}` : `${API}/school/calendarios/${calId}/eventos`;
-      const payload = {...evtForm};
-      if (payload.tipo_prova_id) { const tp = tipos.find((t:any) => t.id===Number(payload.tipo_prova_id)); if (tp) { payload.tipo_prova_nome=tp.nome; payload.tipo_prova_cor=tp.cor; } }
-      if (payload.turma_id) { const tm = turmas.find(t => t.id===Number(payload.turma_id)); if (tm) payload.turma_nome=tm.nome; }
-      const r = await fetch(url, { method: editEvt ? "PUT" : "POST", headers, body: JSON.stringify(payload) });
-      if (!r.ok) { const e = await r.json(); setEvtError(e.error || "Erro ao guardar evento."); setSavingEvt(false); return; }
+      const base = {...evtForm};
+      if (base.tipo_prova_id) { const tp = tipos.find((t:any) => t.id===Number(base.tipo_prova_id)); if (tp) { base.tipo_prova_nome=tp.nome; base.tipo_prova_cor=tp.cor; } }
+      if (base.turma_id) { const tm = turmas.find(t => t.id===Number(base.turma_id)); if (tm) base.turma_nome=tm.nome; }
+      if (editEvt) {
+        const payload = {...base, dia_semana: (base.dias_semana||[Number(base.dia_semana)])[0] };
+        const r = await fetch(`${API}/school/calendarios/${calId}/eventos/${editEvt.id}`, { method:"PUT", headers, body: JSON.stringify(payload) });
+        if (!r.ok) { const e = await r.json(); setEvtError(e.error || "Erro ao guardar evento."); setSavingEvt(false); return; }
+      } else {
+        const dias: number[] = base.dias_semana||[0];
+        if (dias.length===0) { setEvtError("Seleccione pelo menos um dia da semana."); setSavingEvt(false); return; }
+        const results = await Promise.all(dias.map(d => {
+          const payload = {...base, dia_semana: d};
+          delete payload.dias_semana;
+          return fetch(`${API}/school/calendarios/${calId}/eventos`, { method:"POST", headers, body: JSON.stringify(payload) });
+        }));
+        const failed = results.find(r => !r.ok);
+        if (failed) { const e = await failed.json(); setEvtError(e.error || "Erro ao guardar evento."); setSavingEvt(false); return; }
+      }
       await loadEventos(calId);
       setShowEvtForm(null); setEditEvt(null);
     } catch { setEvtError("Erro de ligação."); } finally { setSavingEvt(false); }
@@ -7616,15 +7628,38 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
                 {isAulas ? (
                   <div className="space-y-3">
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Dia da Semana</label>
-                      <div className="flex gap-1 flex-wrap">
-                        {DIAS.map((d,i) => (
-                          <button key={i} onClick={()=>setEvtForm(p=>({...p,dia_semana:String(i)}))}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${String(evtForm.dia_semana)===String(i)?"bg-blue-600 text-white border-blue-600":"border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                            {d}
-                          </button>
-                        ))}
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dias da Semana</label>
+                        <div className="flex gap-1">
+                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[0,1,2,3,4]}))}
+                            className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Seg–Sex</button>
+                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[0,1,2,3,4,5]}))}
+                            className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Todos</button>
+                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[]}))}
+                            className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Limpar</button>
+                        </div>
                       </div>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {[["Seg",0],["Ter",1],["Qua",2],["Qui",3],["Sex",4],["Sáb",5]].map(([label,i]) => {
+                          const selected = (evtForm.dias_semana||[]).includes(i);
+                          return (
+                            <button key={i} type="button"
+                              onClick={()=>setEvtForm(p=>{
+                                const cur: number[] = p.dias_semana||[];
+                                return {...p, dias_semana: selected ? cur.filter((x:number)=>x!==i) : [...cur,i as number].sort()};
+                              })}
+                              className={`px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${selected?"bg-blue-600 text-white border-blue-600 shadow-sm":"border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 bg-white"}`}>
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {(evtForm.dias_semana||[]).length===0 && (
+                        <p className="text-xs text-amber-600 mt-1">Seleccione pelo menos um dia</p>
+                      )}
+                      {!editEvt && (evtForm.dias_semana||[]).length>1 && (
+                        <p className="text-xs text-blue-500 mt-1">Serão criados {(evtForm.dias_semana||[]).length} eventos (um por dia)</p>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
