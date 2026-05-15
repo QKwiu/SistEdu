@@ -2555,43 +2555,61 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             </div>
           ) : (() => {
             const DIAS_PT = ["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+            const activeDays = [0,1,2,3,4,5].filter(d => horario.some(e => Number(e.dia_semana)===d));
+            const slots = [...new Set(horario.filter(e=>e.hora_inicio_aula).map(e=>e.hora_inicio_aula.slice(0,5)))].sort() as string[];
+            const grid: Record<string,Record<number,any[]>> = {};
+            horario.forEach(ev => {
+              const s = ev.hora_inicio_aula?.slice(0,5); const d = Number(ev.dia_semana);
+              if (!s) return;
+              if (!grid[s]) grid[s]={};
+              if (!grid[s][d]) grid[s][d]=[];
+              grid[s][d].push(ev);
+            });
             return (
-              <div className="space-y-4 pb-6">
-                {DIAS_PT.map((dia, idx) => {
-                  const dayEvts = horario.filter(e => Number(e.dia_semana)===idx);
-                  if (!dayEvts.length) return null;
-                  return (
-                    <div key={idx}>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{dia}</p>
-                      <div className="space-y-2">
-                        {dayEvts.sort((a,b)=>(a.hora_inicio_aula||"").localeCompare(b.hora_inicio_aula||"")).map((ev,i) => (
-                          <motion.div key={ev.id} initial={{opacity:0,y:5}} animate={{opacity:1,y:0}} transition={{delay:i*0.04}}
-                            className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex">
-                            <div className="w-1 shrink-0" style={{backgroundColor:ev.tipo_prova_cor||"#3B82F6"}}/>
-                            <div className="flex-1 p-4">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <span className="font-bold text-gray-900 text-sm">{ev.titulo}</span>
-                                  <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                                    <Clock size={10}/> {ev.hora_inicio_aula?.slice(0,5)} - {ev.hora_fim_aula?.slice(0,5)}
-                                  </p>
-                                  {ev.professor && <p className="text-xs text-gray-400 mt-0.5">Prof. {ev.professor}</p>}
-                                  {ev.turma_nome && <p className="text-xs text-gray-400 flex items-center gap-1"><Users size={10}/> {ev.turma_nome}</p>}
-                                </div>
-                                {ev.sala && (
-                                  <div className="text-right shrink-0">
-                                    <p className="text-xs text-gray-400">Sala</p>
-                                    <p className="font-bold text-gray-900 text-sm">{ev.sala}</p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </motion.div>
+              <div className="pb-6">
+                <div className="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm">
+                  <table className="w-full text-sm min-w-[400px] border-collapse">
+                    <thead>
+                      <tr className="bg-blue-700 text-white">
+                        <th className="px-3 py-2.5 text-xs font-bold text-left border-r border-blue-600 w-20 whitespace-nowrap">Horário</th>
+                        {activeDays.map(d=>(
+                          <th key={d} className="px-2 py-2.5 text-xs font-bold text-center border-r border-blue-600 last:border-r-0">{DIAS_PT[d]}</th>
                         ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {slots.map((slot,si) => {
+                        const fim = horario.find(e=>e.hora_inicio_aula?.slice(0,5)===slot)?.hora_fim_aula?.slice(0,5);
+                        return (
+                          <tr key={slot} className={si%2===0?"bg-white":"bg-gray-50/60"}>
+                            <td className="px-3 py-2 border-r border-b border-gray-100 align-middle">
+                              <span className="block text-xs font-bold text-gray-700">{slot}</span>
+                              {fim && <span className="block text-xs text-gray-400">{fim}</span>}
+                            </td>
+                            {activeDays.map(d => {
+                              const cell = (grid[slot]||{})[d]||[];
+                              return (
+                                <td key={d} className="px-1.5 py-1.5 border-r border-b border-gray-100 last:border-r-0 align-middle min-w-[90px]">
+                                  {cell.length===0 ? (
+                                    <span className="text-gray-200 text-xs flex justify-center">—</span>
+                                  ) : cell.map((ev,i)=>(
+                                    <motion.div key={ev.id} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:i*0.03}}
+                                      className="rounded-lg px-2 py-1.5 mb-1 last:mb-0"
+                                      style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"18",borderLeft:`3px solid ${ev.tipo_prova_cor||"#3B82F6"}`}}>
+                                      <p className="text-xs font-bold text-gray-800 leading-tight">{ev.titulo}</p>
+                                      {ev.professor && <p className="text-xs text-gray-500 leading-tight mt-0.5">{ev.professor}</p>}
+                                      {ev.sala && <p className="text-xs text-gray-400 leading-tight">Sala {ev.sala}</p>}
+                                    </motion.div>
+                                  ))}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             );
           })())}
