@@ -526,49 +526,6 @@ function CheckoutWizard({
                 </div>
               </div>
 
-              {/* Emolumentos Adicionais — collapsible selector */}
-              {emolList.length > 0 && (
-                <div className="border border-gray-200 rounded-xl overflow-hidden">
-                  <button onClick={() => setEmolOpen(o => !o)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-gray-700">Emolumentos Adicionais</span>
-                      {emolItems.length > 0 && (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">{emolItems.length}</span>
-                      )}
-                    </div>
-                    <ChevronRight size={16} className={`text-gray-400 transition-transform ${emolOpen ? "rotate-90" : ""}`}/>
-                  </button>
-                  {emolOpen && (
-                    <div className="border-t border-gray-200 p-3 space-y-2 bg-gray-50">
-                      <select value={selEmolId} onChange={e => setSelEmolId(e.target.value)}
-                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Tipo de Emolumento *</option>
-                        {emolList.map(e => (
-                          <option key={e.id} value={e.id}>{e.nome} — {fmt(Number(e.montante))}</option>
-                        ))}
-                      </select>
-                      {alunos && alunos.length > 1 && (
-                        <select value={selStudentId} onChange={e => setSelStudentId(e.target.value)}
-                          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                          <option value="">Aluno (opcional)</option>
-                          {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
-                        </select>
-                      )}
-                      <div className="flex gap-2">
-                        <input type="number" min={1} value={selQty}
-                          onChange={e => setSelQty(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Qtd."/>
-                        <button onClick={addEmol} disabled={!selEmolId}
-                          className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-semibold transition-colors">
-                          Adicionar à Referência
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {propinas.some(p => Number(p.multa) > 0) && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
