@@ -6734,12 +6734,35 @@ function ArtigosTab({ token, onPendingChange }: { token: string; onPendingChange
     setDeleting(null); loadData();
   };
   const handleTogglePortal = async (id: number) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, visivel_portal: !i.visivel_portal } : i));
     setToggling(id);
-    await api(`/school/store/items/${id}/toggle-portal`, { method: "PATCH" });
-    setToggling(null); loadData();
+    try {
+      const res = await api(`/school/store/items/${id}/toggle-portal`, { method: "PATCH" });
+      if (res.ok) {
+        const updated = await res.json();
+        setItems(prev => prev.map(i => i.id === id ? updated : i));
+      } else {
+        setItems(prev => prev.map(i => i.id === id ? { ...i, visivel_portal: !i.visivel_portal } : i));
+      }
+    } catch {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, visivel_portal: !i.visivel_portal } : i));
+    } finally {
+      setToggling(null);
+    }
   };
   const handleToggleAtivo = async (id: number) => {
-    await api(`/school/store/items/${id}/toggle-ativo`, { method: "PATCH" }); loadData();
+    setItems(prev => prev.map(i => i.id === id ? { ...i, ativo: !i.ativo } : i));
+    try {
+      const res = await api(`/school/store/items/${id}/toggle-ativo`, { method: "PATCH" });
+      if (res.ok) {
+        const updated = await res.json();
+        setItems(prev => prev.map(i => i.id === id ? updated : i));
+      } else {
+        setItems(prev => prev.map(i => i.id === id ? { ...i, ativo: !i.ativo } : i));
+      }
+    } catch {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, ativo: !i.ativo } : i));
+    }
   };
 
   const isLocked = !!selectedPredefined && !manualMode;

@@ -1752,8 +1752,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     setLoadingStore(true);
     try {
       const sid = selectedStudent?.school_id;
-      const url = sid ? `${API}/guardian/store/items?school_id=${sid}` : `${API}/guardian/store/items`;
-      const res = await fetch(url, { headers });
+      const base = sid ? `${API}/guardian/store/items?school_id=${sid}` : `${API}/guardian/store/items`;
+      const url = `${base}${sid ? "&" : "?"}_t=${Date.now()}`;
+      const res = await fetch(url, { headers, cache: "no-store" });
       if (res.ok) setStoreItems(await res.json());
     } catch {}
     finally { setLoadingStore(false); }
