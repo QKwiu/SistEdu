@@ -7075,7 +7075,7 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
   const [editCal, setEditCal] = useState<any>(null);
   const todayStr = new Date().toISOString().slice(0,10);
   const threeMonthsStr = new Date(Date.now()+90*86400000).toISOString().slice(0,10);
-  const emptyCalForm = { nome:"", tipo:"provas", descricao:"", vigencia_inicio:todayStr, vigencia_fim:threeMonthsStr, alertas_horas:"48" };
+  const emptyCalForm = { nome:"", tipo:"provas", descricao:"", vigencia_inicio:todayStr, vigencia_fim:threeMonthsStr, alertas_horas:"48", gerar_notificacoes:true };
   const [calForm, setCalForm] = useState(emptyCalForm);
   const [savingCal, setSavingCal] = useState(false);
   const [expandedCal, setExpandedCal] = useState<number|null>(null);
@@ -7233,7 +7233,7 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
                     className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${cal.publicado?"bg-amber-50 text-amber-700 hover:bg-amber-100":"bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
                     {togglingPub===cal.id?<RefreshCw className="w-3 h-3 animate-spin inline"/>:(cal.publicado?"Despublicar":"Publicar")}
                   </button>
-                  <button onClick={() => { setEditCal(cal); setCalForm({nome:cal.nome,tipo:cal.tipo,descricao:cal.descricao||"",vigencia_inicio:cal.vigencia_inicio?.slice(0,10)||"",vigencia_fim:cal.vigencia_fim?.slice(0,10)||"",alertas_horas:String(cal.alertas_horas||48)}); setShowCalForm(true); }}
+                  <button onClick={() => { setEditCal(cal); setCalForm({nome:cal.nome,tipo:cal.tipo,descricao:cal.descricao||"",vigencia_inicio:cal.vigencia_inicio?.slice(0,10)||"",vigencia_fim:cal.vigencia_fim?.slice(0,10)||"",alertas_horas:String(cal.alertas_horas||48),gerar_notificacoes:cal.gerar_notificacoes!==false}); setShowCalForm(true); }}
                     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
                   <button onClick={() => deleteCal(cal.id)} disabled={deletingCal===cal.id}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
@@ -7421,6 +7421,21 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Notificações</label>
+                <button type="button" onClick={()=>setCalForm(p=>({...p,gerar_notificacoes:!p.gerar_notificacoes}))}
+                  className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border transition-colors ${calForm.gerar_notificacoes?"border-blue-200 bg-blue-50":"border-slate-200 bg-slate-50"}`}>
+                  <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${calForm.gerar_notificacoes?"bg-blue-600":"bg-slate-300"}`}>
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${calForm.gerar_notificacoes?"left-5":"left-0.5"}`}/>
+                  </div>
+                  <div className="text-left">
+                    <p className={`text-sm font-medium ${calForm.gerar_notificacoes?"text-blue-700":"text-slate-500"}`}>
+                      {calForm.gerar_notificacoes?"Notificações activas":"Notificações desactivadas"}
+                    </p>
+                    <p className="text-xs text-slate-400">Enviar alertas automáticos aos encarregados sobre eventos deste calendário</p>
+                  </div>
+                </button>
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Descrição</label>

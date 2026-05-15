@@ -2026,9 +2026,11 @@ pool.query(`
     vigencia_fim DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '3 months'),
     alertas_horas INTEGER DEFAULT 48,
     publicado BOOLEAN DEFAULT false,
+    gerar_notificacoes BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
   );
+  ALTER TABLE calendarios ADD COLUMN IF NOT EXISTS gerar_notificacoes BOOLEAN DEFAULT true;
   CREATE TABLE IF NOT EXISTS calendario_eventos (
     id SERIAL PRIMARY KEY,
     calendario_id INTEGER NOT NULL,
@@ -2114,13 +2116,13 @@ router.get("/school/calendarios", schoolAuth, async (req: any, res) => {
 router.post("/school/calendarios", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas } = req.body;
+  const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas, gerar_notificacoes } = req.body;
   if (!nome?.trim() || !vigencia_inicio || !vigencia_fim) return res.status(400).json({ error: "Nome e datas de vigência são obrigatórios." });
   if (new Date(vigencia_fim) <= new Date(vigencia_inicio)) return res.status(400).json({ error: "Data de fim deve ser posterior à de início." });
   const r = await pool.query(
-    `INSERT INTO calendarios (school_id, nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [school.school_id, nome.trim(), tipo || 'provas', descricao || null, vigencia_inicio, vigencia_fim, alertas_horas ?? 48]
+    `INSERT INTO calendarios (school_id, nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas, gerar_notificacoes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [school.school_id, nome.trim(), tipo || 'provas', descricao || null, vigencia_inicio, vigencia_fim, alertas_horas ?? 48, gerar_notificacoes !== false]
   );
   res.json(r.rows[0]);
 });
@@ -2129,11 +2131,11 @@ router.post("/school/calendarios", schoolAuth, async (req: any, res) => {
 router.put("/school/calendarios/:id", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas } = req.body;
+  const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas, gerar_notificacoes } = req.body;
   const r = await pool.query(
-    `UPDATE calendarios SET nome=$1, tipo=$2, descricao=$3, vigencia_inicio=$4, vigencia_fim=$5, alertas_horas=$6, updated_at=NOW()
-     WHERE id=$7 AND school_id=$8 RETURNING *`,
-    [nome, tipo || 'provas', descricao || null, vigencia_inicio, vigencia_fim, alertas_horas ?? 48, req.params.id, school.school_id]
+    `UPDATE calendarios SET nome=$1, tipo=$2, descricao=$3, vigencia_inicio=$4, vigencia_fim=$5, alertas_horas=$6, gerar_notificacoes=$7, updated_at=NOW()
+     WHERE id=$8 AND school_id=$9 RETURNING *`,
+    [nome, tipo || 'provas', descricao || null, vigencia_inicio, vigencia_fim, alertas_horas ?? 48, gerar_notificacoes !== false, req.params.id, school.school_id]
   );
   if (!r.rowCount) return res.status(404).json({ error: "Calendário não encontrado." });
   res.json(r.rows[0]);
