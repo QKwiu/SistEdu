@@ -2003,12 +2003,12 @@ router.post("/school/store/orders/:id/marcar-pago", schoolAuth, async (req: any,
 });
 
 /* ══════════════════════════════════════════════════════════
-   MÓDULO: CALENDÁRIO DE AVALIAÇÕES
+   MÓDULO: CALENDÁRIO ESCOLAR
    ══════════════════════════════════════════════════════════ */
 
 /* ─── DB Migration ─── */
 pool.query(`
-  CREATE TABLE IF NOT EXISTS evaluation_types (
+  CREATE TABLE IF NOT EXISTS cal_tipos_prova (
     id SERIAL PRIMARY KEY,
     school_id INTEGER NOT NULL,
     nome TEXT NOT NULL,
@@ -2016,304 +2016,222 @@ pool.query(`
     descricao TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
-  CREATE TABLE IF NOT EXISTS evaluation_calendar (
+  CREATE TABLE IF NOT EXISTS calendarios (
     id SERIAL PRIMARY KEY,
     school_id INTEGER NOT NULL,
-    tipo_id INTEGER,
-    tipo_nome TEXT,
-    disciplina TEXT NOT NULL,
-    turma_id INTEGER,
-    turma_nome TEXT,
-    professor TEXT NOT NULL,
-    data_inicio TIMESTAMPTZ NOT NULL,
-    data_fim TIMESTAMPTZ NOT NULL,
-    sala TEXT,
-    estado TEXT DEFAULT 'rascunho' CHECK (estado IN ('rascunho','publicado','cancelado')),
-    notas TEXT,
-    created_by TEXT DEFAULT 'admin',
+    nome TEXT NOT NULL,
+    tipo TEXT DEFAULT 'provas' CHECK (tipo IN ('aulas','provas')),
+    descricao TEXT,
+    vigencia_inicio DATE NOT NULL DEFAULT CURRENT_DATE,
+    vigencia_fim DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '3 months'),
+    alertas_horas INTEGER DEFAULT 48,
+    publicado BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
   );
-  CREATE TABLE IF NOT EXISTS evaluation_audit_log (
+  CREATE TABLE IF NOT EXISTS calendario_eventos (
     id SERIAL PRIMARY KEY,
-    evaluation_id INTEGER NOT NULL,
+    calendario_id INTEGER NOT NULL,
     school_id INTEGER NOT NULL,
-    acao TEXT NOT NULL,
-    utilizador TEXT DEFAULT 'admin',
-    dados_anteriores JSONB,
-    dados_novos JSONB,
+    turma_id INTEGER,
+    turma_nome TEXT,
+    titulo TEXT NOT NULL,
+    tipo_prova_id INTEGER,
+    tipo_prova_nome TEXT,
+    tipo_prova_cor TEXT DEFAULT '#3B82F6',
+    professor TEXT,
+    sala TEXT,
+    data_inicio TIMESTAMPTZ,
+    data_fim TIMESTAMPTZ,
+    dia_semana INTEGER,
+    hora_inicio_aula TIME,
+    hora_fim_aula TIME,
+    descricao TEXT,
+    publicado BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
-  CREATE TABLE IF NOT EXISTS evaluation_notification_config (
-    id SERIAL PRIMARY KEY,
-    school_id INTEGER UNIQUE NOT NULL,
-    horas_antecedencia INTEGER DEFAULT 48,
-    notificar_sms BOOLEAN DEFAULT false,
-    notificar_portal BOOLEAN DEFAULT true,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-  );
-`).catch(e => console.error("evaluation tables migration error:", e));
+`).catch(e => console.error("calendario migration error:", e));
 
-/* ─── GET /school/avaliacoes/tipos ─── */
-router.get("/school/avaliacoes/tipos", schoolAuth, async (req: any, res) => {
+/* ─── GET /school/calendario/tipos-prova ─── */
+router.get("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const r = await pool.query(
-    `SELECT * FROM evaluation_types WHERE school_id=$1 ORDER BY nome ASC`,
-    [school.school_id]
-  );
+  const r = await pool.query(`SELECT * FROM cal_tipos_prova WHERE school_id=$1 ORDER BY nome`, [school.school_id]);
   res.json(r.rows);
 });
 
-/* ─── POST /school/avaliacoes/tipos ─── */
-router.post("/school/avaliacoes/tipos", schoolAuth, async (req: any, res) => {
+/* ─── POST /school/calendario/tipos-prova ─── */
+router.post("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, cor, descricao } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
   const r = await pool.query(
-    `INSERT INTO evaluation_types (school_id, nome, cor, descricao) VALUES ($1,$2,$3,$4) RETURNING *`,
+    `INSERT INTO cal_tipos_prova (school_id, nome, cor, descricao) VALUES ($1,$2,$3,$4) RETURNING *`,
     [school.school_id, nome.trim(), cor || '#3B82F6', descricao || null]
   );
   res.json(r.rows[0]);
 });
 
-/* ─── PUT /school/avaliacoes/tipos/:id ─── */
-router.put("/school/avaliacoes/tipos/:id", schoolAuth, async (req: any, res) => {
+/* ─── PUT /school/calendario/tipos-prova/:id ─── */
+router.put("/school/calendario/tipos-prova/:id", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, cor, descricao } = req.body;
   const r = await pool.query(
-    `UPDATE evaluation_types SET nome=$1, cor=$2, descricao=$3 WHERE id=$4 AND school_id=$5 RETURNING *`,
-    [nome, cor, descricao, req.params.id, school.school_id]
+    `UPDATE cal_tipos_prova SET nome=$1, cor=$2, descricao=$3 WHERE id=$4 AND school_id=$5 RETURNING *`,
+    [nome, cor || '#3B82F6', descricao || null, req.params.id, school.school_id]
   );
   if (!r.rowCount) return res.status(404).json({ error: "Tipo não encontrado." });
   res.json(r.rows[0]);
 });
 
-/* ─── DELETE /school/avaliacoes/tipos/:id ─── */
-router.delete("/school/avaliacoes/tipos/:id", schoolAuth, async (req: any, res) => {
+/* ─── DELETE /school/calendario/tipos-prova/:id ─── */
+router.delete("/school/calendario/tipos-prova/:id", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  await pool.query(
-    `DELETE FROM evaluation_types WHERE id=$1 AND school_id=$2`,
+  await pool.query(`DELETE FROM cal_tipos_prova WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
+  res.json({ ok: true });
+});
+
+/* ─── GET /school/calendarios ─── */
+router.get("/school/calendarios", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT *,
+      CASE WHEN vigencia_inicio > CURRENT_DATE THEN 'programado'
+           WHEN vigencia_fim < CURRENT_DATE THEN 'historico'
+           ELSE 'activo' END AS status,
+      (SELECT COUNT(*)::int FROM calendario_eventos WHERE calendario_id=calendarios.id) AS total_eventos
+     FROM calendarios WHERE school_id=$1 ORDER BY vigencia_inicio DESC`,
+    [school.school_id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /school/calendarios ─── */
+router.post("/school/calendarios", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas } = req.body;
+  if (!nome?.trim() || !vigencia_inicio || !vigencia_fim) return res.status(400).json({ error: "Nome e datas de vigência são obrigatórios." });
+  if (new Date(vigencia_fim) <= new Date(vigencia_inicio)) return res.status(400).json({ error: "Data de fim deve ser posterior à de início." });
+  const r = await pool.query(
+    `INSERT INTO calendarios (school_id, nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [school.school_id, nome.trim(), tipo || 'provas', descricao || null, vigencia_inicio, vigencia_fim, alertas_horas ?? 48]
+  );
+  res.json(r.rows[0]);
+});
+
+/* ─── PUT /school/calendarios/:id ─── */
+router.put("/school/calendarios/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas } = req.body;
+  const r = await pool.query(
+    `UPDATE calendarios SET nome=$1, tipo=$2, descricao=$3, vigencia_inicio=$4, vigencia_fim=$5, alertas_horas=$6, updated_at=NOW()
+     WHERE id=$7 AND school_id=$8 RETURNING *`,
+    [nome, tipo || 'provas', descricao || null, vigencia_inicio, vigencia_fim, alertas_horas ?? 48, req.params.id, school.school_id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Calendário não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── DELETE /school/calendarios/:id ─── */
+router.delete("/school/calendarios/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query(`DELETE FROM calendarios WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
+  res.json({ ok: true });
+});
+
+/* ─── PATCH /school/calendarios/:id/publicar ─── */
+router.patch("/school/calendarios/:id/publicar", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `UPDATE calendarios SET publicado=NOT publicado, updated_at=NOW() WHERE id=$1 AND school_id=$2 RETURNING *`,
     [req.params.id, school.school_id]
   );
-  res.json({ ok: true });
+  if (!r.rowCount) return res.status(404).json({ error: "Calendário não encontrado." });
+  res.json(r.rows[0]);
 });
 
-/* ─── GET /school/avaliacoes ─── */
-router.get("/school/avaliacoes", schoolAuth, async (req: any, res) => {
+/* ─── GET /school/calendarios/:id/eventos ─── */
+router.get("/school/calendarios/:id/eventos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { mes, ano, turma_id, estado } = req.query as Record<string, string>;
-  const conditions: string[] = ["ec.school_id=$1"];
-  const params: any[] = [school.school_id];
-  if (mes && ano) {
-    params.push(`${ano}-${mes.padStart(2,"0")}-01`);
-    conditions.push(`date_trunc('month', ec.data_inicio)=date_trunc('month', $${params.length}::date)`);
-  }
-  if (turma_id) { params.push(turma_id); conditions.push(`ec.turma_id=$${params.length}`); }
-  if (estado) { params.push(estado); conditions.push(`ec.estado=$${params.length}`); }
   const r = await pool.query(
-    `SELECT ec.*, et.nome AS tipo_label, et.cor AS tipo_cor, t.nome AS turma_nome_ref
-     FROM evaluation_calendar ec
-     LEFT JOIN evaluation_types et ON et.id = ec.tipo_id
-     LEFT JOIN turmas t ON t.id = ec.turma_id
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY ec.data_inicio ASC`,
-    params
+    `SELECT * FROM calendario_eventos WHERE calendario_id=$1 AND school_id=$2
+     ORDER BY data_inicio ASC NULLS LAST, dia_semana ASC NULLS LAST, hora_inicio_aula ASC NULLS LAST`,
+    [req.params.id, school.school_id]
   );
   res.json(r.rows);
 });
 
-/* helper: conflict check */
-async function checkConflict(schoolId: number, turmaId: number | null, sala: string | null, dataInicio: string, dataFim: string, excludeId?: number) {
-  const conflicts: any[] = [];
-  if (turmaId) {
-    const r = await pool.query(
-      `SELECT id, disciplina, turma_nome, data_inicio, data_fim FROM evaluation_calendar
-       WHERE school_id=$1 AND turma_id=$2 AND estado<>'cancelado'
-         AND id<>COALESCE($3,0)
-         AND data_inicio < $4 AND data_fim > $5`,
-      [schoolId, turmaId, excludeId || 0, dataFim, dataInicio]
-    );
-    r.rows.forEach(row => conflicts.push({ tipo: "turma", ...row }));
-  }
-  if (sala?.trim()) {
-    const r = await pool.query(
-      `SELECT id, disciplina, turma_nome, data_inicio, data_fim FROM evaluation_calendar
-       WHERE school_id=$1 AND LOWER(sala)=LOWER($2) AND estado<>'cancelado'
-         AND id<>COALESCE($3,0)
-         AND data_inicio < $4 AND data_fim > $5`,
-      [schoolId, sala.trim(), excludeId || 0, dataFim, dataInicio]
-    );
-    r.rows.forEach(row => conflicts.push({ tipo: "sala", ...row }));
-  }
-  return conflicts;
-}
-
-/* ─── POST /school/avaliacoes ─── */
-router.post("/school/avaliacoes", schoolAuth, async (req: any, res) => {
+/* ─── POST /school/calendarios/:id/eventos ─── */
+router.post("/school/calendarios/:id/eventos", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { tipo_id, disciplina, turma_id, turma_nome, professor, data_inicio, data_fim, sala, notas, force } = req.body;
-  if (!disciplina || !professor || !data_inicio || !data_fim)
-    return res.status(400).json({ error: "Disciplina, professor, data início e fim são obrigatórios." });
-  if (new Date(data_fim) <= new Date(data_inicio))
-    return res.status(400).json({ error: "Data de fim deve ser posterior à de início." });
-
-  const conflicts = await checkConflict(school.school_id, turma_id || null, sala || null, data_inicio, data_fim);
-  if (conflicts.length && !force)
-    return res.status(409).json({ error: "Conflito de horário detectado.", conflicts });
-
-  let tipoNome: string | null = null;
-  if (tipo_id) {
-    const t = await pool.query(`SELECT nome FROM evaluation_types WHERE id=$1 AND school_id=$2`, [tipo_id, school.school_id]);
-    tipoNome = t.rows[0]?.nome || null;
+  const calR = await pool.query(`SELECT * FROM calendarios WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
+  if (!calR.rowCount) return res.status(404).json({ error: "Calendário não encontrado." });
+  const cal = calR.rows[0];
+  const { turma_id, turma_nome, titulo, tipo_prova_id, tipo_prova_nome, tipo_prova_cor, professor, sala, data_inicio, data_fim, dia_semana, hora_inicio_aula, hora_fim_aula, descricao } = req.body;
+  if (!titulo?.trim()) return res.status(400).json({ error: "Título é obrigatório." });
+  // Conflict detection — provas
+  if (cal.tipo === 'provas' && data_inicio && data_fim && (professor || sala)) {
+    const conds: string[] = []; const params: any[] = [school.school_id, data_inicio, data_fim];
+    if (professor) { params.push(professor); conds.push(`professor=$${params.length}`); }
+    if (sala) { params.push(sala); conds.push(`sala=$${params.length}`); }
+    const cc = await pool.query(
+      `SELECT titulo FROM calendario_eventos WHERE school_id=$1 AND publicado=true AND data_inicio < $3 AND data_fim > $2 AND (${conds.join(' OR ')})`,
+      params
+    );
+    if (cc.rowCount) return res.status(409).json({ error: `Conflito: "${cc.rows[0].titulo}" ocupa o mesmo ${sala ? 'sala' : 'professor'} nesse período.` });
   }
-
+  // Conflict detection — aulas
+  if (cal.tipo === 'aulas' && dia_semana !== undefined && hora_inicio_aula && hora_fim_aula && (professor || sala)) {
+    const conds: string[] = []; const params: any[] = [school.school_id, Number(dia_semana), hora_inicio_aula, hora_fim_aula];
+    if (professor) { params.push(professor); conds.push(`professor=$${params.length}`); }
+    if (sala) { params.push(sala); conds.push(`sala=$${params.length}`); }
+    const cc = await pool.query(
+      `SELECT titulo FROM calendario_eventos WHERE school_id=$1 AND dia_semana=$2 AND publicado=true AND hora_inicio_aula < $4 AND hora_fim_aula > $3 AND (${conds.join(' OR ')})`,
+      params
+    );
+    if (cc.rowCount) return res.status(409).json({ error: `Conflito: "${cc.rows[0].titulo}" ocupa o mesmo ${sala ? 'sala' : 'professor'} nesse horário.` });
+  }
   const r = await pool.query(
-    `INSERT INTO evaluation_calendar (school_id,tipo_id,tipo_nome,disciplina,turma_id,turma_nome,professor,data_inicio,data_fim,sala,notas,estado)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'rascunho') RETURNING *`,
-    [school.school_id, tipo_id || null, tipoNome, disciplina, turma_id || null, turma_nome || null, professor, data_inicio, data_fim, sala || null, notas || null]
-  );
-  await pool.query(
-    `INSERT INTO evaluation_audit_log (evaluation_id,school_id,acao,dados_novos) VALUES ($1,$2,'criado',$3)`,
-    [r.rows[0].id, school.school_id, JSON.stringify(r.rows[0])]
+    `INSERT INTO calendario_eventos
+     (calendario_id, school_id, turma_id, turma_nome, titulo, tipo_prova_id, tipo_prova_nome, tipo_prova_cor, professor, sala, data_inicio, data_fim, dia_semana, hora_inicio_aula, hora_fim_aula, descricao)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+    [req.params.id, school.school_id, turma_id || null, turma_nome || null, titulo.trim(), tipo_prova_id || null, tipo_prova_nome || null, tipo_prova_cor || '#3B82F6', professor || null, sala || null, data_inicio || null, data_fim || null, (dia_semana !== undefined && dia_semana !== '') ? Number(dia_semana) : null, hora_inicio_aula || null, hora_fim_aula || null, descricao || null]
   );
   res.json(r.rows[0]);
 });
 
-/* ─── PUT /school/avaliacoes/:id ─── */
-router.put("/school/avaliacoes/:id", schoolAuth, async (req: any, res) => {
+/* ─── PUT /school/calendarios/:id/eventos/:eid ─── */
+router.put("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { tipo_id, disciplina, turma_id, turma_nome, professor, data_inicio, data_fim, sala, notas, force } = req.body;
-  if (new Date(data_fim) <= new Date(data_inicio))
-    return res.status(400).json({ error: "Data de fim deve ser posterior à de início." });
-
-  const prev = await pool.query(`SELECT * FROM evaluation_calendar WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
-  if (!prev.rowCount) return res.status(404).json({ error: "Avaliação não encontrada." });
-
-  const conflicts = await checkConflict(school.school_id, turma_id || null, sala || null, data_inicio, data_fim, Number(req.params.id));
-  if (conflicts.length && !force)
-    return res.status(409).json({ error: "Conflito de horário detectado.", conflicts });
-
-  let tipoNome: string | null = null;
-  if (tipo_id) {
-    const t = await pool.query(`SELECT nome FROM evaluation_types WHERE id=$1 AND school_id=$2`, [tipo_id, school.school_id]);
-    tipoNome = t.rows[0]?.nome || null;
-  }
-
+  const { turma_id, turma_nome, titulo, tipo_prova_id, tipo_prova_nome, tipo_prova_cor, professor, sala, data_inicio, data_fim, dia_semana, hora_inicio_aula, hora_fim_aula, descricao, publicado } = req.body;
   const r = await pool.query(
-    `UPDATE evaluation_calendar
-     SET tipo_id=$1,tipo_nome=$2,disciplina=$3,turma_id=$4,turma_nome=$5,professor=$6,data_inicio=$7,data_fim=$8,sala=$9,notas=$10,updated_at=NOW()
-     WHERE id=$11 AND school_id=$12 RETURNING *`,
-    [tipo_id || null, tipoNome, disciplina, turma_id || null, turma_nome || null, professor, data_inicio, data_fim, sala || null, notas || null, req.params.id, school.school_id]
+    `UPDATE calendario_eventos SET turma_id=$1, turma_nome=$2, titulo=$3, tipo_prova_id=$4, tipo_prova_nome=$5, tipo_prova_cor=$6,
+     professor=$7, sala=$8, data_inicio=$9, data_fim=$10, dia_semana=$11, hora_inicio_aula=$12, hora_fim_aula=$13, descricao=$14, publicado=$15
+     WHERE id=$16 AND calendario_id=$17 AND school_id=$18 RETURNING *`,
+    [turma_id || null, turma_nome || null, titulo, tipo_prova_id || null, tipo_prova_nome || null, tipo_prova_cor || '#3B82F6', professor || null, sala || null, data_inicio || null, data_fim || null, (dia_semana !== undefined && dia_semana !== '') ? Number(dia_semana) : null, hora_inicio_aula || null, hora_fim_aula || null, descricao || null, publicado !== false, req.params.eid, req.params.id, school.school_id]
   );
-  await pool.query(
-    `INSERT INTO evaluation_audit_log (evaluation_id,school_id,acao,dados_anteriores,dados_novos) VALUES ($1,$2,'editado',$3,$4)`,
-    [req.params.id, school.school_id, JSON.stringify(prev.rows[0]), JSON.stringify(r.rows[0])]
-  );
+  if (!r.rowCount) return res.status(404).json({ error: "Evento não encontrado." });
   res.json(r.rows[0]);
 });
 
-/* ─── DELETE /school/avaliacoes/:id ─── */
-router.delete("/school/avaliacoes/:id", schoolAuth, async (req: any, res) => {
+/* ─── DELETE /school/calendarios/:id/eventos/:eid ─── */
+router.delete("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const prev = await pool.query(`SELECT * FROM evaluation_calendar WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
-  if (!prev.rowCount) return res.status(404).json({ error: "Avaliação não encontrada." });
-  await pool.query(`DELETE FROM evaluation_calendar WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
-  await pool.query(
-    `INSERT INTO evaluation_audit_log (evaluation_id,school_id,acao,dados_anteriores) VALUES ($1,$2,'eliminado',$3)`,
-    [req.params.id, school.school_id, JSON.stringify(prev.rows[0])]
-  );
+  await pool.query(`DELETE FROM calendario_eventos WHERE id=$1 AND calendario_id=$2 AND school_id=$3`, [req.params.eid, req.params.id, school.school_id]);
   res.json({ ok: true });
-});
-
-/* ─── POST /school/avaliacoes/:id/publicar ─── */
-router.post("/school/avaliacoes/:id/publicar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const novoEstado = req.body.estado === "rascunho" ? "rascunho" : "publicado";
-  const prev = await pool.query(`SELECT * FROM evaluation_calendar WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
-  if (!prev.rowCount) return res.status(404).json({ error: "Avaliação não encontrada." });
-  const r = await pool.query(
-    `UPDATE evaluation_calendar SET estado=$1, updated_at=NOW() WHERE id=$2 AND school_id=$3 RETURNING *`,
-    [novoEstado, req.params.id, school.school_id]
-  );
-  await pool.query(
-    `INSERT INTO evaluation_audit_log (evaluation_id,school_id,acao,dados_anteriores,dados_novos) VALUES ($1,$2,$3,$4,$5)`,
-    [req.params.id, school.school_id, novoEstado === "publicado" ? "publicado" : "voltou_rascunho", JSON.stringify(prev.rows[0]), JSON.stringify(r.rows[0])]
-  );
-  res.json(r.rows[0]);
-});
-
-/* ─── GET /school/avaliacoes/export/csv ─── */
-router.get("/school/avaliacoes/export/csv", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const r = await pool.query(
-    `SELECT ec.disciplina, ec.tipo_nome, ec.turma_nome, ec.professor, ec.sala,
-            to_char(ec.data_inicio AT TIME ZONE 'Africa/Luanda','DD/MM/YYYY HH24:MI') AS inicio,
-            to_char(ec.data_fim AT TIME ZONE 'Africa/Luanda','DD/MM/YYYY HH24:MI') AS fim,
-            ec.estado, ec.notas
-     FROM evaluation_calendar ec
-     WHERE ec.school_id=$1 ORDER BY ec.data_inicio ASC`,
-    [school.school_id]
-  );
-  const header = "Disciplina;Tipo;Turma;Professor;Sala;Início;Fim;Estado;Notas\n";
-  const rows = r.rows.map(row =>
-    [row.disciplina, row.tipo_nome || "", row.turma_nome || "", row.professor, row.sala || "", row.inicio, row.fim, row.estado, row.notas || ""].join(";")
-  ).join("\n");
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="calendario_avaliacoes.csv"`);
-  res.send("\uFEFF" + header + rows);
-});
-
-/* ─── GET /school/avaliacoes/auditoria ─── */
-router.get("/school/avaliacoes/auditoria", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const r = await pool.query(
-    `SELECT al.*, ec.disciplina, ec.turma_nome
-     FROM evaluation_audit_log al
-     LEFT JOIN evaluation_calendar ec ON ec.id = al.evaluation_id
-     WHERE al.school_id=$1 ORDER BY al.created_at DESC LIMIT 100`,
-    [school.school_id]
-  );
-  res.json(r.rows);
-});
-
-/* ─── GET /school/avaliacoes/config-notificacoes ─── */
-router.get("/school/avaliacoes/config-notificacoes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const r = await pool.query(
-    `SELECT * FROM evaluation_notification_config WHERE school_id=$1`,
-    [school.school_id]
-  );
-  if (!r.rowCount)
-    return res.json({ horas_antecedencia: 48, notificar_sms: false, notificar_portal: true });
-  res.json(r.rows[0]);
-});
-
-/* ─── PUT /school/avaliacoes/config-notificacoes ─── */
-router.put("/school/avaliacoes/config-notificacoes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { horas_antecedencia, notificar_sms, notificar_portal } = req.body;
-  const r = await pool.query(
-    `INSERT INTO evaluation_notification_config (school_id, horas_antecedencia, notificar_sms, notificar_portal)
-     VALUES ($1,$2,$3,$4)
-     ON CONFLICT (school_id) DO UPDATE SET
-       horas_antecedencia=$2, notificar_sms=$3, notificar_portal=$4, updated_at=NOW()
-     RETURNING *`,
-    [school.school_id, horas_antecedencia ?? 48, notificar_sms ?? false, notificar_portal ?? true]
-  );
-  res.json(r.rows[0]);
 });
 
 export default router;

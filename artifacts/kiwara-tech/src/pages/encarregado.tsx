@@ -1632,8 +1632,11 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [loadingOcorrencias, setLoadingOcorrencias] = useState(false);
 
   // Avaliações
-  const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
-  const [loadingAvaliacoes, setLoadingAvaliacoes] = useState(false);
+  const [calSub, setCalSub] = useState<"provas"|"horario">("provas");
+  const [horario, setHorario] = useState<any[]>([]);
+  const [provas, setProvas] = useState<any[]>([]);
+  const [loadingHorario, setLoadingHorario] = useState(false);
+  const [loadingProvas, setLoadingProvas] = useState(false);
 
   // Loja
   const [storeItems, setStoreItems] = useState<any[]>([]);
@@ -1729,13 +1732,20 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     } catch { setDdSubscription(null); }
   }, [token]);
 
-  const loadAvaliacoes = useCallback(async () => {
-    setLoadingAvaliacoes(true);
+  const loadHorario = useCallback(async () => {
+    setLoadingHorario(true);
     try {
-      const res = await fetch(`${API}/guardian/avaliacoes`, { headers });
-      if (res.ok) setAvaliacoes(await res.json());
-    } catch {}
-    finally { setLoadingAvaliacoes(false); }
+      const res = await fetch(`${API}/guardian/horario`, { headers });
+      if (res.ok) setHorario(await res.json());
+    } catch {} finally { setLoadingHorario(false); }
+  }, [token]);
+
+  const loadProvas = useCallback(async () => {
+    setLoadingProvas(true);
+    try {
+      const res = await fetch(`${API}/guardian/provas`, { headers });
+      if (res.ok) setProvas(await res.json());
+    } catch {} finally { setLoadingProvas(false); }
   }, [token]);
 
   const loadStoreItems = useCallback(async () => {
@@ -1769,7 +1779,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
-  useEffect(() => { if (activeMenu === "avaliacoes") loadAvaliacoes(); }, [activeMenu]);
+  useEffect(() => { if (activeMenu === "avaliacoes") { loadHorario(); loadProvas(); } }, [activeMenu]);
   useEffect(() => { if (activeMenu === "loja") { loadStoreItems(); loadStoreOrders(); } }, [activeMenu, selectedStudent?.school_id]);
 
   // Load per-school data on initial mount (no specific school yet — auto-detect)
@@ -1844,7 +1854,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     { key: "facturas",    label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
     { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
     { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
-    { key: "avaliacoes",  label: "Calendário de Avaliações",            icon: <CalendarDays size={16} /> },
+    { key: "avaliacoes",  label: "Calendário Escolar",            icon: <CalendarDays size={16} /> },
     { key: "loja",        label: "Outros Emolumentos & Artigos",         icon: <ShoppingCart size={16} /> },
   ];
 
@@ -2431,99 +2441,95 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           )}
         </>}{/* end comunicados screen */}
 
-        {/* ══ ECRÃ: CALENDÁRIO DE AVALIAÇÕES ══ */}
+        {/* ══ ECRÃ: CALENDÁRIO ESCOLAR ══ */}
         {activeMenu === "avaliacoes" && <>
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-              <CalendarDays size={12}/> Calendário de Avaliações
+              <CalendarDays size={12}/> Calendário Escolar
             </p>
-            <button onClick={loadAvaliacoes} disabled={loadingAvaliacoes}
+            <button onClick={() => { loadHorario(); loadProvas(); }} disabled={loadingHorario || loadingProvas}
               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 disabled:opacity-50">
-              <RefreshCw size={13} className={loadingAvaliacoes ? "animate-spin" : ""}/>
+              <RefreshCw size={13} className={(loadingHorario || loadingProvas) ? "animate-spin" : ""}/>
             </button>
           </div>
 
-          {loadingAvaliacoes ? (
+          {/* Sub-tabs */}
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
+            {([["provas","Calendário de Provas"],["horario","Horário de Aulas"]] as const).map(([k,l]) => (
+              <button key={k} onClick={() => setCalSub(k)}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${calSub===k?"bg-white shadow text-gray-900":"text-gray-500"}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {/* ── PROVAS ── */}
+          {calSub === "provas" && (loadingProvas ? (
             <div className="flex items-center justify-center py-16">
-              <RefreshCw size={24} className="animate-spin text-blue-500"/>
+              <RefreshCw size={22} className="animate-spin text-blue-500"/>
             </div>
-          ) : avaliacoes.length === 0 ? (
+          ) : provas.length === 0 ? (
             <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
-              <CalendarDays size={36} className="text-gray-200 mx-auto mb-3"/>
-              <p className="font-semibold text-gray-400">Sem avaliações publicadas</p>
-              <p className="text-gray-300 text-xs mt-1">Ainda não existem avaliações publicadas para os seus educandos.</p>
+              <BookOpen size={34} className="text-gray-200 mx-auto mb-3"/>
+              <p className="font-semibold text-gray-400">Sem provas publicadas</p>
+              <p className="text-gray-300 text-xs mt-1">Não há provas agendadas para os seus educandos.</p>
             </div>
           ) : (() => {
-            // group by month
-            const byMonth: Record<string, any[]> = {};
-            avaliacoes.forEach(ev => {
+            const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+            const byMonth: Record<string,any[]> = {};
+            provas.forEach(ev => {
               const d = new Date(ev.data_inicio);
               const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
               if (!byMonth[key]) byMonth[key] = [];
               byMonth[key].push(ev);
             });
-            const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
             return (
               <div className="space-y-5 pb-6">
-                {Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([key, evs]) => {
-                  const [yr, mo] = key.split("-");
+                {Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([key,evs]) => {
+                  const [yr,mo] = key.split("-");
                   return (
                     <div key={key}>
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                        <Calendar size={11}/> {MESES[Number(mo)-1]} {yr}
+                        <Calendar size={11}/> {MESES_PT[Number(mo)-1]} {yr}
                       </p>
                       <div className="space-y-2">
-                        {evs.map((ev, i) => {
+                        {evs.map((ev,i) => {
                           const inicio = new Date(ev.data_inicio);
-                          const fim = new Date(ev.data_fim);
+                          const fim = ev.data_fim ? new Date(ev.data_fim) : null;
                           const isUpcoming = inicio > new Date();
-                          const fmtData = (d: Date) => d.toLocaleString("pt-AO", { weekday:"short", day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" });
-                          const fmtHora = (d: Date) => d.toLocaleTimeString("pt-AO", { hour:"2-digit", minute:"2-digit" });
                           return (
-                            <motion.div key={ev.id} initial={{ opacity:0, y:5 }} animate={{ opacity:1, y:0 }} transition={{ delay: i * 0.04 }}
+                            <motion.div key={ev.id} initial={{opacity:0,y:5}} animate={{opacity:1,y:0}} transition={{delay:i*0.04}}
                               className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex">
-                              {/* color bar */}
-                              <div className="w-1 shrink-0" style={{ backgroundColor: ev.tipo_cor || "#6366f1" }}/>
+                              <div className="w-1 shrink-0" style={{backgroundColor:ev.tipo_prova_cor||"#6366f1"}}/>
                               <div className="flex-1 p-4">
-                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                                      <span className="font-bold text-gray-900 text-sm">{ev.disciplina}</span>
-                                      {ev.tipo_nome && (
+                                      <span className="font-bold text-gray-900 text-sm">{ev.titulo}</span>
+                                      {ev.tipo_prova_nome && (
                                         <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                                          style={{ backgroundColor:(ev.tipo_cor||"#6366f1")+"20", color:ev.tipo_cor||"#6366f1" }}>
-                                          {ev.tipo_nome}
+                                          style={{backgroundColor:(ev.tipo_prova_cor||"#6366f1")+"20",color:ev.tipo_prova_cor||"#6366f1"}}>
+                                          {ev.tipo_prova_nome}
                                         </span>
                                       )}
                                       {isUpcoming && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                                          Próxima
-                                        </span>
+                                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-600 border border-blue-100">Próxima</span>
                                       )}
                                     </div>
                                     <p className="text-xs text-gray-500 flex items-center gap-1 mb-0.5">
-                                      <Clock size={10}/> {fmtData(inicio)} → {fmtHora(fim)}
+                                      <Clock size={10}/>
+                                      {inicio.toLocaleString("pt-AO",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
+                                      {fim && ` → ${fim.toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})}`}
                                     </p>
-                                    {ev.turma_nome && (
-                                      <p className="text-xs text-gray-400 flex items-center gap-1 mb-0.5">
-                                        <Users size={10}/> {ev.turma_nome}
-                                      </p>
-                                    )}
-                                    {ev.sala && (
-                                      <p className="text-xs text-gray-400 flex items-center gap-1">
-                                        <Calendar size={10}/> Sala: {ev.sala}
-                                      </p>
-                                    )}
-                                    {ev.notas && (
-                                      <p className="text-xs text-gray-400 mt-1 italic">{ev.notas}</p>
-                                    )}
+                                    {ev.turma_nome && <p className="text-xs text-gray-400 flex items-center gap-1 mb-0.5"><Users size={10}/> {ev.turma_nome}</p>}
+                                    {ev.sala && <p className="text-xs text-gray-400 flex items-center gap-1"><Calendar size={10}/> Sala: {ev.sala}</p>}
+                                    {ev.professor && <p className="text-xs text-gray-400 mt-1">Prof. {ev.professor}</p>}
                                   </div>
                                   <div className="text-right shrink-0">
                                     <p className="text-xl font-black text-gray-900 leading-none">{String(inicio.getDate()).padStart(2,"0")}</p>
-                                    <p className="text-xs text-gray-400">{MESES[inicio.getMonth()].slice(0,3)}</p>
+                                    <p className="text-xs text-gray-400">{MESES_PT[inicio.getMonth()].slice(0,3)}</p>
                                   </div>
                                 </div>
-                                <p className="text-xs text-gray-400 mt-2">Prof. {ev.professor} {ev.escola_nome ? `· ${ev.escola_nome}` : ""}</p>
                               </div>
                             </motion.div>
                           );
@@ -2534,8 +2540,62 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                 })}
               </div>
             );
-          })()}
-        </>}{/* end avaliacoes screen */}
+          })())}
+
+          {/* ── HORÁRIO ── */}
+          {calSub === "horario" && (loadingHorario ? (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw size={22} className="animate-spin text-blue-500"/>
+            </div>
+          ) : horario.length === 0 ? (
+            <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+              <Clock size={34} className="text-gray-200 mx-auto mb-3"/>
+              <p className="font-semibold text-gray-400">Sem horário publicado</p>
+              <p className="text-gray-300 text-xs mt-1">O horário de aulas ainda não foi publicado.</p>
+            </div>
+          ) : (() => {
+            const DIAS_PT = ["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+            return (
+              <div className="space-y-4 pb-6">
+                {DIAS_PT.map((dia, idx) => {
+                  const dayEvts = horario.filter(e => Number(e.dia_semana)===idx);
+                  if (!dayEvts.length) return null;
+                  return (
+                    <div key={idx}>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{dia}</p>
+                      <div className="space-y-2">
+                        {dayEvts.sort((a,b)=>(a.hora_inicio_aula||"").localeCompare(b.hora_inicio_aula||"")).map((ev,i) => (
+                          <motion.div key={ev.id} initial={{opacity:0,y:5}} animate={{opacity:1,y:0}} transition={{delay:i*0.04}}
+                            className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex">
+                            <div className="w-1 shrink-0" style={{backgroundColor:ev.tipo_prova_cor||"#3B82F6"}}/>
+                            <div className="flex-1 p-4">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <span className="font-bold text-gray-900 text-sm">{ev.titulo}</span>
+                                  <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                                    <Clock size={10}/> {ev.hora_inicio_aula?.slice(0,5)} - {ev.hora_fim_aula?.slice(0,5)}
+                                  </p>
+                                  {ev.professor && <p className="text-xs text-gray-400 mt-0.5">Prof. {ev.professor}</p>}
+                                  {ev.turma_nome && <p className="text-xs text-gray-400 flex items-center gap-1"><Users size={10}/> {ev.turma_nome}</p>}
+                                </div>
+                                {ev.sala && (
+                                  <div className="text-right shrink-0">
+                                    <p className="text-xs text-gray-400">Sala</p>
+                                    <p className="font-bold text-gray-900 text-sm">{ev.sala}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })())}
+        </>}{/* end calendário screen */}
 
         {/* ══ ECRÃ: LOJA & EMOLUMENTOS ══ */}
         {activeMenu === "loja" && (() => {

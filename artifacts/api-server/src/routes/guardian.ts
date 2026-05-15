@@ -944,29 +944,65 @@ router.get("/guardian/store/orders", authMiddleware, async (req: any, res) => {
   res.json(r.rows);
 });
 
-/* ─── GET /guardian/avaliacoes ─── */
-router.get("/guardian/avaliacoes", authMiddleware, async (req: any, res) => {
+/* ─── GET /guardian/horario ─── */
+router.get("/guardian/horario", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
-  // get all school_ids for this guardian's students
   const studs = await pool.query(
-    `SELECT DISTINCT s.school_id FROM students s
-     JOIN encarregado_aluno ea ON ea.student_id = s.id
+    `SELECT DISTINCT s.school_id, s.turma_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
      WHERE ea.encarregado_id=$1`,
     [guardian.id]
   );
   if (!studs.rowCount) return res.json([]);
   const schoolIds = studs.rows.map((r: any) => r.school_id);
+  const turmaIds = studs.rows.map((r: any) => r.turma_id).filter(Boolean);
   const r = await pool.query(
-    `SELECT ec.id, ec.disciplina, ec.tipo_nome, ec.tipo_id, ec.turma_id, ec.turma_nome,
-            ec.professor, ec.data_inicio, ec.data_fim, ec.sala, ec.notas, ec.estado,
-            et.cor AS tipo_cor, s.name AS escola_nome
-     FROM evaluation_calendar ec
-     JOIN schools s ON s.id = ec.school_id
-     LEFT JOIN evaluation_types et ON et.id = ec.tipo_id
-     WHERE ec.school_id = ANY($1) AND ec.estado='publicado'
-     ORDER BY ec.data_inicio ASC`,
-    [schoolIds]
+    `SELECT ce.*, c.nome AS calendario_nome, c.alertas_horas, sc.name AS escola_nome
+     FROM calendario_eventos ce
+     JOIN calendarios c ON c.id = ce.calendario_id
+     JOIN schools sc ON sc.id = ce.school_id
+     WHERE ce.school_id = ANY($1)
+       AND (ce.turma_id IS NULL OR ce.turma_id = ANY($2))
+       AND c.tipo = 'aulas'
+       AND c.publicado = true
+       AND c.vigencia_inicio <= CURRENT_DATE
+       AND c.vigencia_fim >= CURRENT_DATE
+       AND ce.publicado = true
+     ORDER BY ce.dia_semana ASC NULLS LAST, ce.hora_inicio_aula ASC NULLS LAST`,
+    [schoolIds, turmaIds.length ? turmaIds : [-1]]
+  );
+  res.json(r.rows);
+});
+
+/* ─── GET /guardian/provas ─── */
+router.get("/guardian/provas", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+  const studs = await pool.query(
+    `SELECT DISTINCT s.school_id, s.turma_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id=$1`,
+    [guardian.id]
+  );
+  if (!studs.rowCount) return res.json([]);
+  const schoolIds = studs.rows.map((r: any) => r.school_id);
+  const turmaIds = studs.rows.map((r: any) => r.turma_id).filter(Boolean);
+  const r = await pool.query(
+    `SELECT ce.*, c.nome AS calendario_nome, c.alertas_horas, sc.name AS escola_nome
+     FROM calendario_eventos ce
+     JOIN calendarios c ON c.id = ce.calendario_id
+     JOIN schools sc ON sc.id = ce.school_id
+     WHERE ce.school_id = ANY($1)
+       AND (ce.turma_id IS NULL OR ce.turma_id = ANY($2))
+       AND c.tipo = 'provas'
+       AND c.publicado = true
+       AND c.vigencia_inicio <= CURRENT_DATE
+       AND c.vigencia_fim >= CURRENT_DATE
+       AND ce.publicado = true
+       AND ce.data_inicio >= NOW() - INTERVAL '7 days'
+     ORDER BY ce.data_inicio ASC`,
+    [schoolIds, turmaIds.length ? turmaIds : [-1]]
   );
   res.json(r.rows);
 });
