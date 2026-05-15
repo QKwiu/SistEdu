@@ -7078,7 +7078,7 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
   const emptyCalForm = { nome:"", tipo:"provas", descricao:"", vigencia_inicio:todayStr, vigencia_fim:threeMonthsStr, alertas_horas:"48", gerar_notificacoes:true };
   const [calForm, setCalForm] = useState(emptyCalForm);
   const [savingCal, setSavingCal] = useState(false);
-  const [expandedCal, setExpandedCal] = useState<number|null>(null);
+  const [expandedCals, setExpandedCals] = useState<Set<number>>(new Set());
   const [togglingPub, setTogglingPub] = useState<number|null>(null);
   const [deletingCal, setDeletingCal] = useState<number|null>(null);
 
@@ -7086,7 +7086,14 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
     setLoadingCal(true);
     try {
       const r = await fetch(`${API}/school/calendarios`, { headers });
-      if (r.ok) setCalendarios(await r.json());
+      if (r.ok) {
+        const data = await r.json();
+        setCalendarios(data);
+        if (data.length > 0) {
+          setExpandedCals(new Set(data.map((c: any) => c.id)));
+          data.forEach((c: any) => loadEventos(c.id));
+        }
+      }
     } catch {} finally { setLoadingCal(false); }
   }, [token]);
   useEffect(() => { loadCalendarios(); }, [loadCalendarios]);
@@ -7112,7 +7119,7 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
     try {
       await fetch(`${API}/school/calendarios/${id}`, { method:"DELETE", headers });
       setCalendarios(prev => prev.filter(c => c.id!==id));
-      if (expandedCal===id) setExpandedCal(null);
+      setExpandedCals(prev => { const s = new Set(prev); s.delete(id); return s; });
     } catch {} finally { setDeletingCal(null); }
   };
 
@@ -7134,9 +7141,11 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
     } catch {} finally { setLoadingEvt(null); }
   };
   const toggleExpandCal = (id: number) => {
-    if (expandedCal===id) { setExpandedCal(null); return; }
-    setExpandedCal(id);
-    if (!eventos[id]) loadEventos(id);
+    setExpandedCals(prev => {
+      const s = new Set(prev);
+      if (s.has(id)) { s.delete(id); } else { s.add(id); if (!eventos[id]) loadEventos(id); }
+      return s;
+    });
   };
   const openEvtForm = (calId: number, cal: any, evt?: any) => {
     setEditEvt(evt||null); setEvtError(null);
@@ -7252,12 +7261,12 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
                     {deletingCal===cal.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
                   </button>
                   <button onClick={() => toggleExpandCal(cal.id)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-                    {expandedCal===cal.id?<ChevronUp className="w-4 h-4"/>:<ChevronDown className="w-4 h-4"/>}
+                    {expandedCals.has(cal.id)?<ChevronUp className="w-4 h-4"/>:<ChevronDown className="w-4 h-4"/>}
                   </button>
                 </div>
               </div>
 
-              {expandedCal===cal.id && (
+              {expandedCals.has(cal.id) && (
                 <div className="border-t border-slate-100 bg-slate-50/60 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm font-semibold text-slate-700">Eventos do calendário</span>
