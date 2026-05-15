@@ -968,10 +968,22 @@ router.get("/guardian/horario", authMiddleware, async (req: any, res) => {
      JOIN calendarios c ON c.id = ce.calendario_id
      JOIN schools sc ON sc.id = ce.school_id
      WHERE ce.school_id = ANY($1)
-       AND (ce.turma_id IS NULL OR ce.turma_id = ANY($2))
        AND c.tipo = 'aulas'
        AND c.publicado = true
        AND c.vigencia_fim >= CURRENT_DATE
+       AND (
+         ce.turma_id IS NULL
+         OR ce.turma_id = ANY($2)
+         OR NOT EXISTS (
+           SELECT 1 FROM calendario_eventos ce2
+           JOIN calendarios c2 ON c2.id = ce2.calendario_id
+           WHERE ce2.school_id = ANY($1)
+             AND c2.tipo = 'aulas'
+             AND c2.publicado = true
+             AND c2.vigencia_fim >= CURRENT_DATE
+             AND ce2.turma_id = ANY($2)
+         )
+       )
      ORDER BY ce.dia_semana ASC NULLS LAST, ce.hora_inicio_aula ASC NULLS LAST`,
     [schoolIds, turmaIds.length ? turmaIds : [-1]]
   );
