@@ -9,6 +9,7 @@ import {
   Phone, HelpCircle, RotateCcw, Menu, Bell, ArrowLeftRight,
   FileText, Send, ChevronRight, ChevronLeft, Banknote,
   BadgeCheck, XCircle, GraduationCap, CalendarDays,
+  ShoppingCart, Truck, Store, MinusCircle, PlusCircle,
 } from "lucide-react";
 
 const API = "/api";
@@ -83,7 +84,7 @@ interface DDSubscription {
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
 type StudentTab = "propinas" | "ocorrencias";
-type ActiveMenu = "facturas" | "ocorrencias" | "comunicados" | "avaliacoes";
+type ActiveMenu = "facturas" | "ocorrencias" | "comunicados" | "avaliacoes" | "loja";
 
 const TIPO_COLORS_ENC: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   "Comportamento Inadequado": { bg:"bg-red-50", text:"text-red-700", border:"border-red-200", dot:"bg-red-500" },
@@ -1634,6 +1635,20 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
   const [loadingAvaliacoes, setLoadingAvaliacoes] = useState(false);
 
+  // Loja
+  const [storeItems, setStoreItems] = useState<any[]>([]);
+  const [loadingStore, setLoadingStore] = useState(false);
+  const [storeOrders, setStoreOrders] = useState<any[]>([]);
+  const [loadingStoreOrders, setLoadingStoreOrders] = useState(false);
+  const [cart, setCart] = useState<{ item: any; qty: number }[]>([]);
+  const [lojaSub, setLojaSub] = useState<"artigos" | "pedidos">("artigos");
+  const [showStoreCheckout, setShowStoreCheckout] = useState(false);
+  const [storeCheckoutStep, setStoreCheckoutStep] = useState(1);
+  const [storeMethod, setStoreMethod] = useState<"reference" | "gpo_mcx">("reference");
+  const [storeResult, setStoreResult] = useState<any>(null);
+  const [storeCheckoutLoading, setStoreCheckoutLoading] = useState(false);
+  const [storeCheckoutError, setStoreCheckoutError] = useState("");
+
   const headers = { Authorization:`Bearer ${token}`, "Content-Type":"application/json" };
 
   const loadStudents = useCallback(async () => {
@@ -1723,6 +1738,26 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     finally { setLoadingAvaliacoes(false); }
   }, [token]);
 
+  const loadStoreItems = useCallback(async () => {
+    setLoadingStore(true);
+    try {
+      const sid = selectedStudent?.school_id;
+      const url = sid ? `${API}/guardian/store/items?school_id=${sid}` : `${API}/guardian/store/items`;
+      const res = await fetch(url, { headers });
+      if (res.ok) setStoreItems(await res.json());
+    } catch {}
+    finally { setLoadingStore(false); }
+  }, [token, selectedStudent?.school_id]);
+
+  const loadStoreOrders = useCallback(async () => {
+    setLoadingStoreOrders(true);
+    try {
+      const res = await fetch(`${API}/guardian/store/orders`, { headers });
+      if (res.ok) setStoreOrders(await res.json());
+    } catch {}
+    finally { setLoadingStoreOrders(false); }
+  }, [token]);
+
   const marcarLido = async (id: number) => {
     setComunicados(prev => prev.map(c => c.id === id ? { ...c, lido: true } : c));
     try {
@@ -1735,6 +1770,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
   useEffect(() => { if (activeMenu === "avaliacoes") loadAvaliacoes(); }, [activeMenu]);
+  useEffect(() => { if (activeMenu === "loja") { loadStoreItems(); loadStoreOrders(); } }, [activeMenu, selectedStudent?.school_id]);
 
   // Load per-school data on initial mount (no specific school yet — auto-detect)
   useEffect(() => { loadAvailableMethods(); loadDDSubscription(); }, [token]);
@@ -1809,6 +1845,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
     { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
     { key: "avaliacoes",  label: "Calendário de Avaliações",            icon: <CalendarDays size={16} /> },
+    { key: "loja",        label: "Outros Emolumentos & Artigos",         icon: <ShoppingCart size={16} /> },
   ];
 
   if (loadingStudents) return (
@@ -2499,6 +2536,361 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             );
           })()}
         </>}{/* end avaliacoes screen */}
+
+        {/* ══ ECRÃ: LOJA & EMOLUMENTOS ══ */}
+        {activeMenu === "loja" && (() => {
+          const cartTotal = cart.reduce((s, c) => s + Number(c.item.preco) * c.qty, 0);
+          const cartCount = cart.reduce((s, c) => s + c.qty, 0);
+          const fmtKz = (n: number) => Number(n).toLocaleString("pt-AO") + " Kz";
+          const hasBothStore = availableMethods.allow_reference && availableMethods.allow_gpo_mcx;
+          const storeEffMethod = hasBothStore ? storeMethod : (availableMethods.allow_reference ? "reference" : "gpo_mcx");
+          const storeTotalSteps = hasBothStore ? 3 : 2;
+
+          const addToCart = (item: any) => setCart(prev => {
+            const ex = prev.find(c => c.item.id === item.id);
+            if (ex) return prev.map(c => c.item.id === item.id ? { ...c, qty: c.qty + 1 } : c);
+            return [...prev, { item, qty: 1 }];
+          });
+          const removeFromCart = (itemId: number) => setCart(prev => {
+            const ex = prev.find(c => c.item.id === itemId);
+            if (!ex) return prev;
+            if (ex.qty <= 1) return prev.filter(c => c.item.id !== itemId);
+            return prev.map(c => c.item.id === itemId ? { ...c, qty: c.qty - 1 } : c);
+          });
+
+          const handleStoreCheckout = async () => {
+            if (!selectedStudent) return;
+            setStoreCheckoutLoading(true); setStoreCheckoutError("");
+            try {
+              const res = await fetch(`${API}/guardian/store/checkout`, {
+                method: "POST", headers,
+                body: JSON.stringify({
+                  school_id: selectedStudent.school_id, student_id: selectedStudent.id,
+                  items: cart.map(c => ({ item_id: c.item.id, quantidade: c.qty })),
+                  method: storeEffMethod,
+                }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || "Erro ao processar encomenda.");
+              setStoreResult(data);
+              setStoreCheckoutStep(storeTotalSteps);
+              setCart([]);
+              loadStoreOrders();
+              loadStoreItems();
+            } catch (e: any) { setStoreCheckoutError(e.message); }
+            finally { setStoreCheckoutLoading(false); }
+          };
+
+          return <>
+            {/* Sub-tab bar */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                {(["artigos","pedidos"] as const).map(t => (
+                  <button key={t} onClick={() => setLojaSub(t)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${lojaSub===t?"bg-white shadow text-gray-900":"text-gray-500 hover:text-gray-700"}`}>
+                    {t === "artigos" ? "Artigos" : "Os meus pedidos"}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { loadStoreItems(); loadStoreOrders(); }} disabled={loadingStore||loadingStoreOrders}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 disabled:opacity-50">
+                <RefreshCw size={13} className={(loadingStore||loadingStoreOrders) ? "animate-spin" : ""}/>
+              </button>
+            </div>
+
+            {/* ─── Sub-tab: ARTIGOS ─── */}
+            {lojaSub === "artigos" && (
+              loadingStore ? (
+                <div className="flex items-center justify-center py-16">
+                  <RefreshCw size={24} className="animate-spin text-blue-500"/>
+                </div>
+              ) : storeItems.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+                  <Store size={36} className="text-gray-200 mx-auto mb-3"/>
+                  <p className="font-semibold text-gray-400">Nenhum artigo disponível</p>
+                  <p className="text-gray-300 text-xs mt-1">A escola ainda não publicou artigos para venda.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 pb-28">
+                  {/* Group by school if multiple */}
+                  {(() => {
+                    const bySchool: Record<string, any[]> = {};
+                    storeItems.forEach(it => {
+                      const k = it.escola_nome || "Escola";
+                      if (!bySchool[k]) bySchool[k] = [];
+                      bySchool[k].push(it);
+                    });
+                    return Object.entries(bySchool).map(([escola, its]) => (
+                      <div key={escola}>
+                        {Object.keys(bySchool).length > 1 && (
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{escola}</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          {its.map(item => {
+                            const inCart = cart.find(c => c.item.id === item.id);
+                            const stockLow = item.stock !== null && item.stock <= 5;
+                            const outOfStock = item.stock !== null && item.stock === 0;
+                            return (
+                              <motion.div key={item.id} layout
+                                className={`bg-white rounded-2xl border overflow-hidden shadow-sm flex flex-col ${outOfStock ? "opacity-60" : "border-gray-100"} ${inCart ? "border-blue-200 ring-1 ring-blue-200" : ""}`}>
+                                {/* Category band */}
+                                {item.categoria && (
+                                  <div className="px-3 pt-2.5">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-md">{item.categoria}</span>
+                                  </div>
+                                )}
+                                <div className="p-3 flex-1 flex flex-col gap-1.5">
+                                  <p className="font-bold text-gray-900 text-sm leading-snug">{item.nome}</p>
+                                  {item.descricao && <p className="text-xs text-gray-400 leading-snug line-clamp-2">{item.descricao}</p>}
+                                  <p className="font-bold text-blue-700 text-base mt-auto">{fmtKz(Number(item.preco))}</p>
+                                  {item.stock !== null && (
+                                    <p className={`text-[10px] font-semibold ${outOfStock?"text-red-500":stockLow?"text-amber-600":"text-gray-300"}`}>
+                                      {outOfStock ? "Esgotado" : `${item.stock} em stock`}
+                                    </p>
+                                  )}
+                                </div>
+                                {/* Cart controls */}
+                                {!outOfStock && (
+                                  <div className="px-3 pb-3">
+                                    {inCart ? (
+                                      <div className="flex items-center justify-between bg-blue-50 rounded-xl px-1 py-1">
+                                        <button onClick={() => removeFromCart(item.id)} className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors">
+                                          <MinusCircle size={16}/>
+                                        </button>
+                                        <span className="font-bold text-blue-700 text-sm w-6 text-center">{inCart.qty}</span>
+                                        <button
+                                          onClick={() => addToCart(item)}
+                                          disabled={item.stock !== null && inCart.qty >= item.stock}
+                                          className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors disabled:opacity-40">
+                                          <PlusCircle size={16}/>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button onClick={() => addToCart(item)}
+                                        className="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors">
+                                        Adicionar
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )
+            )}
+
+            {/* ─── Sub-tab: PEDIDOS ─── */}
+            {lojaSub === "pedidos" && (
+              loadingStoreOrders ? (
+                <div className="flex items-center justify-center py-16">
+                  <RefreshCw size={24} className="animate-spin text-blue-500"/>
+                </div>
+              ) : storeOrders.length === 0 ? (
+                <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+                  <Truck size={36} className="text-gray-200 mx-auto mb-3"/>
+                  <p className="font-semibold text-gray-400">Nenhuma encomenda ainda</p>
+                  <p className="text-gray-300 text-xs mt-1">As suas compras na loja aparecerão aqui.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 pb-6">
+                  {storeOrders.map(order => (
+                    <div key={order.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <span className="font-mono font-bold text-gray-900 text-sm tracking-widest bg-gray-100 px-2 py-0.5 rounded-lg">{order.voucher_code}</span>
+                          <p className="text-xs text-gray-400 mt-1">{order.escola_nome}</p>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full font-semibold shrink-0 ${order.estado==="entregue"?"bg-emerald-100 text-emerald-700":order.estado==="pago"?"bg-blue-100 text-blue-700":"bg-amber-100 text-amber-700"}`}>
+                          {order.estado==="entregue"?"Entregue ✓":order.estado==="pago"?"Pago — Levantar":"Pag. Pendente"}
+                        </span>
+                      </div>
+                      <div className="space-y-0.5 mb-2">
+                        {Array.isArray(order.items) && order.items.filter((i:any)=>i.item_nome).map((it:any,idx:number)=>(
+                          <p key={idx} className="text-xs text-gray-600">• {it.item_nome} × {it.quantidade} — {fmtKz(Number(it.preco_unit)*it.quantidade)}</p>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                        <p className="text-xs text-gray-400">{new Date(order.created_at).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"})}</p>
+                        <p className="text-sm font-bold text-gray-900">{fmtKz(Number(order.total))}</p>
+                      </div>
+                      {order.estado === "pago" && order.referencia && (
+                        <div className="mt-2 bg-blue-50 rounded-xl px-3 py-2 text-xs text-blue-700">
+                          <span className="font-semibold">Referência: {order.entidade} / {order.referencia}</span>
+                          <br/>Apresente o voucher <span className="font-mono font-bold">{order.voucher_code}</span> no balcão para levantamento.
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {/* ─── CART FOOTER ─── */}
+            <AnimatePresence>
+              {cart.length > 0 && lojaSub === "artigos" && (
+                <motion.div initial={{y:100,opacity:0}} animate={{y:0,opacity:1}} exit={{y:100,opacity:0}}
+                  transition={{type:"spring",stiffness:350,damping:30}}
+                  className="fixed bottom-0 left-0 right-0 z-40 p-4">
+                  <div className="max-w-lg mx-auto bg-gray-900 rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-white font-bold text-lg leading-tight">{fmtKz(cartTotal)}</p>
+                      <p className="text-gray-400 text-xs">{cartCount} {cartCount===1?"artigo":"artigos"} no carrinho</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => setCart([])} className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white transition-colors">
+                        <X size={18}/>
+                      </button>
+                      <button onClick={() => { setStoreCheckoutStep(1); setStoreMethod("reference"); setStoreResult(null); setStoreCheckoutError(""); setShowStoreCheckout(true); }}
+                        className="bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-5 py-2.5 rounded-xl transition-all flex items-center gap-2">
+                        <ShoppingCart size={16}/> Pagar
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ─── CHECKOUT MODAL ─── */}
+            <AnimatePresence>
+              {showStoreCheckout && (
+                <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+                  className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                  <motion.div initial={{scale:0.95,y:30}} animate={{scale:1,y:0}} exit={{scale:0.95,y:30}}
+                    className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+
+                    {/* Modal header */}
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                      <div>
+                        <h3 className="font-bold text-gray-900">
+                          {storeCheckoutStep === storeTotalSteps && storeResult ? "Encomenda Confirmada" : "Finalizar Compra"}
+                        </h3>
+                        {storeTotalSteps > 1 && storeCheckoutStep < storeTotalSteps && (
+                          <p className="text-xs text-gray-400">Passo {storeCheckoutStep} de {storeTotalSteps - 1}</p>
+                        )}
+                      </div>
+                      <button onClick={() => setShowStoreCheckout(false)} className="p-1.5 rounded-xl hover:bg-gray-100 text-gray-400 transition-colors">
+                        <X size={18}/>
+                      </button>
+                    </div>
+
+                    <div className="p-5">
+                      {/* STEP 1: Cart summary */}
+                      {storeCheckoutStep === 1 && (
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            {cart.map(c => (
+                              <div key={c.item.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">{c.item.nome}</p>
+                                  <p className="text-xs text-gray-400">{c.qty} × {fmtKz(Number(c.item.preco))}</p>
+                                </div>
+                                <p className="font-bold text-gray-900 shrink-0 ml-3">{fmtKz(Number(c.item.preco) * c.qty)}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                            <span className="font-bold text-gray-700">Total</span>
+                            <span className="font-bold text-xl text-blue-700">{fmtKz(cartTotal)}</span>
+                          </div>
+                          {selectedStudent && (
+                            <p className="text-xs text-gray-400 text-center">Educando: <span className="font-semibold text-gray-600">{selectedStudent.nome}</span></p>
+                          )}
+                          {storeCheckoutError && <p className="text-sm text-red-600 text-center">{storeCheckoutError}</p>}
+                          <button
+                            onClick={() => hasBothStore ? setStoreCheckoutStep(2) : handleStoreCheckout()}
+                            disabled={storeCheckoutLoading}
+                            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                            {storeCheckoutLoading ? <RefreshCw size={16} className="animate-spin"/> : null}
+                            {storeCheckoutLoading ? "A processar..." : hasBothStore ? "Escolher método →" : "Confirmar e Pagar"}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* STEP 2 (only if hasBoth): Method selection */}
+                      {storeCheckoutStep === 2 && hasBothStore && (
+                        <div className="space-y-4">
+                          <p className="text-sm font-semibold text-gray-700 text-center">Método de pagamento</p>
+                          <div className="space-y-2">
+                            {[{m:"reference",label:"Referência Multicaixa",sub:"Pague no multibanco ou internet banking"},{m:"gpo_mcx",label:"Multicaixa Express (GPO)",sub:"Pague com o seu telemóvel"}].map(opt=>(
+                              <button key={opt.m} onClick={()=>setStoreMethod(opt.m as any)}
+                                className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${storeMethod===opt.m?"border-blue-500 bg-blue-50":"border-gray-100 hover:border-gray-200"}`}>
+                                <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center ${storeMethod===opt.m?"border-blue-500 bg-blue-500":"border-gray-300"}`}>
+                                  {storeMethod===opt.m&&<div className="w-2 h-2 rounded-full bg-white"/>}
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-900 text-sm">{opt.label}</p>
+                                  <p className="text-xs text-gray-400">{opt.sub}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                          {storeCheckoutError && <p className="text-sm text-red-600 text-center">{storeCheckoutError}</p>}
+                          <div className="flex gap-2">
+                            <button onClick={()=>setStoreCheckoutStep(1)} className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-semibold rounded-xl text-sm hover:bg-gray-50 transition-colors">← Voltar</button>
+                            <button onClick={handleStoreCheckout} disabled={storeCheckoutLoading}
+                              className="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-sm hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60">
+                              {storeCheckoutLoading?<RefreshCw size={14} className="animate-spin"/>:null}
+                              {storeCheckoutLoading?"A processar...":"Confirmar →"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* FINAL STEP: Result + voucher */}
+                      {storeCheckoutStep === storeTotalSteps && storeResult && (
+                        <div className="space-y-4">
+                          {/* Voucher */}
+                          <div className="bg-gradient-to-br from-blue-600 to-emerald-600 rounded-2xl p-5 text-white text-center">
+                            <p className="text-xs font-semibold uppercase tracking-widest text-blue-100 mb-1">Código de Voucher</p>
+                            <p className="font-mono font-black text-3xl tracking-[0.25em] mb-1">{storeResult.voucher_code}</p>
+                            <p className="text-xs text-blue-100">Apresente este código no balcão para levantamento</p>
+                          </div>
+
+                          {/* Reference info */}
+                          {storeResult.metodo_pagamento === "reference" && storeResult.referencia && (
+                            <div className="bg-gray-50 rounded-xl divide-y divide-gray-100">
+                              {[
+                                { label: "Entidade", value: storeResult.entidade },
+                                { label: "Referência", value: storeResult.referencia, mono: true },
+                                { label: "Montante", value: fmtKz(Number(storeResult.montante)) },
+                                { label: "Validade", value: storeResult.validade ? new Date(storeResult.validade).toLocaleDateString("pt-AO") : "" },
+                              ].map(row => (
+                                <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
+                                  <span className="text-xs text-gray-400">{row.label}</span>
+                                  <span className={`text-sm font-bold text-gray-900 ${row.mono?"font-mono":""}`}>{row.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* GPO redirect */}
+                          {storeResult.metodo_pagamento === "gpo_mcx" && storeResult.gpo_redirect_url && (
+                            <a href={storeResult.gpo_redirect_url} target="_blank" rel="noreferrer"
+                              className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors">
+                              <Zap size={16}/> Pagar com Multicaixa Express
+                            </a>
+                          )}
+
+                          <p className="text-xs text-gray-400 text-center">Após confirmação do pagamento, o seu artigo ficará disponível para levantamento.</p>
+                          <button onClick={() => { setShowStoreCheckout(false); setLojaSub("pedidos"); }}
+                            className="w-full py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-xl text-sm hover:bg-gray-200 transition-colors">
+                            Ver os meus pedidos
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </>;
+        })()}
+        {/* end loja screen */}
 
         <div className="text-center pt-2">
           <p className="text-xs text-gray-300">Kiwara Escolar — {portalLabel}</p>

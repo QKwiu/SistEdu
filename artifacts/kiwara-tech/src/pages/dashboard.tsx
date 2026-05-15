@@ -15,6 +15,7 @@ import {
   Megaphone, CheckCheck, XCircle, Info,
   Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent, Tag,
   Zap, Printer, Building2, Hash, MessageCircle, ArrowRight, PlayCircle,
+  ShoppingCart, Truck, Store,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -52,7 +53,11 @@ interface Propina {
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
 interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "loja";
+
+/* ─── Store Interfaces ─── */
+interface StoreItemDB { id: number; school_id: number; nome: string; descricao?: string; preco: number; stock: number | null; visivel_portal: boolean; ativo: boolean; categoria?: string; }
+interface StoreOrderDB { id: number; guardian_nome?: string; student_nome?: string; estado: string; total: number; voucher_code: string; referencia?: string; created_at: string; items: { item_nome: string; quantidade: number; preco_unit: number }[]; }
 
 /* ─── Evaluation Interfaces ─── */
 interface EvaluationTipo { id: number; nome: string; cor: string; descricao?: string; }
@@ -6665,6 +6670,366 @@ function EmolumentosView({ token }: { token: string }) {
 /* ══════════════════════════════════════════════════════════
    MÓDULO: CALENDÁRIO DE AVALIAÇÕES
    ══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   STORE MANAGEMENT VIEW
+   ══════════════════════════════════════════════════════════ */
+function StoreManagementView({ token, onPendingChange }: { token: string; onPendingChange?: (n: number) => void }) {
+  type STab = "inventario" | "entregas";
+  const [sTab, setSTab] = useState<STab>("inventario");
+  const [items, setItems] = useState<StoreItemDB[]>([]);
+  const [orders, setOrders] = useState<StoreOrderDB[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editItem, setEditItem] = useState<StoreItemDB | null>(null);
+  const [form, setForm] = useState({ nome: "", descricao: "", preco: "", stock: "", categoria: "", visivel_portal: true });
+  const [formErr, setFormErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [filterEstado, setFilterEstado] = useState("pago");
+  const [deliverModal, setDeliverModal] = useState<StoreOrderDB | null>(null);
+  const [operador, setOperador] = useState("");
+  const [deliveryNotas, setDeliveryNotas] = useState("");
+  const [savingDelivery, setSavingDelivery] = useState(false);
+  const [markingPago, setMarkingPago] = useState<number | null>(null);
+
+  const h = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const api = (p: string, o?: RequestInit) => fetch(`${API}${p}`, { headers: h, ...o });
+  const fmtKz = (n: number) => Number(n).toLocaleString("pt-AO") + " Kz";
+  const inp = "w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    const r = await api("/school/store/items");
+    if (r.ok) setItems(await r.json());
+    setLoading(false);
+  }, [token]);
+
+  const loadOrders = useCallback(async (estado = "pago") => {
+    const r = await api(`/school/store/orders?estado=${estado}`);
+    if (r.ok) {
+      const data = await r.json();
+      setOrders(data);
+      if (estado === "pago") onPendingChange?.(data.length);
+    }
+  }, [token]);
+
+  useEffect(() => { loadItems(); loadOrders(); }, []);
+  useEffect(() => { loadOrders(filterEstado); }, [filterEstado]);
+
+  const openCreate = () => {
+    setEditItem(null);
+    setForm({ nome: "", descricao: "", preco: "", stock: "", categoria: "", visivel_portal: true });
+    setFormErr(""); setShowForm(true);
+  };
+  const openEdit = (it: StoreItemDB) => {
+    setEditItem(it);
+    setForm({ nome: it.nome, descricao: it.descricao || "", preco: String(it.preco), stock: it.stock !== null ? String(it.stock) : "", categoria: it.categoria || "", visivel_portal: it.visivel_portal });
+    setFormErr(""); setShowForm(true);
+  };
+  const handleSave = async () => {
+    if (!form.nome.trim() || !form.preco) return setFormErr("Nome e preço são obrigatórios.");
+    setSaving(true); setFormErr("");
+    const body = JSON.stringify({ nome: form.nome.trim(), descricao: form.descricao, preco: Number(form.preco), stock: form.stock !== "" ? Number(form.stock) : null, categoria: form.categoria, visivel_portal: form.visivel_portal });
+    const r = await api(editItem ? `/school/store/items/${editItem.id}` : "/school/store/items", { method: editItem ? "PUT" : "POST", body });
+    const d = await r.json();
+    if (!r.ok) { setFormErr(d.error || "Erro ao guardar."); setSaving(false); return; }
+    setShowForm(false); loadItems(); setSaving(false);
+  };
+  const handleDelete = async (id: number) => {
+    if (!confirm("Eliminar este artigo?")) return;
+    setDeleting(id);
+    await api(`/school/store/items/${id}`, { method: "DELETE" });
+    setDeleting(null); loadItems();
+  };
+  const handleTogglePortal = async (id: number) => { await api(`/school/store/items/${id}/toggle-portal`, { method: "PATCH" }); loadItems(); };
+  const handleToggleAtivo  = async (id: number) => { await api(`/school/store/items/${id}/toggle-ativo`,  { method: "PATCH" }); loadItems(); };
+
+  const handleMarkPago = async (id: number) => {
+    setMarkingPago(id);
+    await api(`/school/store/orders/${id}/marcar-pago`, { method: "POST", body: JSON.stringify({}) });
+    setMarkingPago(null); loadOrders(filterEstado);
+  };
+  const handleDeliver = async () => {
+    if (!deliverModal) return;
+    setSavingDelivery(true);
+    const r = await api(`/school/store/orders/${deliverModal.id}/entregar`, { method: "POST", body: JSON.stringify({ operador: operador || "Operador", notas: deliveryNotas }) });
+    if (r.ok) { setDeliverModal(null); setOperador(""); setDeliveryNotas(""); loadOrders(filterEstado); loadItems(); }
+    setSavingDelivery(false);
+  };
+
+  const pendingPago = orders.filter(o => o.estado === "pago").length;
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <ShoppingCart className="w-6 h-6 text-primary"/> Loja & Emolumentos
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">Gerencie artigos disponíveis para venda e confirme entregas pendentes</p>
+        </div>
+        {sTab === "inventario" && (
+          <button onClick={openCreate} className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+            <Plus className="w-4 h-4"/> Novo Artigo
+          </button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit mb-6">
+        {(["inventario","entregas"] as STab[]).map(t => (
+          <button key={t} onClick={() => setSTab(t)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors relative ${sTab===t?"bg-white shadow text-slate-900":"text-slate-500 hover:text-slate-700"}`}>
+            {t === "inventario" ? "Inventário" : "Fila de Entrega"}
+            {t === "entregas" && pendingPago > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{pendingPago}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB INVENTÁRIO ── */}
+      {sTab === "inventario" && (
+        loading ? (
+          <div className="flex items-center justify-center py-20"><RefreshCw className="w-6 h-6 animate-spin text-slate-300"/></div>
+        ) : items.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-14 text-center">
+            <Package className="w-12 h-12 text-slate-200 mx-auto mb-3"/>
+            <p className="font-semibold text-slate-500">Nenhum artigo configurado</p>
+            <p className="text-sm text-slate-400 mt-1">Adicione artigos que os encarregados poderão comprar no portal.</p>
+            <button onClick={openCreate} className="mt-4 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">Adicionar artigo</button>
+          </div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Artigo</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Preço</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Stock</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Portal</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
+                    <th className="px-4 py-3"/>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {items.map(it => (
+                    <tr key={it.id} className={`hover:bg-slate-50/60 transition-colors ${!it.ativo?"opacity-50":""}`}>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-slate-900">{it.nome}</p>
+                        {it.descricao && <p className="text-xs text-slate-400 max-w-xs truncate">{it.descricao}</p>}
+                        {it.categoria && <span className="inline-block mt-0.5 text-[11px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">{it.categoria}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmtKz(Number(it.preco))}</td>
+                      <td className="px-4 py-3 text-center">
+                        {it.stock === null
+                          ? <span className="text-xs font-semibold text-emerald-600">∞</span>
+                          : <span className={`font-bold ${it.stock === 0?"text-red-500":it.stock < 5?"text-amber-600":"text-slate-700"}`}>{it.stock}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={() => handleTogglePortal(it.id)} title={it.visivel_portal?"Visível no portal":"Oculto no portal"}
+                          className={`inline-flex items-center justify-center w-10 rounded-full transition-colors`}
+                          style={{ height:22, width:40, backgroundColor: it.visivel_portal?"var(--primary)":"#e2e8f0" }}>
+                          <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${it.visivel_portal?"translate-x-2.5":"-translate-x-2.5"}`} style={{ transform: it.visivel_portal?"translateX(8px)":"translateX(-8px)" }}/>
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={() => handleToggleAtivo(it.id)}
+                          className={`text-xs px-2.5 py-1 rounded-lg font-semibold border transition-colors ${it.ativo?"bg-emerald-50 text-emerald-700 border-emerald-200":"bg-slate-50 text-slate-500 border-slate-200"}`}>
+                          {it.ativo?"Activo":"Inactivo"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1 justify-end">
+                          <button onClick={() => openEdit(it)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => handleDelete(it.id)} disabled={deleting===it.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                            {deleting===it.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* ── TAB ENTREGAS ── */}
+      {sTab === "entregas" && (
+        <div className="space-y-4">
+          {/* Estado filter */}
+          <div className="flex gap-2 flex-wrap">
+            {(["pago","pendente_pagamento","entregue"] as const).map(e => (
+              <button key={e} onClick={() => setFilterEstado(e)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors ${filterEstado===e?"bg-primary text-white border-primary":"border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                {e==="pago"?"Aguardando Entrega":e==="entregue"?"Entregues":"Pagamento Pendente"}
+              </button>
+            ))}
+          </div>
+
+          {orders.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-14 text-center">
+              <Truck className="w-12 h-12 text-slate-200 mx-auto mb-3"/>
+              <p className="font-semibold text-slate-500">Nenhuma encomenda</p>
+              <p className="text-sm text-slate-400 mt-1">
+                {filterEstado==="pago"?"Não há encomendas pagas aguardando entrega.":filterEstado==="entregue"?"Nenhuma entrega realizada ainda.":"Nenhuma encomenda pendente de pagamento."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {orders.map(order => (
+                <div key={order.id} className="bg-white border border-slate-200 rounded-2xl p-5">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg tracking-widest text-sm">{order.voucher_code}</span>
+                        {order.estado==="pago"         && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">Aguarda Entrega</span>}
+                        {order.estado==="entregue"     && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Entregue ✓</span>}
+                        {order.estado==="pendente_pagamento" && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Pag. Pendente</span>}
+                      </div>
+                      {order.guardian_nome && <p className="text-sm text-slate-700"><span className="font-medium">Encarregado:</span> {order.guardian_nome}</p>}
+                      {order.student_nome  && <p className="text-xs text-slate-500 mt-0.5">Educando: {order.student_nome}</p>}
+                      <div className="mt-2 space-y-0.5">
+                        {Array.isArray(order.items) && order.items.filter((i:any)=>i.item_nome).map((it:any,idx:number)=>(
+                          <p key={idx} className="text-xs text-slate-500">• {it.item_nome} × {it.quantidade} — <span className="text-slate-700 font-medium">{fmtKz(Number(it.preco_unit)*it.quantidade)}</span></p>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {new Date(order.created_at).toLocaleString("pt-AO",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</span>
+                        <span>·</span>
+                        <span>Total: <span className="font-semibold text-slate-700">{fmtKz(Number(order.total))}</span></span>
+                        {order.referencia && <span>· Ref: <span className="font-mono">{order.referencia}</span></span>}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2 shrink-0">
+                      {order.estado==="pendente_pagamento" && (
+                        <button onClick={() => handleMarkPago(order.id)} disabled={markingPago===order.id}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60">
+                          {markingPago===order.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<CheckCheck className="w-3.5 h-3.5"/>} Marcar Pago
+                        </button>
+                      )}
+                      {order.estado==="pago" && (
+                        <button onClick={() => { setDeliverModal(order); setOperador(""); setDeliveryNotas(""); }}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition-colors">
+                          <Truck className="w-3.5 h-3.5"/> Confirmar Entrega
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── MODAL CRIAR/EDITAR ARTIGO ── */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{scale:0.95,y:20}} animate={{scale:1,y:0}} exit={{scale:0.95,y:20}}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900">{editItem?"Editar Artigo":"Novo Artigo"}</h3>
+                <button onClick={()=>setShowForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
+              </div>
+              <div className="p-5 space-y-4">
+                {formErr && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm">{formErr}</div>}
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Nome do artigo *</label>
+                  <input className={inp} value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="ex: Uniforme Completo, Caderneta"/>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Categoria</label>
+                  <input className={inp} value={form.categoria} onChange={e=>setForm(f=>({...f,categoria:e.target.value}))} placeholder="ex: Vestuário, Documentos, Acessórios"/>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Descrição</label>
+                  <textarea className={inp} rows={2} value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))} placeholder="Descrição breve do artigo (opcional)"/>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 mb-1 block">Preço (Kz) *</label>
+                    <input type="number" min={0} className={inp} value={form.preco} onChange={e=>setForm(f=>({...f,preco:e.target.value}))} placeholder="0"/>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 mb-1 block">Stock (vazio = ilimitado)</label>
+                    <input type="number" min={0} className={inp} value={form.stock} onChange={e=>setForm(f=>({...f,stock:e.target.value}))} placeholder="∞ ilimitado"/>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between py-3 border-t border-slate-100">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">Visível no portal</p>
+                    <p className="text-xs text-slate-400">Encarregados podem ver e comprar</p>
+                  </div>
+                  <button onClick={()=>setForm(f=>({...f,visivel_portal:!f.visivel_portal}))} style={{height:22,width:40,backgroundColor:form.visivel_portal?"var(--primary)":"#e2e8f0"}}
+                    className="rounded-full relative transition-colors">
+                    <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${form.visivel_portal?"left-[21px]":"left-[3px]"}`}/>
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+                <button onClick={()=>setShowForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button onClick={handleSave} disabled={saving} className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 flex items-center gap-2">
+                  {saving&&<RefreshCw className="w-3.5 h-3.5 animate-spin"/>}{saving?"A guardar...":editItem?"Guardar alterações":"Criar artigo"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MODAL CONFIRMAR ENTREGA ── */}
+      <AnimatePresence>
+        {deliverModal && (
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{scale:0.95,y:20}} animate={{scale:1,y:0}} exit={{scale:0.95,y:20}}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900 flex items-center gap-2"><Truck className="w-4 h-4 text-emerald-600"/> Confirmar Entrega</h3>
+                <button onClick={()=>setDeliverModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-xs text-slate-500 mb-1">Código de Voucher</p>
+                  <p className="font-mono font-bold text-slate-900 text-2xl tracking-widest">{deliverModal.voucher_code}</p>
+                  <p className="text-xs text-slate-400 mt-1">{deliverModal.guardian_nome}</p>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-500 border border-slate-100 rounded-xl p-3">
+                  {Array.isArray(deliverModal.items) && deliverModal.items.filter((i:any)=>i.item_nome).map((it:any,idx:number)=>(
+                    <p key={idx}>• {it.item_nome} × {it.quantidade}</p>
+                  ))}
+                  <p className="font-semibold text-slate-700 pt-1 border-t border-slate-100 mt-1">Total: {fmtKz(Number(deliverModal.total))}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Operador que entregou</label>
+                  <input className={inp} value={operador} onChange={e=>setOperador(e.target.value)} placeholder="Nome do operador"/>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Notas (opcional)</label>
+                  <input className={inp} value={deliveryNotas} onChange={e=>setDeliveryNotas(e.target.value)} placeholder="Observações..."/>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+                <button onClick={()=>setDeliverModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <button onClick={handleDeliver} disabled={savingDelivery} className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-2">
+                  {savingDelivery&&<RefreshCw className="w-3.5 h-3.5 animate-spin"/>}Confirmar Entrega
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function AvaliacoesView({ token, turmas }: { token: string; turmas: Turma[] }) {
   type AvTab = "calendario" | "tipologias" | "notificacoes" | "auditoria";
   const DIAS = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
@@ -7255,6 +7620,7 @@ export default function Dashboard() {
   const handleLogout = () => { logout(); setLocation("/escolar"); };
 
   const [ddPendingCount, setDdPendingCount] = useState(0);
+  const [storePendingCount, setStorePendingCount] = useState(0);
   useEffect(() => {
     if (!token) return;
     fetch(`${API}/school/direct-debit/subscriptions`, { headers: { Authorization: `Bearer ${token}` } })
@@ -7275,6 +7641,7 @@ export default function Dashboard() {
     { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
     { key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>, label: "Gestão de Acessos" },
     { key: "avaliacoes", icon: <CalendarDays className="w-5 h-5"/>, label: "Calendário de Avaliações" },
+    { key: "loja", icon: <ShoppingCart className="w-5 h-5"/>, label: "Loja & Emolumentos", badge: storePendingCount },
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -7436,6 +7803,11 @@ export default function Dashboard() {
             {view === "avaliacoes" && token && (
               <motion.div key="avaliacoes" initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="flex-1">
                 <AvaliacoesView token={token} turmas={turmas}/>
+              </motion.div>
+            )}
+            {view === "loja" && token && (
+              <motion.div key="loja" initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="flex-1">
+                <StoreManagementView token={token} onPendingChange={setStorePendingCount}/>
               </motion.div>
             )}
           </AnimatePresence>

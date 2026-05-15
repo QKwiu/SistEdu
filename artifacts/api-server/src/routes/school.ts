@@ -1826,6 +1826,183 @@ router.get("/school/alunos/:id/bolsa", schoolAuth, async (req: any, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════
+   MÓDULO: LOJA & EMOLUMENTOS (INVENTÁRIO + ENCOMENDAS)
+   ══════════════════════════════════════════════════════════ */
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS store_items (
+    id SERIAL PRIMARY KEY,
+    school_id INTEGER NOT NULL,
+    nome TEXT NOT NULL,
+    descricao TEXT,
+    preco NUMERIC(12,2) NOT NULL DEFAULT 0,
+    stock INTEGER DEFAULT NULL,
+    visivel_portal BOOLEAN DEFAULT true,
+    ativo BOOLEAN DEFAULT true,
+    categoria TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS store_orders (
+    id SERIAL PRIMARY KEY,
+    school_id INTEGER NOT NULL,
+    guardian_id INTEGER NOT NULL,
+    student_id INTEGER,
+    student_nome TEXT,
+    guardian_nome TEXT,
+    estado TEXT DEFAULT 'pendente_pagamento',
+    total NUMERIC(12,2) NOT NULL,
+    voucher_code TEXT UNIQUE NOT NULL,
+    entidade TEXT,
+    referencia TEXT,
+    metodo_pagamento TEXT DEFAULT 'reference',
+    gpo_redirect_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS store_order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    item_nome TEXT NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1,
+    preco_unit NUMERIC(12,2) NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS store_deliveries (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL,
+    operador TEXT NOT NULL,
+    notas TEXT,
+    delivered_at TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(e => console.error("store tables migration error:", e));
+
+/* ─── GET /school/store/items ─── */
+router.get("/school/store/items", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT * FROM store_items WHERE school_id=$1 ORDER BY ativo DESC, nome ASC`,
+    [school.school_id]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /school/store/items ─── */
+router.post("/school/store/items", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, descricao, preco, stock, visivel_portal, categoria } = req.body;
+  if (!nome?.trim() || preco === undefined) return res.status(400).json({ error: "Nome e preço são obrigatórios." });
+  const r = await pool.query(
+    `INSERT INTO store_items (school_id, nome, descricao, preco, stock, visivel_portal, categoria)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [school.school_id, nome.trim(), descricao || null, Number(preco),
+     (stock !== undefined && stock !== null && stock !== "") ? Number(stock) : null,
+     visivel_portal !== false, categoria || null]
+  );
+  res.json(r.rows[0]);
+});
+
+/* ─── PUT /school/store/items/:id ─── */
+router.put("/school/store/items/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { nome, descricao, preco, stock, visivel_portal, ativo, categoria } = req.body;
+  const r = await pool.query(
+    `UPDATE store_items SET nome=$1,descricao=$2,preco=$3,stock=$4,visivel_portal=$5,ativo=$6,categoria=$7,updated_at=NOW()
+     WHERE id=$8 AND school_id=$9 RETURNING *`,
+    [nome, descricao || null, Number(preco),
+     (stock !== undefined && stock !== null && stock !== "") ? Number(stock) : null,
+     visivel_portal !== false, ativo !== false, categoria || null,
+     req.params.id, school.school_id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Artigo não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── DELETE /school/store/items/:id ─── */
+router.delete("/school/store/items/:id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  await pool.query(`DELETE FROM store_items WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
+  res.json({ ok: true });
+});
+
+/* ─── PATCH /school/store/items/:id/toggle-portal ─── */
+router.patch("/school/store/items/:id/toggle-portal", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `UPDATE store_items SET visivel_portal=NOT visivel_portal,updated_at=NOW() WHERE id=$1 AND school_id=$2 RETURNING *`,
+    [req.params.id, school.school_id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Artigo não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── PATCH /school/store/items/:id/toggle-ativo ─── */
+router.patch("/school/store/items/:id/toggle-ativo", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `UPDATE store_items SET ativo=NOT ativo,updated_at=NOW() WHERE id=$1 AND school_id=$2 RETURNING *`,
+    [req.params.id, school.school_id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Artigo não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── GET /school/store/orders ─── */
+router.get("/school/store/orders", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { estado } = req.query as { estado?: string };
+  const conds = ["so.school_id=$1"]; const params: any[] = [school.school_id];
+  if (estado) { params.push(estado); conds.push(`so.estado=$${params.length}`); }
+  const r = await pool.query(
+    `SELECT so.*,
+       COALESCE(json_agg(json_build_object('item_nome',soi.item_nome,'quantidade',soi.quantidade,'preco_unit',soi.preco_unit)) FILTER (WHERE soi.id IS NOT NULL), '[]') AS items
+     FROM store_orders so
+     LEFT JOIN store_order_items soi ON soi.order_id = so.id
+     WHERE ${conds.join(" AND ")}
+     GROUP BY so.id ORDER BY so.created_at DESC`,
+    params
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /school/store/orders/:id/entregar ─── */
+router.post("/school/store/orders/:id/entregar", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { operador, notas } = req.body;
+  const order = await pool.query(`SELECT * FROM store_orders WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
+  if (!order.rowCount) return res.status(404).json({ error: "Encomenda não encontrada." });
+  if (!["pago","pendente_pagamento"].includes(order.rows[0].estado))
+    return res.status(400).json({ error: "Esta encomenda já foi entregue ou cancelada." });
+  await pool.query(`UPDATE store_orders SET estado='entregue',updated_at=NOW() WHERE id=$1`, [req.params.id]);
+  await pool.query(`INSERT INTO store_deliveries (order_id,operador,notas) VALUES ($1,$2,$3)`, [req.params.id, operador || "Operador", notas || null]);
+  const itemsR = await pool.query(`SELECT item_id,quantidade FROM store_order_items WHERE order_id=$1`, [req.params.id]);
+  for (const item of itemsR.rows) {
+    await pool.query(`UPDATE store_items SET stock=GREATEST(0,stock-$1),updated_at=NOW() WHERE id=$2 AND stock IS NOT NULL`, [item.quantidade, item.item_id]);
+  }
+  res.json({ ok: true });
+});
+
+/* ─── POST /school/store/orders/:id/marcar-pago ─── */
+router.post("/school/store/orders/:id/marcar-pago", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `UPDATE store_orders SET estado='pago',updated_at=NOW() WHERE id=$1 AND school_id=$2 AND estado='pendente_pagamento' RETURNING *`,
+    [req.params.id, school.school_id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Encomenda não encontrada ou já processada." });
+  res.json(r.rows[0]);
+});
+
+/* ══════════════════════════════════════════════════════════
    MÓDULO: CALENDÁRIO DE AVALIAÇÕES
    ══════════════════════════════════════════════════════════ */
 

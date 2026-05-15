@@ -791,6 +791,159 @@ router.post("/guardian/direct-debit/cancel-request", authMiddleware, async (req:
   return res.json({ ok: true });
 });
 
+/* ══════════════════════════════════════════════════════════
+   MÓDULO: LOJA (GUARDIAN)
+   ══════════════════════════════════════════════════════════ */
+
+/* ─── GET /guardian/store/items ─── */
+router.get("/guardian/store/items", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+  const { school_id } = req.query as { school_id?: string };
+  let schoolIds: number[] = [];
+  if (school_id) {
+    schoolIds = [Number(school_id)];
+  } else {
+    const studs = await pool.query(
+      `SELECT DISTINCT s.school_id FROM students s
+       JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+       WHERE ea.encarregado_id=$1`,
+      [guardian.id]
+    );
+    schoolIds = studs.rows.map((r: any) => r.school_id);
+  }
+  if (!schoolIds.length) return res.json([]);
+  const r = await pool.query(
+    `SELECT si.*, sc.name AS escola_nome
+     FROM store_items si
+     JOIN schools sc ON sc.id = si.school_id
+     WHERE si.school_id = ANY($1) AND si.visivel_portal=true AND si.ativo=true
+       AND (si.stock IS NULL OR si.stock > 0)
+     ORDER BY sc.name, si.categoria NULLS LAST, si.nome`,
+    [schoolIds]
+  );
+  res.json(r.rows);
+});
+
+/* ─── POST /guardian/store/checkout ─── */
+router.post("/guardian/store/checkout", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+  const { school_id, student_id, items, method = "reference" } = req.body as {
+    school_id: number; student_id?: number;
+    items: { item_id: number; quantidade: number }[];
+    method?: string;
+  };
+  if (!items?.length) return res.status(400).json({ error: "Carrinho vazio." });
+
+  // Validate school and payment settings
+  const schoolRow = await pool.query(
+    `SELECT sc.id, sc.name, ss.settings FROM schools sc
+     LEFT JOIN school_settings ss ON ss.school_id = sc.id WHERE sc.id=$1`,
+    [school_id]
+  );
+  if (!schoolRow.rowCount) return res.status(404).json({ error: "Escola não encontrada." });
+  const metodos = schoolRow.rows[0].settings?.pagamento?.metodos_pagamento ?? { allow_reference: true, allow_gpo_mcx: false };
+  if (method === "reference" && !metodos.allow_reference) return res.status(403).json({ error: "Pagamento por referência não disponível." });
+  if (method === "gpo_mcx" && !metodos.allow_gpo_mcx) return res.status(403).json({ error: "Multicaixa Express não disponível." });
+
+  // Validate guardian access to school
+  const access = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id=$1 AND s.school_id=$2`,
+    [guardian.id, school_id]
+  );
+  if (access.rows[0].c === 0) return res.status(403).json({ error: "Sem acesso a esta escola." });
+
+  // Validate and fetch items
+  const itemIds = items.map(i => i.item_id);
+  const dbItemsR = await pool.query(
+    `SELECT * FROM store_items WHERE id=ANY($1) AND school_id=$2 AND visivel_portal=true AND ativo=true`,
+    [itemIds, school_id]
+  );
+  if (dbItemsR.rows.length !== itemIds.length) return res.status(400).json({ error: "Um ou mais artigos inválidos ou indisponíveis." });
+
+  // Validate stock
+  for (const ordered of items) {
+    const dbItem = dbItemsR.rows.find((i: any) => i.id === ordered.item_id);
+    if (dbItem.stock !== null && dbItem.stock < ordered.quantidade)
+      return res.status(400).json({ error: `Stock insuficiente para "${dbItem.nome}". Disponível: ${dbItem.stock}.` });
+  }
+
+  // Calculate total
+  let total = 0;
+  const lines: { item: any; qty: number }[] = [];
+  for (const ordered of items) {
+    const dbItem = dbItemsR.rows.find((i: any) => i.id === ordered.item_id);
+    total += Number(dbItem.preco) * ordered.quantidade;
+    lines.push({ item: dbItem, qty: ordered.quantidade });
+  }
+
+  // Student name
+  let studentNome: string | null = null;
+  if (student_id) {
+    const st = await pool.query(`SELECT nome FROM students WHERE id=$1`, [student_id]);
+    studentNome = st.rows[0]?.nome ?? null;
+  }
+
+  // Generate voucher code (8 chars, no ambiguous)
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let voucherCode = "";
+  for (let i = 0; i < 8; i++) voucherCode += chars.charAt(Math.floor(Math.random() * chars.length));
+
+  // Payment reference
+  const refNum = String(Math.floor(Math.random() * 900000000) + 100000000);
+  const ENTIDADE = "00456";
+  const exp = new Date(); exp.setDate(exp.getDate() + 30);
+
+  let gpoUrl: string | null = null;
+  if (method === "gpo_mcx") {
+    const txId = `STORE-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+    gpoUrl = `https://gpo.emis.ao/checkout?txId=${txId}&amount=${total}&currency=AOA&merchantId=KIWARA001`;
+  }
+
+  // Create order
+  const orderR = await pool.query(
+    `INSERT INTO store_orders (school_id,guardian_id,student_id,student_nome,guardian_nome,total,voucher_code,entidade,referencia,metodo_pagamento,gpo_redirect_url,estado)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente_pagamento') RETURNING *`,
+    [school_id, guardian.id, student_id || null, studentNome, guardian.nome, total, voucherCode, ENTIDADE, refNum, method, gpoUrl]
+  );
+  const orderId = orderR.rows[0].id;
+
+  for (const line of lines) {
+    await pool.query(
+      `INSERT INTO store_order_items (order_id,item_id,item_nome,quantidade,preco_unit) VALUES ($1,$2,$3,$4,$5)`,
+      [orderId, line.item.id, line.item.nome, line.qty, line.item.preco]
+    );
+  }
+
+  res.json({
+    order_id: orderId, voucher_code: voucherCode,
+    entidade: ENTIDADE, referencia: refNum,
+    montante: total, validade: exp.toISOString(),
+    escola_nome: schoolRow.rows[0].name,
+    metodo_pagamento: method, gpo_redirect_url: gpoUrl,
+  });
+});
+
+/* ─── GET /guardian/store/orders ─── */
+router.get("/guardian/store/orders", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT so.*, sc.name AS escola_nome,
+       COALESCE(json_agg(json_build_object('item_nome',soi.item_nome,'quantidade',soi.quantidade,'preco_unit',soi.preco_unit)) FILTER (WHERE soi.id IS NOT NULL),'[]') AS items
+     FROM store_orders so
+     JOIN schools sc ON sc.id = so.school_id
+     LEFT JOIN store_order_items soi ON soi.order_id = so.id
+     WHERE so.guardian_id=$1
+     GROUP BY so.id, sc.name ORDER BY so.created_at DESC`,
+    [guardian.id]
+  );
+  res.json(r.rows);
+});
+
 /* ─── GET /guardian/avaliacoes ─── */
 router.get("/guardian/avaliacoes", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
