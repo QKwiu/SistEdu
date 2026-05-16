@@ -3542,7 +3542,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
 
   const handleBaixaManual = async () => {
     if (!baixaModal) return;
-    if (!bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    if (bmMetodo !== "Cash" && !bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
     if (!bmValor || Number(bmValor) <= 0) { setBmError("Introduza o valor pago."); return; }
     if (!bmData) { setBmError("Introduza a data de recebimento."); return; }
     setReconciling(true); setBmError(""); setBmResult(null);
@@ -3553,7 +3553,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
       fd.append("metodo", bmMetodo);
       fd.append("data_recebimento", bmData);
       fd.append("observacoes", bmObs);
-      fd.append("comprovante", bmFile);
+      if (bmFile) fd.append("comprovante", bmFile);
       const r = await fetch(`${API}/school/reconciliacao/baixa-manual`, {
         method: "POST",
         headers: authHeader() as any,
@@ -3925,8 +3925,8 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
                   </div>
 
-                  {/* Comprovante upload */}
-                  <div>
+                  {/* Comprovante upload — hidden for Cash payments */}
+                  {bmMetodo !== "Cash" && <div>
                     <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
                       <Paperclip className="w-3.5 h-3.5"/> Comprovante de pagamento <span className="text-red-500">*</span>
                     </label>
@@ -3953,7 +3953,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                         </>
                       )}
                     </label>
-                  </div>
+                  </div>}
 
                   {/* Observations */}
                   <div>
