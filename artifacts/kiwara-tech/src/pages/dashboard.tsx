@@ -3118,8 +3118,8 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                         : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3 h-3"/> Pendente</span>
                       }
                       {p.pagamento_origem === "online"
-                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                            <Landmark className="w-2.5 h-2.5"/> {p.metodo_pagamento ?? "Online"}
+                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300 tracking-wide uppercase">
+                            <Zap className="w-2.5 h-2.5"/> GPO / EMIS
                           </span>
                         : p.status === "pago"
                         ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-500 border border-slate-200">
