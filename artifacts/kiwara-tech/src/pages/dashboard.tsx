@@ -3694,23 +3694,13 @@ function ReconciliacaoView({ token }: { token: string | null }) {
             <h3 className="font-semibold text-slate-900 text-sm">Distribuição de Receitas (Split Payment)</h3>
             <span className="ml-auto text-xs text-slate-400">Taxa de comissão: {commissionRate}%</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Landmark className="w-4 h-4 text-blue-600"/>
-                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Conta do Colégio</p>
-              </div>
-              <p className="text-2xl font-bold text-blue-800">{fmt(stats.receita_escola)}</p>
-              <p className="text-xs text-blue-600 mt-1">Receita líquida após comissão</p>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Landmark className="w-4 h-4 text-blue-600"/>
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Conta do Colégio</p>
             </div>
-            <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Receipt className="w-4 h-4 text-violet-600"/>
-                <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide">Comissão Plataforma</p>
-              </div>
-              <p className="text-2xl font-bold text-violet-800">{fmt(stats.comissao_plataforma)}</p>
-              <p className="text-xs text-violet-600 mt-1">Kiwara Tech ({commissionRate}%)</p>
-            </div>
+            <p className="text-2xl font-bold text-blue-800">{fmt(stats.receita_escola)}</p>
+            <p className="text-xs text-blue-600 mt-1">Receita líquida após comissão</p>
           </div>
         </div>
       )}
