@@ -3512,7 +3512,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [reconciling, setReconciling] = useState(false);
   const [baixaModal, setBaixaModal] = useState<RecPropina | null>(null);
   const [bmValor, setBmValor] = useState("");
-  const [bmMetodo, setBmMetodo] = useState("Numerário");
+  const [bmMetodo, setBmMetodo] = useState("Cash");
   const [bmData, setBmData] = useState("");
   const [bmObs, setBmObs] = useState("");
   const [bmFile, setBmFile] = useState<File | null>(null);
@@ -3770,7 +3770,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                             setBaixaModal(p);
                             setBmValor(String(Math.round(p.total_fatura)));
                             setBmData(new Date().toISOString().slice(0,10));
-                            setBmMetodo("Numerário");
+                            setBmMetodo("Cash");
                             setBmObs(""); setBmFile(null); setBmResult(null); setBmError("");
                           }}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
@@ -3909,12 +3909,9 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                     </label>
                     <select value={bmMetodo} onChange={e => setBmMetodo(e.target.value)}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40">
-                      <option>Numerário</option>
-                      <option>Transferência</option>
-                      <option>EMIS</option>
-                      <option>Appy Pay</option>
-                      <option>Cheque</option>
-                      <option>Outro</option>
+                      <option>Cash</option>
+                      <option>Transferência Bancária</option>
+                      <option>TPA</option>
                     </select>
                   </div>
 
