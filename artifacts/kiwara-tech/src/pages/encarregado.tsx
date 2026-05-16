@@ -834,8 +834,9 @@ function RecuperarPinModal({ onClose }: { onClose: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ telefone: clean }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Erro ao repor o PIN.");
+      let data: any = {};
+      try { data = await res.json(); } catch {}
+      if (!res.ok) throw new Error(data.error ?? "Erro ao repor o PIN. Tente novamente.");
       setSuccess(data.nome);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
