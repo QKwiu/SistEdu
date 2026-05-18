@@ -3550,8 +3550,29 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
 
   /* ── Fecho de Caixa state ── */
-  const [periodo, setPeriodo] = useState<"diario"|"semanal"|"trimestral"|"semestral"|"anual">("anual");
-  const [refDate, setRefDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  /* helper: compute inicio/fim from a named period (relative to today) */
+  const datesFromPeriodo = (p: string): { inicio: string; fim: string } => {
+    const fim = new Date();
+    let inicio: Date;
+    switch (p) {
+      case "semanal":    inicio = new Date(fim.getTime() - 6  * 86_400_000); break;
+      case "trimestral": inicio = new Date(fim.getTime() - 89 * 86_400_000); break;
+      case "semestral":  inicio = new Date(fim.getTime() - 179 * 86_400_000); break;
+      case "anual":      inicio = new Date(fim.getFullYear(), 0, 1);         break;
+      default:           inicio = new Date(fim);                             break;
+    }
+    return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) };
+  };
+
+  const [periodo, setPeriodo] = useState<""|"diario"|"semanal"|"trimestral"|"semestral"|"anual">("anual");
+  const [dateInicio, setDateInicio] = useState<string>(() => datesFromPeriodo("anual").inicio);
+  const [dateFim, setDateFim]     = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const applyPeriodo = (p: "diario"|"semanal"|"trimestral"|"semestral"|"anual") => {
+    setPeriodo(p);
+    const { inicio, fim } = datesFromPeriodo(p);
+    setDateInicio(inicio);
+    setDateFim(fim);
+  };
   const [filterCanal, setFilterCanal] = useState<PayChannel>("");
   const [fechoData, setFechoData] = useState<FechoData | null>(null);
   const [fechoLoading, setFechoLoading] = useState(false);
@@ -3585,7 +3606,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     if (!token) return;
     setFechoLoading(true);
     try {
-      const qs = new URLSearchParams({ periodo, data_ref: refDate });
+      const qs = new URLSearchParams({ data_from: dateInicio, data_to: dateFim });
       if (filterCanal) qs.set("metodo", filterCanal);
       const r = await fetch(`${API}/school/reconciliacao/fecho-caixa?${qs}`, { headers: authHeader() });
       if (r.ok) {
@@ -3594,7 +3615,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
         setDemoMode(d.demo_mode);
       }
     } finally { setFechoLoading(false); }
-  }, [token, periodo, filterCanal, refDate]);
+  }, [token, dateInicio, dateFim, filterCanal]);
 
   useEffect(() => {
     if (recSubTab === "fecho_caixa") loadFecho();
@@ -3785,7 +3806,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
               {/* Period selector */}
               <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
                 {(["diario","semanal","trimestral","semestral","anual"] as const).map(p => (
-                  <button key={p} onClick={() => setPeriodo(p)}
+                  <button key={p} onClick={() => applyPeriodo(p)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${periodo===p?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
                     {p === "diario" ? "Diário" : p === "semanal" ? "Semanal" : p === "trimestral" ? "Trimestral" : p === "semestral" ? "Semestral" : "Anual"}
                   </button>
@@ -3802,29 +3823,30 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                 </button>
               </div>
             </div>
-            {/* Date reference picker */}
+            {/* Date range picker — both inputs independently editable */}
             <div className="flex items-center gap-2">
               <div className="relative">
                 <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
                 <input
                   type="date"
-                  value={refDate}
-                  max={new Date().toISOString().slice(0, 10)}
-                  onChange={e => setRefDate(e.target.value)}
+                  value={dateInicio}
+                  max={dateFim}
+                  onChange={e => { setDateInicio(e.target.value); setPeriodo(""); }}
                   className="pl-8 pr-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
                 />
               </div>
-              <span className="text-xs text-slate-400">
-                {(() => {
-                  const ref = new Date(refDate + "T12:00:00");
-                  const fmt = (d: Date) => d.toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" });
-                  if (periodo === "diario") return fmt(ref);
-                  if (periodo === "anual") return `01 Jan ${ref.getFullYear()} – ${fmt(ref)}`;
-                  const days = periodo === "semanal" ? 6 : periodo === "trimestral" ? 89 : 179;
-                  const from = new Date(ref); from.setDate(ref.getDate() - days);
-                  return `${fmt(from)} – ${fmt(ref)}`;
-                })()}
-              </span>
+              <span className="text-slate-300 font-light select-none">→</span>
+              <div className="relative">
+                <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                <input
+                  type="date"
+                  value={dateFim}
+                  min={dateInicio}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => { setDateFim(e.target.value); setPeriodo(""); }}
+                  className="pl-8 pr-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                />
+              </div>
             </div>
           </div>
 
@@ -3857,7 +3879,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
               {/* Total liquidado banner */}
               <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 rounded-2xl p-5 text-white flex items-center justify-between">
                 <div>
-                  <p className="text-emerald-100 text-sm font-medium">Total Liquidado · {periodo === "diario" ? "Hoje" : periodo === "semanal" ? "Esta semana" : periodo === "trimestral" ? "Último trimestre" : periodo === "semestral" ? "Último semestre" : "Este ano"}</p>
+                  <p className="text-emerald-100 text-sm font-medium">Total Liquidado · {new Date(dateInicio + "T12:00:00").toLocaleDateString("pt-AO", { day:"2-digit", month:"short" })} – {new Date(dateFim + "T12:00:00").toLocaleDateString("pt-AO", { day:"2-digit", month:"short", year:"numeric" })}</p>
                   <p className="text-3xl font-bold mt-1">{fmt(fechoData.totais.total_liquidado)}</p>
                   <div className="flex items-center gap-3 mt-2 text-emerald-100 text-xs">
                     <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5"/> {fechoData.totais.total_transacoes} transações</span>

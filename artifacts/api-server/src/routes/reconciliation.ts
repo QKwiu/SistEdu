@@ -691,8 +691,14 @@ router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { periodo = "anual", metodo, data_ref } = req.query as any;
-  const { from: dateFrom, to: dateTo } = periodRange(periodo, data_ref);
+  const { data_from, data_to, metodo } = req.query as any;
+  /* Parse explicit date range sent by the frontend */
+  const dateFrom = data_from
+    ? new Date((data_from as string) + "T00:00:00.000")
+    : new Date(new Date().getFullYear(), 0, 1);
+  const dateTo = data_to
+    ? new Date((data_to as string) + "T23:59:59.999")
+    : new Date();
 
   const baseConditions = ["p.school_id = $1", "p.status = 'pago'", "p.pago_em >= $2", "p.pago_em <= $3"];
   const baseParams: any[] = [school.school_id, dateFrom.toISOString(), dateTo.toISOString()];
