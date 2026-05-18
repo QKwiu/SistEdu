@@ -328,23 +328,34 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { status, student_id, mes, ano, data_from, data_to } = req.query as any;
-  const conditions: string[] = ["p.school_id = $1"];
-  const params: any[] = [school.school_id];
 
-  if (status)     { params.push(status);     conditions.push(`p.status = $${params.length}`); }
-  if (student_id) { params.push(student_id); conditions.push(`p.student_id = $${params.length}`); }
-  if (mes)        { params.push(mes);        conditions.push(`p.mes = $${params.length}`); }
-  if (ano)        { params.push(ano);        conditions.push(`p.ano = $${params.length}`); }
+  /* ── Base conditions for the propinas LIST (no payment-date filter) ── */
+  const listConditions: string[] = ["p.school_id = $1"];
+  const listParams: any[] = [school.school_id];
 
-  /* Date range on pago_em — used by stats to keep receita_total consistent with Fecho de Caixa */
-  const statsConditionsPaid: string[] = [];
+  if (status)     { listParams.push(status);     listConditions.push(`p.status = $${listParams.length}`); }
+  if (student_id) { listParams.push(student_id); listConditions.push(`p.student_id = $${listParams.length}`); }
+  if (mes)        { listParams.push(mes);        listConditions.push(`p.mes = $${listParams.length}`); }
+  if (ano)        { listParams.push(ano);        listConditions.push(`p.ano = $${listParams.length}`); }
+
+  /* ── Stats conditions: same base + optional pago_em date range so that
+       receita_total matches exactly what Fecho de Caixa shows for the period ── */
+  const statsConditions: string[] = ["p.school_id = $1"];
+  const statsParams: any[] = [school.school_id];
+
+  if (status)     { statsParams.push(status);     statsConditions.push(`p.status = $${statsParams.length}`); }
+  if (student_id) { statsParams.push(student_id); statsConditions.push(`p.student_id = $${statsParams.length}`); }
+  if (mes)        { statsParams.push(mes);        statsConditions.push(`p.mes = $${statsParams.length}`); }
+  if (ano)        { statsParams.push(ano);        statsConditions.push(`p.ano = $${statsParams.length}`); }
+
+  /* Payment date range — applies only to paid propinas in the stats */
   if (data_from) {
-    params.push(new Date((data_from as string) + "T00:00:00.000").toISOString());
-    statsConditionsPaid.push(`(p.status != 'pago' OR p.pago_em >= $${params.length})`);
+    statsParams.push(new Date((data_from as string) + "T00:00:00.000").toISOString());
+    statsConditions.push(`(p.status != 'pago' OR p.pago_em >= $${statsParams.length})`);
   }
   if (data_to) {
-    params.push(new Date((data_to as string) + "T23:59:59.999").toISOString());
-    statsConditionsPaid.push(`(p.status != 'pago' OR p.pago_em <= $${params.length})`);
+    statsParams.push(new Date((data_to as string) + "T23:59:59.999").toISOString());
+    statsConditions.push(`(p.status != 'pago' OR p.pago_em <= $${statsParams.length})`);
   }
 
   const r = await pool.query(`
@@ -371,14 +382,9 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
     JOIN students s ON s.id = p.student_id
     LEFT JOIN turmas t  ON t.id = s.turma_id
     LEFT JOIN pagamentos pg ON pg.propina_id = p.id
-    WHERE ${conditions.join(" AND ")}
+    WHERE ${listConditions.join(" AND ")}
     ORDER BY p.ano DESC, p.mes DESC, s.nome
-  `, params);
-
-  /* Stats use the same base conditions as the propinas list PLUS the optional pago_em
-     date range, so that receita_total/pagas always match what Fecho de Caixa shows
-     for the same period. Pending/vencidas counts ignore the date range (they have no pago_em). */
-  const allStatsConditions = [...conditions, ...statsConditionsPaid];
+  `, listParams);
 
   const stats = await pool.query(`
     SELECT
@@ -394,8 +400,8 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
          WHERE pp.school_id = $1 AND ps.destino = 'platform'), 0
       ) AS comissao_plataforma
     FROM propinas p
-    WHERE ${allStatsConditions.join(" AND ")}
-  `, params);
+    WHERE ${statsConditions.join(" AND ")}
+  `, statsParams);
 
   res.json({ propinas: r.rows, stats: stats.rows[0], commission_rate: school.commission_rate });
 });

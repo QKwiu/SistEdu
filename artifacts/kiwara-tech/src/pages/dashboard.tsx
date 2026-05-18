@@ -3417,24 +3417,31 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
 
   /* ── Fecho de Caixa state ── */
-  /* helper: compute inicio/fim from a named period (relative to today) */
+  /* helper: compute inicio/fim from a named period (relative to today)
+     "ano_lectivo" = Angolan academic year (Sep 1 of previous/current year) */
   const datesFromPeriodo = (p: string): { inicio: string; fim: string } => {
     const fim = new Date();
     let inicio: Date;
     switch (p) {
-      case "semanal":    inicio = new Date(fim.getTime() - 6  * 86_400_000); break;
-      case "trimestral": inicio = new Date(fim.getTime() - 89 * 86_400_000); break;
-      case "semestral":  inicio = new Date(fim.getTime() - 179 * 86_400_000); break;
-      case "anual":      inicio = new Date(fim.getFullYear(), 0, 1);         break;
-      default:           inicio = new Date(fim);                             break;
+      case "semanal":      inicio = new Date(fim.getTime() - 6   * 86_400_000); break;
+      case "trimestral":   inicio = new Date(fim.getTime() - 89  * 86_400_000); break;
+      case "semestral":    inicio = new Date(fim.getTime() - 179 * 86_400_000); break;
+      case "anual":        inicio = new Date(fim.getFullYear(), 0, 1);          break;
+      case "ano_lectivo": {
+        /* Academic year starts Sep 1. If current month < September, it started last year */
+        const anoLectivo = fim.getMonth() >= 8 ? fim.getFullYear() : fim.getFullYear() - 1;
+        inicio = new Date(anoLectivo, 8, 1); /* Sep 1 */
+        break;
+      }
+      default: inicio = new Date(fim); break;
     }
     return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) };
   };
 
-  const [periodo, setPeriodo] = useState<""|"diario"|"semanal"|"trimestral"|"semestral"|"anual">("anual");
-  const [dateInicio, setDateInicio] = useState<string>(() => datesFromPeriodo("anual").inicio);
+  const [periodo, setPeriodo] = useState<""|"diario"|"semanal"|"trimestral"|"semestral"|"anual"|"ano_lectivo">("ano_lectivo");
+  const [dateInicio, setDateInicio] = useState<string>(() => datesFromPeriodo("ano_lectivo").inicio);
   const [dateFim, setDateFim]     = useState<string>(() => new Date().toISOString().slice(0, 10));
-  const applyPeriodo = (p: "diario"|"semanal"|"trimestral"|"semestral"|"anual") => {
+  const applyPeriodo = (p: "diario"|"semanal"|"trimestral"|"semestral"|"anual"|"ano_lectivo") => {
     setPeriodo(p);
     const { inicio, fim } = datesFromPeriodo(p);
     setDateInicio(inicio);
@@ -3677,10 +3684,10 @@ function ReconciliacaoView({ token }: { token: string | null }) {
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
               {/* Period selector */}
               <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-                {(["diario","semanal","trimestral","semestral","anual"] as const).map(p => (
+                {(["diario","semanal","trimestral","semestral","anual","ano_lectivo"] as const).map(p => (
                   <button key={p} onClick={() => applyPeriodo(p)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${periodo===p?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-                    {p === "diario" ? "Diário" : p === "semanal" ? "Semanal" : p === "trimestral" ? "Trimestral" : p === "semestral" ? "Semestral" : "Anual"}
+                    {p === "diario" ? "Diário" : p === "semanal" ? "Semanal" : p === "trimestral" ? "Trimestral" : p === "semestral" ? "Semestral" : p === "anual" ? "Anual" : "Ano Lectivo"}
                   </button>
                 ))}
               </div>
