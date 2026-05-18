@@ -756,8 +756,8 @@ router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res
     totais:    totaisRow.rows[0],
     chart:     Array.from(dayMap.values()),
     demo_mode: demoRow.rows[0]?.demo_mode ?? false,
-    periodo,
     date_from: dateFrom.toISOString(),
+    date_to:   dateTo.toISOString(),
   });
 });
 
