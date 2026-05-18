@@ -175,6 +175,76 @@ export async function runReconciliationMigration() {
       updated_by TEXT
     )
   `);
+  /* ── Payment Channel Rules ── */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payment_channel_rules (
+      canal                       TEXT PRIMARY KEY
+        CHECK (canal IN ('GPO_EMIS','DIRECT_DEBIT','BANK_TRANSFER','POS_TPA','CASH')),
+      nome_display                TEXT        NOT NULL,
+      origem_dado                 TEXT        NOT NULL,
+      fluxo_conciliacao           TEXT        NOT NULL,
+      tipo_fluxo                  TEXT        NOT NULL
+        CHECK (tipo_fluxo IN ('automatico','semi_automatico','manual')),
+      requer_referencia_doc       BOOLEAN     NOT NULL DEFAULT FALSE,
+      requer_comprovante          BOOLEAN     NOT NULL DEFAULT TRUE,
+      requer_validacao_supervisor BOOLEAN     NOT NULL DEFAULT FALSE,
+      estado_final                TEXT        NOT NULL DEFAULT 'liquidado',
+      instrucoes_operador         TEXT,
+      cor_badge                   TEXT,
+      updated_at                  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    INSERT INTO payment_channel_rules
+      (canal, nome_display, origem_dado, fluxo_conciliacao, tipo_fluxo,
+       requer_referencia_doc, requer_comprovante, requer_validacao_supervisor,
+       estado_final, instrucoes_operador, cor_badge)
+    VALUES
+      ('GPO_EMIS',      'GPO / EMIS',                 'API / Webhook EMIS',
+       '100% Automático via Gateway de Pagamento',      'automatico',
+       FALSE, FALSE, FALSE, 'liquidado',
+       'Pagamento processado automaticamente via EMIS. Nenhuma acção do operador necessária.',
+       '#f97316'),
+      ('DIRECT_DEBIT',  'Débito Direto',               'Arquivo de Retorno Bancário (PS2)',
+       'Automático via upload/integração de ficheiro bancário', 'automatico',
+       FALSE, TRUE,  FALSE, 'liquidado',
+       'Faça upload do ficheiro PS2 de retorno bancário. O sistema cruza automaticamente os registos.',
+       '#3b82f6'),
+      ('BANK_TRANSFER', 'Transferência Bancária',      'Upload de Extrato (Excel/CSV)',
+       'Semi-automático — sistema cruza valor e IBAN/ID; operador confirma', 'semi_automatico',
+       TRUE,  TRUE,  FALSE, 'liquidado',
+       'Introduza a referência da transferência (ID da transação ou IBAN de origem) e faça upload do extrato.',
+       '#8b5cf6'),
+      ('POS_TPA',       'TPA (Terminal de Pagamento)', 'Input do Operador + ID do Talão',
+       'Manual — introdução do nº de documento/transação do TPA', 'manual',
+       TRUE,  TRUE,  FALSE, 'liquidado',
+       'Introduza o número do talão/transação emitido pelo terminal TPA.',
+       '#6366f1'),
+      ('CASH',          'Numerário (Cash)',             'Input do Operador de Caixa',
+       'Manual — entrada física com emissão imediata de recibo', 'manual',
+       FALSE, FALSE, TRUE,  'liquidado',
+       'Registe o montante recebido em numerário. O estado requer validação do supervisor.',
+       '#10b981')
+    ON CONFLICT (canal) DO UPDATE SET
+      nome_display                = EXCLUDED.nome_display,
+      origem_dado                 = EXCLUDED.origem_dado,
+      fluxo_conciliacao           = EXCLUDED.fluxo_conciliacao,
+      tipo_fluxo                  = EXCLUDED.tipo_fluxo,
+      requer_referencia_doc       = EXCLUDED.requer_referencia_doc,
+      requer_comprovante          = EXCLUDED.requer_comprovante,
+      requer_validacao_supervisor = EXCLUDED.requer_validacao_supervisor,
+      estado_final                = EXCLUDED.estado_final,
+      instrucoes_operador         = EXCLUDED.instrucoes_operador,
+      cor_badge                   = EXCLUDED.cor_badge,
+      updated_at                  = NOW()
+  `);
+  /* Extra propina columns for channel-aware manual payments */
+  await pool.query(`
+    ALTER TABLE propinas
+      ADD COLUMN IF NOT EXISTS referencia_doc        TEXT,
+      ADD COLUMN IF NOT EXISTS validado_supervisor   BOOLEAN DEFAULT FALSE
+  `);
+
   /* Backfill internal_reference for propinas that don't have one yet */
   await pool.query(`
     UPDATE propinas p
@@ -312,6 +382,17 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
   res.json({ propinas: r.rows, stats: stats.rows[0], commission_rate: school.commission_rate });
 });
 
+/* ─── GET /school/reconciliacao/payment-rules ─── */
+router.get("/school/reconciliacao/payment-rules", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(`
+    SELECT * FROM payment_channel_rules
+    ORDER BY CASE tipo_fluxo WHEN 'automatico' THEN 1 WHEN 'semi_automatico' THEN 2 ELSE 3 END, canal
+  `);
+  res.json(r.rows);
+});
+
 /* ─── POST /school/reconciliacao/baixa-manual — manual payment by school admin ─── */
 router.post(
   "/school/reconciliacao/baixa-manual",
@@ -321,12 +402,18 @@ router.post(
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-    const { propina_id, valor_pago, metodo, data_recebimento, observacoes } = req.body;
+    const { propina_id, valor_pago, metodo, data_recebimento, observacoes, referencia_doc, validado_supervisor } = req.body;
 
     if (!propina_id) return res.status(400).json({ error: "ID da propina obrigatório." });
     if (!valor_pago || Number(valor_pago) <= 0) return res.status(400).json({ error: "Valor pago deve ser maior que zero." });
-    if (!req.file) return res.status(400).json({ error: "Comprovante de pagamento obrigatório (PDF ou imagem)." });
     if (!data_recebimento) return res.status(400).json({ error: "Data de recebimento obrigatória." });
+
+    /* Determine channel rule — comprovante may be optional depending on canal */
+    const earlyChannel = metodoToChannel(metodo ?? "Cash");
+    const ruleChk = await pool.query("SELECT * FROM payment_channel_rules WHERE canal=$1", [earlyChannel]);
+    const rule = ruleChk.rows[0];
+    if (rule?.requer_comprovante && !req.file) return res.status(400).json({ error: "Comprovante de pagamento obrigatório para este meio de pagamento." });
+    if (rule?.requer_referencia_doc && !referencia_doc) return res.status(400).json({ error: earlyChannel === "POS_TPA" ? "Nº do talão / ID de transação TPA obrigatório." : "Referência da transferência obrigatória." });
 
     const pRow = await pool.query(
       `SELECT p.*, sc.commission_rate, sc.id AS school_db_id
@@ -348,7 +435,7 @@ router.post(
     const paid = Number(valor_pago);
     const total = Number(p.montante) + Number(p.multa);
     const newStatus = paid >= total ? "pago" : "pendente";
-    const comprovanteUrl = `/api/uploads/comprovantes/${req.file.filename}`;
+    const comprovanteUrl = req.file ? `/api/uploads/comprovantes/${req.file.filename}` : null;
 
     /* Derive payment_channel from metodo */
     const payChannel = metodoToChannel(metodo ?? "Cash");
@@ -365,9 +452,11 @@ router.post(
           baixa_manual_obs = $4,
           comprovante_url = $5,
           data_recebimento = $6,
-          payment_channel = $8
+          payment_channel = $8,
+          referencia_doc = $9,
+          validado_supervisor = $10
       WHERE id = $7
-    `, [newStatus, paid < total ? paid : 0, school.admin_email, observacoes ?? null, comprovanteUrl, data_recebimento, p.id, payChannel]);
+    `, [newStatus, paid < total ? paid : 0, school.admin_email, observacoes ?? null, comprovanteUrl, data_recebimento, p.id, payChannel, referencia_doc ?? null, validado_supervisor === "true"]);
 
     /* Update pagamentos reference state */
     await pool.query("UPDATE pagamentos SET estado='PAGO' WHERE propina_id=$1", [p.id]);

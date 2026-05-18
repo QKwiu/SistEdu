@@ -97,6 +97,14 @@ const CANAL_META: Record<string, { label: string; color: string; bg: string; bor
   CASH:          { label: "Numerário",          color: "#10b981", bg: "bg-emerald-50", border: "border-emerald-200",icon: "💵" },
 };
 
+const PAYMENT_CHANNELS = [
+  { canal: "CASH",          label: "Numerário (Cash)",        tipo: "manual",          tipo_badge: "Manual",          requer_ref: false, requer_comp: false, requer_val: true,  label_ref: "",                          info: "Entrada física. O estado requer validação do supervisor antes de Liquidado." },
+  { canal: "BANK_TRANSFER", label: "Transferência Bancária",  tipo: "semi_automatico", tipo_badge: "Semi-automático", requer_ref: true,  requer_comp: true,  requer_val: false, label_ref: "Ref. Transferência / IBAN de Origem", info: "Semi-automático — o sistema cruza o valor e o IBAN; o operador confirma." },
+  { canal: "POS_TPA",       label: "TPA (Terminal)",          tipo: "manual",          tipo_badge: "Manual",          requer_ref: true,  requer_comp: true,  requer_val: false, label_ref: "Nº Talão / ID Transação TPA",       info: "Introduza o número do talão emitido pelo terminal TPA e faça upload do comprovante." },
+  { canal: "DIRECT_DEBIT",  label: "Débito Direto (PS2)",     tipo: "automatico",      tipo_badge: "Automático",      requer_ref: false, requer_comp: true,  requer_val: false, label_ref: "",                          info: "Faça upload do ficheiro PS2 de retorno bancário para conciliação automática." },
+  { canal: "GPO_EMIS",      label: "GPO / EMIS (Multicaixa)", tipo: "automatico",      tipo_badge: "Automático",      requer_ref: false, requer_comp: false, requer_val: false, label_ref: "",                          info: "Pagamento processado automaticamente via EMIS — nenhuma acção necessária." },
+];
+
 /* ─── Helpers ─── */
 function fmt(val: number | string) {
   const n = typeof val === "string" ? parseFloat(val) : val;
@@ -2986,17 +2994,23 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [bmSaving, setBmSaving] = useState(false);
   const [bmResult, setBmResult] = useState<any>(null);
   const [bmError, setBmError] = useState("");
+  const [bmRefDoc, setBmRefDoc] = useState("");
+  const [bmValidadoSupervisor, setBmValidadoSupervisor] = useState(false);
 
   const openBaixa = (p: Propina) => {
     setBmPropina(p);
     setBmValor(String(Math.round(Number(p.montante) + Number(p.multa))));
     setBmData(new Date().toISOString().slice(0, 10));
-    setBmMetodo("Numerário"); setBmObs(""); setBmFile(null); setBmResult(null); setBmError("");
+    setBmMetodo("CASH"); setBmObs(""); setBmFile(null); setBmResult(null); setBmError("");
+    setBmRefDoc(""); setBmValidadoSupervisor(false);
   };
 
   const handleBaixaManual = async () => {
     if (!bmPropina || !token) return;
-    if (!bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    const bmCh = PAYMENT_CHANNELS.find(c => c.canal === bmMetodo) ?? PAYMENT_CHANNELS[0];
+    if (bmCh.requer_comp && !bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    if (bmCh.requer_ref && !bmRefDoc.trim()) { setBmError(`Introduza: ${bmCh.label_ref}.`); return; }
+    if (bmCh.requer_val && !bmValidadoSupervisor) { setBmError("Confirme a validação do supervisor para pagamento em numerário."); return; }
     if (!bmValor || Number(bmValor) <= 0) { setBmError("Introduza o valor pago."); return; }
     if (!bmData) { setBmError("Introduza a data de recebimento."); return; }
     setBmSaving(true); setBmError(""); setBmResult(null);
@@ -3007,7 +3021,9 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
       fd.append("metodo", bmMetodo);
       fd.append("data_recebimento", bmData);
       fd.append("observacoes", bmObs);
-      fd.append("comprovante", bmFile);
+      if (bmFile) fd.append("comprovante", bmFile);
+      if (bmRefDoc) fd.append("referencia_doc", bmRefDoc);
+      fd.append("validado_supervisor", String(bmValidadoSupervisor));
       const r = await fetch(`${API}/school/reconciliacao/baixa-manual`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -3483,24 +3499,57 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                     <div>
                       <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Método *</label>
                       <select className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        value={bmMetodo} onChange={e => setBmMetodo(e.target.value)}>
-                        {["Numerário","Transferência Bancária","Multicaixa Express","Cheque","Outro"].map(m => <option key={m}>{m}</option>)}
+                        value={bmMetodo} onChange={e => { setBmMetodo(e.target.value); setBmRefDoc(""); setBmValidadoSupervisor(false); setBmFile(null); }}>
+                        {PAYMENT_CHANNELS.map(c => <option key={c.canal} value={c.canal}>{c.label}</option>)}
                       </select>
                     </div>
                   </div>
+                  {/* Channel info banner */}
+                  {(() => { const ch = PAYMENT_CHANNELS.find(c => c.canal === bmMetodo); if (!ch) return null;
+                    const colors: Record<string,string> = { manual: "bg-indigo-50 border-indigo-200 text-indigo-700", semi_automatico: "bg-violet-50 border-violet-200 text-violet-700", automatico: "bg-blue-50 border-blue-200 text-blue-700" };
+                    return <div className={`rounded-xl border px-3.5 py-2.5 flex items-start gap-2 text-xs ${colors[ch.tipo] ?? "bg-slate-50 border-slate-200 text-slate-600"}`}>
+                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5"/>
+                      <div><span className="font-semibold">{ch.tipo_badge}: </span>{ch.info}</div>
+                    </div>;
+                  })()}
+                  {/* Ref doc field — TPA / Transferência */}
+                  {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.requer_ref && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">{PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.label_ref} *</label>
+                      <input type="text"
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        value={bmRefDoc} onChange={e => setBmRefDoc(e.target.value)}
+                        placeholder={bmMetodo === "POS_TPA" ? "Ex: TXN-20240518-001234" : "Ex: IBAN / Ref. BFA 2024..."}/>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Data de Recebimento *</label>
                     <input type="date"
                       className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                       value={bmData} onChange={e => setBmData(e.target.value)}/>
                   </div>
+                  {/* Comprovante — only for channels that require it */}
+                  {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.requer_comp && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Comprovante de Pagamento *</label>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                      {bmMetodo === "DIRECT_DEBIT" ? "Ficheiro PS2 de Retorno *" : "Comprovante de Pagamento *"}
+                    </label>
                     <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-5 cursor-pointer transition-colors ${bmFile ? "border-emerald-400 bg-emerald-50" : "border-slate-200 hover:border-primary/40 bg-slate-50"}`}>
-                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => setBmFile(e.target.files?.[0] ?? null)}/>
-                      {bmFile ? <><FileCheck className="w-6 h-6 text-emerald-600"/><span className="text-xs text-emerald-700 font-semibold">{bmFile.name}</span></> : <><Upload className="w-6 h-6 text-slate-300"/><span className="text-xs text-slate-500">Clique para carregar ficheiro (PDF, imagem)</span></>}
+                      <input type="file" accept="image/*,application/pdf,.ps2,.txt" className="hidden" onChange={e => setBmFile(e.target.files?.[0] ?? null)}/>
+                      {bmFile ? <><FileCheck className="w-6 h-6 text-emerald-600"/><span className="text-xs text-emerald-700 font-semibold">{bmFile.name}</span></> : <><Upload className="w-6 h-6 text-slate-300"/><span className="text-xs text-slate-500">Clique para carregar ficheiro (PDF, imagem{bmMetodo === "DIRECT_DEBIT" ? ", PS2" : ""})</span></>}
                     </label>
                   </div>
+                  )}
+                  {/* Supervisor validation checkbox — Cash only */}
+                  {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.requer_val && (
+                    <label className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3 cursor-pointer">
+                      <input type="checkbox" checked={bmValidadoSupervisor} onChange={e => setBmValidadoSupervisor(e.target.checked)} className="mt-0.5 accent-amber-600"/>
+                      <div>
+                        <p className="text-xs font-semibold text-amber-800">Validação do supervisor</p>
+                        <p className="text-xs text-amber-700 mt-0.5">Confirmo que o montante em numerário foi entregue e contado na presença do responsável de caixa.</p>
+                      </div>
+                    </label>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Observações</label>
                     <textarea rows={2}
@@ -3540,12 +3589,14 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [reconciling, setReconciling] = useState(false);
   const [baixaModal, setBaixaModal] = useState<RecPropina | null>(null);
   const [bmValor, setBmValor] = useState("");
-  const [bmMetodo, setBmMetodo] = useState("Cash");
+  const [bmMetodo, setBmMetodo] = useState("CASH");
   const [bmData, setBmData] = useState("");
   const [bmObs, setBmObs] = useState("");
   const [bmFile, setBmFile] = useState<File | null>(null);
   const [bmResult, setBmResult] = useState<any>(null);
   const [bmError, setBmError] = useState("");
+  const [bmRefDoc, setBmRefDoc] = useState("");
+  const [bmValidadoSupervisor, setBmValidadoSupervisor] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
 
@@ -3668,7 +3719,10 @@ function ReconciliacaoView({ token }: { token: string | null }) {
 
   const handleBaixaManual = async () => {
     if (!baixaModal) return;
-    if (bmMetodo !== "Cash" && !bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    const bmCh = PAYMENT_CHANNELS.find(c => c.canal === bmMetodo) ?? PAYMENT_CHANNELS[0];
+    if (bmCh.requer_comp && !bmFile) { setBmError("Seleccione o comprovante de pagamento."); return; }
+    if (bmCh.requer_ref && !bmRefDoc.trim()) { setBmError(`Introduza: ${bmCh.label_ref}.`); return; }
+    if (bmCh.requer_val && !bmValidadoSupervisor) { setBmError("Confirme a validação do supervisor para pagamento em numerário."); return; }
     if (!bmValor || Number(bmValor) <= 0) { setBmError("Introduza o valor pago."); return; }
     if (!bmData) { setBmError("Introduza a data de recebimento."); return; }
     setReconciling(true); setBmError(""); setBmResult(null);
@@ -3680,6 +3734,8 @@ function ReconciliacaoView({ token }: { token: string | null }) {
       fd.append("data_recebimento", bmData);
       fd.append("observacoes", bmObs);
       if (bmFile) fd.append("comprovante", bmFile);
+      if (bmRefDoc) fd.append("referencia_doc", bmRefDoc);
+      fd.append("validado_supervisor", String(bmValidadoSupervisor));
       const r = await fetch(`${API}/school/reconciliacao/baixa-manual`, {
         method: "POST",
         headers: authHeader() as any,
@@ -4155,13 +4211,34 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                     <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
                       <CreditCard className="w-3.5 h-3.5"/> Método de pagamento
                     </label>
-                    <select value={bmMetodo} onChange={e => setBmMetodo(e.target.value)}
+                    <select value={bmMetodo} onChange={e => { setBmMetodo(e.target.value); setBmRefDoc(""); setBmValidadoSupervisor(false); setBmFile(null); }}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40">
-                      <option>Cash</option>
-                      <option>Transferência Bancária</option>
-                      <option>TPA</option>
+                      {PAYMENT_CHANNELS.map(c => <option key={c.canal} value={c.canal}>{c.label}</option>)}
                     </select>
                   </div>
+
+                  {/* Channel info banner */}
+                  {(() => {
+                    const ch = PAYMENT_CHANNELS.find(c => c.canal === bmMetodo);
+                    if (!ch) return null;
+                    const colors: Record<string,string> = { manual: "bg-indigo-50 border-indigo-200 text-indigo-700", semi_automatico: "bg-violet-50 border-violet-200 text-violet-700", automatico: "bg-blue-50 border-blue-200 text-blue-700" };
+                    return <div className={`rounded-xl border px-3 py-2.5 flex items-start gap-2 text-xs ${colors[ch.tipo] ?? "bg-slate-50 border-slate-200 text-slate-600"}`}>
+                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5"/>
+                      <div><span className="font-semibold">{ch.tipo_badge}: </span>{ch.info}</div>
+                    </div>;
+                  })()}
+
+                  {/* Ref doc field — TPA / Transferência */}
+                  {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.requer_ref && (
+                    <div>
+                      <label className="text-xs font-semibold text-slate-600 mb-1.5 block">
+                        {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.label_ref} <span className="text-red-500">*</span>
+                      </label>
+                      <input type="text" value={bmRefDoc} onChange={e => setBmRefDoc(e.target.value)}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                        placeholder={bmMetodo === "POS_TPA" ? "Ex: TXN-20240518-001234" : "Ex: IBAN / Ref. BFA 2024..."}/>
+                    </div>
+                  )}
 
                   {/* Receipt date */}
                   <div>
@@ -4173,13 +4250,15 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
                   </div>
 
-                  {/* Comprovante upload — hidden for Cash payments */}
-                  {bmMetodo !== "Cash" && <div>
+                  {/* Comprovante upload — conditional per channel rules */}
+                  {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.requer_comp && (
+                  <div>
                     <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
-                      <Paperclip className="w-3.5 h-3.5"/> Comprovante de pagamento <span className="text-red-500">*</span>
+                      <Paperclip className="w-3.5 h-3.5"/>
+                      {bmMetodo === "DIRECT_DEBIT" ? "Ficheiro PS2 de Retorno" : "Comprovante de pagamento"} <span className="text-red-500">*</span>
                     </label>
                     <label className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${bmFile ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/50"}`}>
-                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden"
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.ps2,.txt" className="hidden"
                         onChange={e => { const f = e.target.files?.[0]; if (f) setBmFile(f); }}/>
                       {bmFile ? (
                         <>
@@ -4196,12 +4275,23 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                           <Upload className="w-4 h-4 text-slate-400 shrink-0"/>
                           <div>
                             <p className="text-xs font-medium text-slate-600">Clique para seleccionar ficheiro</p>
-                            <p className="text-xs text-slate-400">PDF, JPG, PNG — até 5 MB</p>
+                            <p className="text-xs text-slate-400">{bmMetodo === "DIRECT_DEBIT" ? "PS2, TXT" : "PDF, JPG, PNG"} — até 5 MB</p>
                           </div>
                         </>
                       )}
                     </label>
-                  </div>}
+                  </div>)}
+
+                  {/* Supervisor validation checkbox — Cash only */}
+                  {PAYMENT_CHANNELS.find(c => c.canal === bmMetodo)?.requer_val && (
+                    <label className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 cursor-pointer">
+                      <input type="checkbox" checked={bmValidadoSupervisor} onChange={e => setBmValidadoSupervisor(e.target.checked)} className="mt-0.5 accent-amber-600"/>
+                      <div>
+                        <p className="text-xs font-semibold text-amber-800">Validação do supervisor</p>
+                        <p className="text-xs text-amber-700 mt-0.5">Confirmo que o montante em numerário foi entregue e contado na presença do responsável de caixa.</p>
+                      </div>
+                    </label>
+                  )}
 
                   {/* Observations */}
                   <div>
