@@ -3826,12 +3826,25 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                     <>
                       <ResponsiveContainer width="100%" height={160}>
                         <PieChart>
-                          <Pie data={fechoData.canais} dataKey="total_liquidado" nameKey="canal" cx="50%" cy="50%" outerRadius={70} innerRadius={35}>
+                          <Pie
+                            data={fechoData.canais.map(c => ({ ...c, total_liquidado: Number(c.total_liquidado) }))}
+                            dataKey="total_liquidado"
+                            nameKey="canal"
+                            cx="50%" cy="50%"
+                            outerRadius={68} innerRadius={32}
+                            paddingAngle={2}
+                          >
                             {fechoData.canais.map(c => (
                               <Cell key={c.canal} fill={CANAL_META[c.canal]?.color ?? "#94a3b8"}/>
                             ))}
                           </Pie>
-                          <ReTooltip formatter={(v: number, name: string) => [`${Number(v).toLocaleString("pt-AO")} AOA`, CANAL_META[name]?.label ?? name]} contentStyle={{ borderRadius: 10, fontSize: 11 }}/>
+                          <ReTooltip
+                            formatter={(v: number, name: string) => [
+                              `${Number(v).toLocaleString("pt-AO")} AOA`,
+                              CANAL_META[name]?.label ?? name,
+                            ]}
+                            contentStyle={{ borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 11 }}
+                          />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-1.5 mt-2">

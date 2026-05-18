@@ -16,6 +16,14 @@ import {
 const API = "/api";
 const MESES_SHORT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
+const CANAL_META: Record<string, { label: string; color: string; icon: string }> = {
+  GPO_EMIS:      { label: "GPO / EMIS",   color: "#f97316", icon: "🌐" },
+  DIRECT_DEBIT:  { label: "Débito Direto", color: "#3b82f6", icon: "🏦" },
+  BANK_TRANSFER: { label: "Transferência", color: "#8b5cf6", icon: "↗️" },
+  POS_TPA:       { label: "TPA",           color: "#6366f1", icon: "💳" },
+  CASH:          { label: "Numerário",     color: "#10b981", icon: "💵" },
+};
+
 const AOA = (v: number) =>
   new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 0 }).format(v);
 
@@ -90,6 +98,7 @@ function FinanceiroTab({ token }: { token: string }) {
   const [funil, setFunil] = useState<any>(null);
   const [inadimplencia, setInadimplencia] = useState<any[]>([]);
   const [multasAnalise, setMultasAnalise] = useState<any>(null);
+  const [canais, setCanais] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [aplicandoMultas, setAplicandoMultas] = useState(false);
   const [aplicarResult, setAplicarResult] = useState<any>(null);
@@ -98,14 +107,18 @@ function FinanceiroTab({ token }: { token: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, rc, fn, in_, ma] = await Promise.all([
+      const anoInicio = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+      const hoje = new Date().toISOString().slice(0, 10);
+      const [ov, rc, fn, in_, ma, fc] = await Promise.all([
         fetch(`${API}/school/relatorios/overview`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/receita-mensal`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/funil-pagamentos`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/inadimplencia-turma`, { headers }).then(r => r.json()),
         fetch(`${API}/school/relatorios/multas-analise`, { headers }).then(r => r.json()),
+        fetch(`${API}/school/reconciliacao/fecho-caixa?data_from=${anoInicio}&data_to=${hoje}`, { headers }).then(r => r.json()),
       ]);
       setOverview(ov); setReceita(rc); setFunil(fn); setInadimplencia(in_); setMultasAnalise(ma);
+      setCanais(fc);
     } catch {}
     setLoading(false);
   }, [token]);
@@ -167,6 +180,74 @@ function FinanceiroTab({ token }: { token: string }) {
           </ResponsiveContainer>
         )}
       </div>
+
+      {/* ── Distribuição por Canal de Pagamento ── */}
+      {canais && (canais.canais ?? []).length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <SectionTitle
+            title="Distribuição por Canal de Pagamento"
+            sub={`Ano letivo em curso · ${Number(canais.totais?.total_liquidado ?? 0).toLocaleString("pt-AO")} AOA liquidados`}
+          />
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-center">
+            {/* Donut */}
+            <div className="lg:col-span-2 flex justify-center">
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={(canais.canais ?? []).map((c: any) => ({
+                      ...c,
+                      total_liquidado: Number(c.total_liquidado),
+                    }))}
+                    dataKey="total_liquidado"
+                    nameKey="canal"
+                    cx="50%" cy="50%"
+                    outerRadius={80} innerRadius={44}
+                    paddingAngle={2}
+                  >
+                    {(canais.canais ?? []).map((c: any) => (
+                      <Cell key={c.canal} fill={CANAL_META[c.canal]?.color ?? "#94a3b8"} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(v: any) => [`${Number(v).toLocaleString("pt-AO")} AOA`]}
+                    contentStyle={{ borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 11 }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Legend + Bars */}
+            <div className="lg:col-span-3 space-y-2.5">
+              {(canais.canais ?? []).map((c: any) => {
+                const total = Number(canais.totais?.total_liquidado) || 1;
+                const val = Number(c.total_liquidado);
+                const pct = Math.round((val / total) * 100);
+                const m = CANAL_META[c.canal];
+                return (
+                  <div key={c.canal}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm">{m?.icon ?? "💰"}</span>
+                      <span className="text-xs font-medium text-slate-700 flex-1">{m?.label ?? c.canal}</span>
+                      <span className="text-xs text-slate-500">{AOA(val)}</span>
+                      <span className="text-xs font-bold text-slate-900 w-10 text-right">{pct}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${pct}%`, backgroundColor: m?.color ?? "#94a3b8" }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="pt-2 border-t border-slate-100 flex gap-4 text-xs text-slate-500">
+                <span>Total Transações: <strong className="text-slate-700">{canais.totais?.total_transacoes ?? 0}</strong></span>
+                <span>Automáticos: <strong className="text-slate-700">{canais.totais?.automaticos ?? 0}</strong></span>
+                <span>Manuais: <strong className="text-slate-700">{canais.totais?.manuais ?? 0}</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Funil */}
