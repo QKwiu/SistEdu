@@ -4,6 +4,47 @@ import { randomBytes } from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import type { ServerResponse } from "http";
+
+/* ─── SSE client registry ─── */
+const sseClients = new Map<number, Set<ServerResponse>>();
+
+function addSseClient(schoolId: number, res: ServerResponse) {
+  if (!sseClients.has(schoolId)) sseClients.set(schoolId, new Set());
+  sseClients.get(schoolId)!.add(res);
+}
+function removeSseClient(schoolId: number, res: ServerResponse) {
+  sseClients.get(schoolId)?.delete(res);
+}
+function broadcastToSchool(schoolId: number, data: object) {
+  const clients = sseClients.get(schoolId);
+  if (!clients?.size) return;
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const r of clients) { try { r.write(payload); } catch {} }
+}
+
+/* ─── Demo mode ─── */
+const demoIntervals = new Map<number, ReturnType<typeof setInterval>>();
+const DEMO_CHANNELS = ["GPO_EMIS","DIRECT_DEBIT","BANK_TRANSFER","POS_TPA","CASH"] as const;
+const DEMO_NAMES = ["Ana Santos","Carlos Mbemba","Maria João","Pedro Ferreira","Lurdes Capita","Tomás Neto","Rosa Domingos"];
+
+function startDemoMode(schoolId: number) {
+  if (demoIntervals.has(schoolId)) return;
+  const iv = setInterval(() => {
+    const canal = DEMO_CHANNELS[Math.floor(Math.random() * DEMO_CHANNELS.length)];
+    const nome  = DEMO_NAMES[Math.floor(Math.random() * DEMO_NAMES.length)];
+    const valor = Math.floor(Math.random() * 95_000 + 12_000);
+    broadcastToSchool(schoolId, {
+      type: "payment", canal, aluno_nome: nome, valor,
+      status: "pago", pago_em: new Date().toISOString(), is_demo: true,
+    });
+  }, 3500);
+  demoIntervals.set(schoolId, iv);
+}
+function stopDemoMode(schoolId: number) {
+  const iv = demoIntervals.get(schoolId);
+  if (iv) { clearInterval(iv); demoIntervals.delete(schoolId); }
+}
 
 const router = Router();
 
@@ -89,6 +130,34 @@ export async function runReconciliationMigration() {
     CREATE UNIQUE INDEX IF NOT EXISTS propinas_transaction_id_unique
     ON propinas (transaction_id)
     WHERE transaction_id IS NOT NULL;
+  `);
+  /* ── Fecho de Caixa: payment_channel enum column ── */
+  await pool.query(`
+    ALTER TABLE propinas
+      ADD COLUMN IF NOT EXISTS payment_channel TEXT
+        CHECK (payment_channel IN ('GPO_EMIS','DIRECT_DEBIT','BANK_TRANSFER','POS_TPA','CASH'));
+  `);
+  /* Backfill payment_channel from metodo_pagamento for existing rows */
+  await pool.query(`
+    UPDATE propinas SET payment_channel =
+      CASE
+        WHEN metodo_pagamento ILIKE '%emis%' OR metodo_pagamento ILIKE '%gpo%' OR metodo_pagamento ILIKE '%multicaixa%' THEN 'GPO_EMIS'
+        WHEN metodo_pagamento ILIKE '%debito%' OR metodo_pagamento ILIKE '%direct%' THEN 'DIRECT_DEBIT'
+        WHEN metodo_pagamento ILIKE '%transfer%' OR metodo_pagamento ILIKE '%iban%' OR metodo_pagamento ILIKE '%bancari%' THEN 'BANK_TRANSFER'
+        WHEN metodo_pagamento ILIKE '%tpa%' OR metodo_pagamento ILIKE '%terminal%' THEN 'POS_TPA'
+        WHEN metodo_pagamento ILIKE '%cash%' OR metodo_pagamento ILIKE '%numer%' OR metodo_pagamento ILIKE '%dinheiro%' THEN 'CASH'
+        ELSE NULL
+      END
+    WHERE payment_channel IS NULL AND metodo_pagamento IS NOT NULL;
+  `);
+  /* Composite performance index */
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_propinas_fecho_caixa
+    ON propinas (school_id, payment_channel, status, pago_em);
+  `);
+  /* demo_mode flag on schools */
+  await pool.query(`
+    ALTER TABLE schools ADD COLUMN IF NOT EXISTS demo_mode BOOLEAN DEFAULT FALSE;
   `);
   /* School settings table (motor de regras configurável por tenant) */
   await pool.query(`
@@ -275,6 +344,9 @@ router.post(
     const newStatus = paid >= total ? "pago" : "pendente";
     const comprovanteUrl = `/api/uploads/comprovantes/${req.file.filename}`;
 
+    /* Derive payment_channel from metodo */
+    const payChannel = metodoToChannel(metodo ?? "Cash");
+
     /* Update propina with manual payment metadata */
     await pool.query(`
       UPDATE propinas
@@ -286,9 +358,10 @@ router.post(
           baixa_manual_em = NOW(),
           baixa_manual_obs = $4,
           comprovante_url = $5,
-          data_recebimento = $6
+          data_recebimento = $6,
+          payment_channel = $8
       WHERE id = $7
-    `, [newStatus, paid < total ? paid : 0, school.admin_email, observacoes ?? null, comprovanteUrl, data_recebimento, p.id]);
+    `, [newStatus, paid < total ? paid : 0, school.admin_email, observacoes ?? null, comprovanteUrl, data_recebimento, p.id, payChannel]);
 
     /* Update pagamentos reference state */
     await pool.query("UPDATE pagamentos SET estado='PAGO' WHERE propina_id=$1", [p.id]);
@@ -581,6 +654,145 @@ router.get("/school/reconciliacao/splits", schoolAuth, async (req: any, res) => 
 
   res.json(r.rows);
 });
+
+/* ─── Helper: period → date_from ─── */
+function periodDateFrom(periodo: string): Date {
+  const now = new Date();
+  switch (periodo) {
+    case "semanal":    return new Date(now.getTime() - 7  * 86_400_000);
+    case "trimestral": return new Date(now.getTime() - 90 * 86_400_000);
+    case "semestral":  return new Date(now.getTime() - 180 * 86_400_000);
+    case "anual":      return new Date(now.getFullYear(), 0, 1);
+    default:           return new Date(now.getFullYear(), now.getMonth(), now.getDate()); // diario
+  }
+}
+
+function metodoToChannel(metodo: string): string {
+  const m = (metodo || "").toLowerCase();
+  if (m.includes("emis") || m.includes("gpo") || m.includes("multicaixa") || m.includes("express")) return "GPO_EMIS";
+  if (m.includes("debito") || m.includes("direct")) return "DIRECT_DEBIT";
+  if (m.includes("transfer") || m.includes("iban") || m.includes("bancari")) return "BANK_TRANSFER";
+  if (m.includes("tpa") || m.includes("terminal")) return "POS_TPA";
+  return "CASH";
+}
+
+/* ─── GET /school/reconciliacao/fecho-caixa ─── */
+router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { periodo = "diario", metodo } = req.query as any;
+  const dateFrom = periodDateFrom(periodo);
+
+  const baseConditions = ["p.school_id = $1", "p.status = 'pago'", "p.pago_em >= $2"];
+  const baseParams: any[] = [school.school_id, dateFrom.toISOString()];
+
+  if (metodo) {
+    baseParams.push(metodo);
+    baseConditions.push(`COALESCE(p.payment_channel,'CASH') = $${baseParams.length}`);
+  }
+
+  const where = baseConditions.join(" AND ");
+
+  const [canaisRow, totaisRow, chartRow, demoRow] = await Promise.all([
+    pool.query(`
+      SELECT
+        COALESCE(p.payment_channel, 'CASH') AS canal,
+        COUNT(*)::int                        AS total_transacoes,
+        COALESCE(SUM(p.montante + p.multa), 0) AS total_liquidado,
+        MAX(p.pago_em)                       AS ultima_transacao
+      FROM propinas p
+      WHERE ${where}
+      GROUP BY COALESCE(p.payment_channel, 'CASH')
+      ORDER BY total_liquidado DESC
+    `, baseParams),
+    pool.query(`
+      SELECT
+        COUNT(*)::int                                              AS total_transacoes,
+        COALESCE(SUM(p.montante + p.multa), 0)                   AS total_liquidado,
+        COUNT(*) FILTER (WHERE p.baixa_manual)::int              AS manuais,
+        COUNT(*) FILTER (WHERE NOT COALESCE(p.baixa_manual,FALSE))::int AS automaticos
+      FROM propinas p WHERE ${where}
+    `, baseParams),
+    pool.query(`
+      SELECT
+        DATE_TRUNC('day', p.pago_em)         AS dia,
+        COALESCE(p.payment_channel, 'CASH')  AS canal,
+        COALESCE(SUM(p.montante + p.multa), 0) AS valor
+      FROM propinas p
+      WHERE p.school_id = $1 AND p.status = 'pago' AND p.pago_em >= $2
+      GROUP BY DATE_TRUNC('day', p.pago_em), COALESCE(p.payment_channel, 'CASH')
+      ORDER BY dia
+    `, [school.school_id, dateFrom.toISOString()]),
+    pool.query("SELECT COALESCE(demo_mode, FALSE) AS demo_mode FROM schools WHERE id = $1", [school.school_id]),
+  ]);
+
+  /* Build chart rows grouped by day with all canais as columns */
+  const dayMap = new Map<string, Record<string, number>>();
+  for (const r of chartRow.rows) {
+    const d = new Date(r.dia).toLocaleDateString("pt-AO", { day:"2-digit", month:"2-digit" });
+    if (!dayMap.has(d)) dayMap.set(d, { dia: d as any } as any);
+    dayMap.get(d)![r.canal] = Number(r.valor);
+  }
+
+  res.json({
+    canais:    canaisRow.rows,
+    totais:    totaisRow.rows[0],
+    chart:     Array.from(dayMap.values()),
+    demo_mode: demoRow.rows[0]?.demo_mode ?? false,
+    periodo,
+    date_from: dateFrom.toISOString(),
+  });
+});
+
+/* ─── POST /school/reconciliacao/demo-toggle ─── */
+router.post("/school/reconciliacao/demo-toggle", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const r = await pool.query(
+    `UPDATE schools SET demo_mode = NOT COALESCE(demo_mode, FALSE)
+     WHERE id = $1 RETURNING COALESCE(demo_mode, FALSE) AS demo_mode`,
+    [school.school_id]
+  );
+  const enabled = r.rows[0]?.demo_mode ?? false;
+  if (enabled) startDemoMode(school.school_id);
+  else          stopDemoMode(school.school_id);
+
+  res.json({ demo_mode: enabled });
+});
+
+/* ─── GET /school/reconciliacao/stream — SSE real-time ─── */
+router.get("/school/reconciliacao/stream", async (req: any, res: any) => {
+  /* EventSource cannot set headers — accept token via query param or Authorization header */
+  const header = req.headers.authorization as string | undefined;
+  const tokenVal: string | undefined = header?.startsWith("Bearer ") ? header.slice(7) : (req.query.token as string | undefined);
+  if (!tokenVal) { res.status(401).end(); return; }
+  const school = await getSchoolFromToken(tokenVal);
+  if (!school) { res.status(401).end(); return; }
+
+  res.setHeader("Content-Type",  "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection",    "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  /* Send initial connected event */
+  res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+
+  addSseClient(school.school_id, res);
+
+  /* Keepalive every 25s */
+  const ka = setInterval(() => { try { res.write(": ka\n\n"); } catch {} }, 25_000);
+
+  req.on("close", () => {
+    clearInterval(ka);
+    removeSseClient(school.school_id, res);
+  });
+});
+
+/* ─── POST /school/reconciliacao/baixa-manual: also set payment_channel ─── */
+/* (hook into existing route — payment_channel set via metodo mapping) */
 
 export { generateInternalReference };
 export default router;

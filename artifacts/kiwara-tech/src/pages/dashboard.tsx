@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
+  Legend, ResponsiveContainer, PieChart, Pie, Cell,
+} from "recharts";
+import {
   LayoutDashboard, Users, FileText, Settings, LogOut,
   Bell, Search, Plus, TrendingUp, AlertCircle, CheckCircle2,
   Clock, BarChart3, GraduationCap, Banknote, Share2, Copy,
@@ -74,6 +78,24 @@ interface RecStats {
   pendentes: string; vencidas: string; pagas: string;
   divida_total: string; receita_total: string; receita_escola: string; comissao_plataforma: string;
 }
+interface FechoCanal {
+  canal: string; total_transacoes: number; total_liquidado: number; ultima_transacao?: string;
+}
+interface FechoTotais {
+  total_transacoes: number; total_liquidado: number; manuais: number; automaticos: number;
+}
+interface FechoData {
+  canais: FechoCanal[]; totais: FechoTotais; chart: Record<string, any>[];
+  demo_mode: boolean; periodo: string; date_from: string;
+}
+type PayChannel = "GPO_EMIS" | "DIRECT_DEBIT" | "BANK_TRANSFER" | "POS_TPA" | "CASH" | "";
+const CANAL_META: Record<string, { label: string; color: string; bg: string; border: string; icon: string }> = {
+  GPO_EMIS:      { label: "GPO / EMIS",       color: "#f97316", bg: "bg-orange-50",  border: "border-orange-200", icon: "🌐" },
+  DIRECT_DEBIT:  { label: "Débito Direto",     color: "#3b82f6", bg: "bg-blue-50",    border: "border-blue-200",   icon: "🏦" },
+  BANK_TRANSFER: { label: "Transferência",     color: "#8b5cf6", bg: "bg-violet-50",  border: "border-violet-200", icon: "↗️" },
+  POS_TPA:       { label: "TPA",               color: "#6366f1", bg: "bg-indigo-50",  border: "border-indigo-200", icon: "💳" },
+  CASH:          { label: "Numerário",          color: "#10b981", bg: "bg-emerald-50", border: "border-emerald-200",icon: "💵" },
+};
 
 /* ─── Helpers ─── */
 function fmt(val: number | string) {
@@ -3525,7 +3547,18 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [bmResult, setBmResult] = useState<any>(null);
   const [bmError, setBmError] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [recSubTab, setRecSubTab] = useState<"faturas" | "multas">("faturas");
+  const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
+
+  /* ── Fecho de Caixa state ── */
+  const [periodo, setPeriodo] = useState<"diario"|"semanal"|"trimestral"|"semestral"|"anual">("diario");
+  const [filterCanal, setFilterCanal] = useState<PayChannel>("");
+  const [fechoData, setFechoData] = useState<FechoData | null>(null);
+  const [fechoLoading, setFechoLoading] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoToggeling, setDemoToggling] = useState(false);
+  const [livePayments, setLivePayments] = useState<{ canal: string; aluno_nome: string; valor: number; pago_em: string; is_demo?: boolean }[]>([]);
+  const [flashCanais, setFlashCanais] = useState<Set<string>>(new Set());
+  const sseRef = useRef<EventSource | null>(null);
 
   const authHeader = (): HeadersInit => token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -3545,6 +3578,71 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   }, [token, filterStatus]);
 
   useEffect(() => { load(); }, [load]);
+
+  /* ── Fecho de Caixa load ── */
+  const loadFecho = useCallback(async () => {
+    if (!token) return;
+    setFechoLoading(true);
+    try {
+      const qs = new URLSearchParams({ periodo });
+      if (filterCanal) qs.set("metodo", filterCanal);
+      const r = await fetch(`${API}/school/reconciliacao/fecho-caixa?${qs}`, { headers: authHeader() });
+      if (r.ok) {
+        const d: FechoData = await r.json();
+        setFechoData(d);
+        setDemoMode(d.demo_mode);
+      }
+    } finally { setFechoLoading(false); }
+  }, [token, periodo, filterCanal]);
+
+  useEffect(() => {
+    if (recSubTab === "fecho_caixa") loadFecho();
+  }, [loadFecho, recSubTab]);
+
+  /* ── SSE connection for real-time payments ── */
+  useEffect(() => {
+    if (!token) return;
+    const es = new EventSource(`${API}/school/reconciliacao/stream?token=${token}`);
+    sseRef.current = es;
+    es.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        if (data.type === "payment") {
+          setLivePayments(prev => [data, ...prev].slice(0, 20));
+          setFlashCanais(prev => {
+            const s = new Set(prev); s.add(data.canal);
+            setTimeout(() => setFlashCanais(p => { const ns = new Set(p); ns.delete(data.canal); return ns; }), 1200);
+            return s;
+          });
+          setFechoData(prev => {
+            if (!prev) return prev;
+            const canal = data.canal;
+            const existing = prev.canais.find(c => c.canal === canal);
+            const newCanais = existing
+              ? prev.canais.map(c => c.canal === canal
+                  ? { ...c, total_transacoes: c.total_transacoes + 1, total_liquidado: Number(c.total_liquidado) + Number(data.valor) }
+                  : c)
+              : [...prev.canais, { canal, total_transacoes: 1, total_liquidado: Number(data.valor) }];
+            return {
+              ...prev,
+              canais: newCanais,
+              totais: { ...prev.totais, total_transacoes: prev.totais.total_transacoes + 1, total_liquidado: Number(prev.totais.total_liquidado) + Number(data.valor) },
+            };
+          });
+        }
+      } catch {}
+    };
+    return () => { es.close(); sseRef.current = null; };
+  }, [token]);
+
+  const toggleDemo = async () => {
+    if (!token) return;
+    setDemoToggling(true);
+    try {
+      const r = await fetch(`${API}/school/reconciliacao/demo-toggle`, { method: "POST", headers: authHeader() as Record<string, string> });
+      if (r.ok) { const d = await r.json(); setDemoMode(d.demo_mode); }
+    } finally { setDemoToggling(false); }
+  };
 
   const handleBaixaManual = async () => {
     if (!baixaModal) return;
@@ -3611,15 +3709,20 @@ function ReconciliacaoView({ token }: { token: string | null }) {
             Consulte o estado de reconciliação das faturas, referências internas e distribuição de receitas.
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 self-start sm:self-auto">
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 self-start sm:self-auto flex-wrap">
           <button onClick={() => setRecSubTab("faturas")}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="faturas"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
             <Receipt className="w-3.5 h-3.5"/> Faturas
           </button>
           <button onClick={() => setRecSubTab("multas")}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="multas"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-            <AlertTriangle className="w-3.5 h-3.5 text-red-500"/> Alunos com Multas
+            <AlertTriangle className="w-3.5 h-3.5 text-red-500"/> Multas
             {alunosMultas.length > 0 && <span className="ml-1 bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded-full font-bold">{alunosMultas.length}</span>}
+          </button>
+          <button onClick={() => setRecSubTab("fecho_caixa")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="fecho_caixa"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+            <Banknote className="w-3.5 h-3.5 text-emerald-600"/> Fecho de Caixa
+            {demoMode && <span className="ml-1 bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">DEMO</span>}
           </button>
         </div>
       </div>
@@ -3671,6 +3774,219 @@ function ReconciliacaoView({ token }: { token: string | null }) {
           )}
         </div>
       )}
+
+      {/* ══════════════ FECHO DE CAIXA ══════════════ */}
+      {recSubTab === "fecho_caixa" && (
+        <div className="space-y-6">
+          {/* Controls row */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+            {/* Period selector */}
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+              {(["diario","semanal","trimestral","semestral","anual"] as const).map(p => (
+                <button key={p} onClick={() => setPeriodo(p)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${periodo===p?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+                  {p === "diario" ? "Diário" : p === "semanal" ? "Semanal" : p === "trimestral" ? "Trimestral" : p === "semestral" ? "Semestral" : "Anual"}
+                </button>
+              ))}
+            </div>
+            {/* Demo mode + refresh */}
+            <div className="flex items-center gap-2">
+              <button onClick={toggleDemo} disabled={demoToggeling}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${demoMode ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                {demoMode ? <><Zap className="w-3.5 h-3.5 animate-pulse"/> Parar Demo</> : <><PlayCircle className="w-3.5 h-3.5"/> Modo Demo</>}
+              </button>
+              <button onClick={loadFecho} className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
+                <RefreshCw className={`w-4 h-4 ${fechoLoading ? "animate-spin" : ""}`}/>
+              </button>
+            </div>
+          </div>
+
+          {/* Payment method chips */}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setFilterCanal("")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${filterCanal===""?"bg-slate-900 text-white border-slate-900":"bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
+              Todos os canais
+            </button>
+            {(["GPO_EMIS","DIRECT_DEBIT","BANK_TRANSFER","POS_TPA","CASH"] as const).map(c => {
+              const m = CANAL_META[c];
+              const isActive = filterCanal === c;
+              const isFlashing = flashCanais.has(c);
+              return (
+                <button key={c} onClick={() => setFilterCanal(prev => prev === c ? "" : c)}
+                  style={isActive ? { backgroundColor: m.color, borderColor: m.color, color: "white" } : isFlashing ? { boxShadow: `0 0 0 3px ${m.color}55` } : undefined}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${isFlashing ? "ring-2 ring-offset-1 scale-105" : ""} ${isActive ? "" : `${m.bg} ${m.border} text-slate-700 hover:scale-105`}`}>
+                  <span>{m.icon}</span>{m.label}
+                  {isFlashing && <span className="w-2 h-2 rounded-full bg-current animate-ping ml-0.5"/>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* KPI cards */}
+          {fechoLoading && !fechoData ? (
+            <div className="py-16 text-center text-slate-400"><RefreshCw className="w-6 h-6 animate-spin inline"/></div>
+          ) : fechoData ? (
+            <>
+              {/* Total liquidado banner */}
+              <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 rounded-2xl p-5 text-white flex items-center justify-between">
+                <div>
+                  <p className="text-emerald-100 text-sm font-medium">Total Liquidado · {periodo === "diario" ? "Hoje" : periodo === "semanal" ? "Esta semana" : periodo === "trimestral" ? "Último trimestre" : periodo === "semestral" ? "Último semestre" : "Este ano"}</p>
+                  <p className="text-3xl font-bold mt-1">{fmt(fechoData.totais.total_liquidado)}</p>
+                  <div className="flex items-center gap-3 mt-2 text-emerald-100 text-xs">
+                    <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5"/> {fechoData.totais.total_transacoes} transações</span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1"><Zap className="w-3.5 h-3.5"/> {fechoData.totais.automaticos} automáticas</span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1"><BadgeCheck className="w-3.5 h-3.5"/> {fechoData.totais.manuais} manuais</span>
+                  </div>
+                </div>
+                <div className="shrink-0 w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8 text-white"/>
+                </div>
+              </div>
+
+              {/* Per-channel cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                {(["GPO_EMIS","DIRECT_DEBIT","BANK_TRANSFER","POS_TPA","CASH"] as const).map(canal => {
+                  const m = CANAL_META[canal];
+                  const data = fechoData.canais.find(c => c.canal === canal);
+                  const isFlashing = flashCanais.has(canal);
+                  return (
+                    <div key={canal}
+                      className={`${m.bg} border ${m.border} rounded-xl p-4 transition-all ${isFlashing ? "scale-105 shadow-lg ring-2" : ""}`}
+                      style={isFlashing ? { ringColor: m.color } : undefined}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-lg">{m.icon}</span>
+                        {data ? (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3"/> Liquidado
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">Sem mov.</span>
+                        )}
+                      </div>
+                      <p className="text-xs font-semibold text-slate-600 mb-1">{m.label}</p>
+                      <p className="text-lg font-bold text-slate-900">{data ? fmt(data.total_liquidado) : "0 AOA"}</p>
+                      <p className="text-xs text-slate-500 mt-1">{data?.total_transacoes ?? 0} transação(ões)</p>
+                      {isFlashing && <p className="text-xs font-semibold mt-1 animate-pulse" style={{ color: m.color }}>● Pagamento recebido</p>}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                {/* Bar chart */}
+                <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-5">
+                  <p className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-primary"/> Evolução por Canal
+                  </p>
+                  {fechoData.chart.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 text-sm">Sem dados para o período seleccionado.</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={fechoData.chart} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+                        <XAxis dataKey="dia" tick={{ fontSize: 10 }} stroke="#cbd5e1"/>
+                        <YAxis tick={{ fontSize: 10 }} stroke="#cbd5e1" tickFormatter={v => `${(v/1000).toFixed(0)}K`}/>
+                        <ReTooltip formatter={(v: number) => [`${Number(v).toLocaleString("pt-AO")} AOA`]} contentStyle={{ borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 11 }}/>
+                        <Legend wrapperStyle={{ fontSize: 10 }} formatter={(v) => CANAL_META[v]?.label ?? v}/>
+                        {(["GPO_EMIS","DIRECT_DEBIT","BANK_TRANSFER","POS_TPA","CASH"] as const).map(c => (
+                          <Bar key={c} dataKey={c} fill={CANAL_META[c].color} radius={[3,3,0,0]} maxBarSize={24}/>
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* Pie chart */}
+                <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+                  <p className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <ArrowLeftRight className="w-4 h-4 text-primary"/> Distribuição
+                  </p>
+                  {fechoData.canais.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 text-sm">Sem dados.</div>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height={160}>
+                        <PieChart>
+                          <Pie data={fechoData.canais} dataKey="total_liquidado" nameKey="canal" cx="50%" cy="50%" outerRadius={70} innerRadius={35}>
+                            {fechoData.canais.map(c => (
+                              <Cell key={c.canal} fill={CANAL_META[c.canal]?.color ?? "#94a3b8"}/>
+                            ))}
+                          </Pie>
+                          <ReTooltip formatter={(v: number, name: string) => [`${Number(v).toLocaleString("pt-AO")} AOA`, CANAL_META[name]?.label ?? name]} contentStyle={{ borderRadius: 10, fontSize: 11 }}/>
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="space-y-1.5 mt-2">
+                        {fechoData.canais.map(c => {
+                          const total = Number(fechoData.totais.total_liquidado) || 1;
+                          const pct = Math.round((Number(c.total_liquidado) / total) * 100);
+                          const m = CANAL_META[c.canal];
+                          return (
+                            <div key={c.canal} className="flex items-center gap-2 text-xs">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: m?.color ?? "#94a3b8" }}/>
+                              <span className="text-slate-600 flex-1">{m?.label ?? c.canal}</span>
+                              <span className="font-semibold text-slate-900">{pct}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Live payments feed */}
+              {livePayments.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"/>
+                    <p className="text-sm font-semibold text-slate-900">Pagamentos em Tempo Real</p>
+                    <span className="ml-auto text-xs text-slate-400">{livePayments.length} recentes</span>
+                  </div>
+                  <div className="divide-y divide-slate-50 max-h-60 overflow-y-auto">
+                    {livePayments.map((p, i) => {
+                      const m = CANAL_META[p.canal];
+                      return (
+                        <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+                          <span className="text-base">{m?.icon ?? "💰"}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{p.aluno_nome}</p>
+                            <p className="text-xs text-slate-400">{m?.label ?? p.canal}{p.is_demo ? " · Demo" : ""}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-bold text-emerald-700">{fmt(p.valor)}</p>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">✓ Liquidado</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Demo mode info box */}
+              {demoMode && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-center gap-3">
+                  <Zap className="w-4 h-4 text-amber-600 shrink-0 animate-pulse"/>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-amber-800">Modo Demonstração activo</p>
+                    <p className="text-xs text-amber-600">A simular pagamentos fictícios de todos os 5 canais em tempo real. Os dados não são reais.</p>
+                  </div>
+                  <button onClick={toggleDemo} disabled={demoToggeling}
+                    className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition-colors">
+                    Parar
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="py-16 text-center text-slate-400 text-sm">Clique em actualizar para carregar o fecho de caixa.</div>
+          )}
+        </div>
+      )}
+      {/* ═══════════════════════════════════════════ */}
 
       {/* Stats cards */}
       {recSubTab === "faturas" && stats && (
