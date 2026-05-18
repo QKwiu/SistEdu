@@ -434,9 +434,11 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
   const [mesFim, setMesFim] = useState("Dezembro");
   const [anoFim, setAnoFim] = useState(anoAtual);
   const [fallback, setFallback] = useState("");
+  const [autoRef, setAutoRef] = useState(true);
+  const [autoSMS, setAutoSMS] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<null | { total_geradas: number; total_skipped: number; total_alunos: number; periodos: number; detalhes: any[] }>(null);
+  const [result, setResult] = useState<null | { total_geradas: number; total_skipped: number; total_alunos: number; periodos: number; total_referencias?: number; total_sms?: number; detalhes: any[] }>(null);
 
   const periodoPreview = (() => {
     const mS = MESES.indexOf(mesInicio);
@@ -456,6 +458,8 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
         mes_inicio: mesInicio, ano_inicio: anoInicio,
         mes_fim: modo === "unico" ? mesInicio : mesFim,
         ano_fim: modo === "unico" ? anoInicio : anoFim,
+        auto_referencia: autoRef,
+        auto_sms: autoSMS,
       };
       if (fallback && !isNaN(Number(fallback))) body.montante_fallback = Number(fallback);
       const res = await fetch(`${API}/school/propinas/gerar-lote`, {
@@ -472,6 +476,13 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
   };
 
   if (result) {
+    const stats = [
+      { label: "Alunos processados", value: result.total_alunos, color: "text-slate-900" },
+      { label: "Meses gerados", value: result.periodos, color: "text-slate-900" },
+      { label: "Propinas criadas", value: result.total_geradas, color: "text-emerald-700" },
+      ...(result.total_referencias != null ? [{ label: "Referências criadas", value: result.total_referencias, color: "text-blue-700" }] : []),
+      ...(result.total_sms != null && result.total_sms > 0 ? [{ label: "SMS enviados", value: result.total_sms, color: "text-violet-700" }] : []),
+    ];
     return (
       <div className="p-6 space-y-5">
         <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
@@ -481,14 +492,10 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
             <p className="text-sm text-emerald-600">{result.total_geradas} propina(s) criada(s) · {result.total_skipped} ignorada(s) (já existentes)</p>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "Alunos processados", value: result.total_alunos },
-            { label: "Meses gerados", value: result.periodos },
-            { label: "Propinas criadas", value: result.total_geradas },
-          ].map(s => (
+        <div className={`grid gap-3 ${stats.length > 3 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-3"}`}>
+          {stats.map(s => (
             <div key={s.label} className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
-              <p className="text-2xl font-bold text-slate-900">{s.value}</p>
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
               <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
             </div>
           ))}
@@ -570,11 +577,31 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
           onChange={e => setFallback(e.target.value)} placeholder="ex: 25000 (opcional)"/>
       </Field>
 
+      {/* Automações */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Automações</p>
+        <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${autoRef?"bg-primary/5 border-primary/30":"bg-slate-50 border-slate-200"}`}>
+          <input type="checkbox" checked={autoRef} onChange={e => setAutoRef(e.target.checked)} className="mt-0.5 rounded text-primary"/>
+          <div>
+            <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5 text-primary"/> Gerar referências Multicaixa</p>
+            <p className="text-xs text-slate-500 mt-0.5">Cria uma referência EMIS para cada propina gerada, pronta para pagamento.</p>
+          </div>
+        </label>
+        <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${autoSMS?"bg-emerald-50 border-emerald-200":"bg-slate-50 border-slate-200"}`}>
+          <input type="checkbox" checked={autoSMS} onChange={e => setAutoSMS(e.target.checked)} className="mt-0.5 rounded text-primary"/>
+          <div>
+            <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5 text-emerald-600"/> Notificar encarregados por SMS</p>
+            <p className="text-xs text-slate-500 mt-0.5">Envia SMS com o valor e referência a cada encarregado (requer SMS activo nas Configurações).</p>
+          </div>
+        </label>
+      </div>
+
       {/* Preview */}
       {periodoPreview > 0 && (
         <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
           <Calendar className="w-4 h-4 shrink-0"/>
-          <span>Serão geradas propinas para <strong>{periodoPreview} mês{periodoPreview>1?"es":""}</strong> para todos os alunos activos.</span>
+          <span>Serão geradas propinas para <strong>{periodoPreview} mês{periodoPreview>1?"es":""}</strong> para todos os alunos activos{autoRef?" + referências EMIS":""}{autoSMS?" + SMS":""}.
+          </span>
         </div>
       )}
 
@@ -1137,163 +1164,6 @@ function OcorrenciasView({ token, schoolName }: { token: string | null; schoolNa
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-/* ─── Modal: Ciclo de Faturação Automática ─── */
-type CicloResult = {
-  total_geradas: number; total_skipped: number; total_alunos: number;
-  periodos: number; total_referencias: number; total_sms: number; detalhes: any[];
-};
-
-function ModalCicloFaturacao({ token, onClose, onCreated }: { token: string; onClose: () => void; onCreated: () => void }) {
-  const mesAtual = MESES[new Date().getMonth()];
-  const anoAtual = String(new Date().getFullYear());
-  const [mes, setMes] = useState(mesAtual);
-  const [ano, setAno] = useState(anoAtual);
-  const [autoRef, setAutoRef] = useState(true);
-  const [autoSMS, setAutoSMS] = useState(false);
-  const [fallback, setFallback] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState<"config"|"running"|"done">("config");
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<CicloResult | null>(null);
-
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(""); setStep("running"); setSaving(true);
-    try {
-      const body: any = {
-        mes_inicio: mes, ano_inicio: ano,
-        mes_fim: mes, ano_fim: ano,
-        auto_referencia: autoRef,
-        auto_sms: autoSMS,
-      };
-      if (fallback && !isNaN(Number(fallback))) body.montante_fallback = Number(fallback);
-      const r = await fetch(`${API}/school/propinas/gerar-lote`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error ?? "Erro ao executar ciclo.");
-      setResult(data);
-      setStep("done");
-      onCreated();
-    } catch (err: any) { setError(err.message); setStep("config"); }
-    finally { setSaving(false); }
-  };
-
-  if (step === "running") return (
-    <div className="p-10 flex flex-col items-center justify-center gap-4">
-      <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-        <RefreshCw className="w-7 h-7 text-primary animate-spin"/>
-      </div>
-      <div className="text-center">
-        <p className="font-bold text-slate-900 text-lg">A executar ciclo de faturação…</p>
-        <p className="text-sm text-slate-500 mt-1">A gerar propinas{autoRef ? ", referências bancárias" : ""}{autoSMS ? " e a enviar SMS" : ""}…</p>
-      </div>
-    </div>
-  );
-
-  if (step === "done" && result) return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-        <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0"/>
-        <div>
-          <p className="font-bold text-emerald-800">Ciclo de {mes} {ano} concluído!</p>
-          <p className="text-sm text-emerald-600">{result.total_geradas} propina(s) gerada(s) · {result.total_skipped} já existia(m)</p>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          { label: "Propinas Geradas", value: result.total_geradas, icon: <FileText className="w-5 h-5 text-primary"/>, bg: "bg-primary/5 border-primary/20" },
-          { label: "Alunos Processados", value: result.total_alunos, icon: <Users className="w-5 h-5 text-slate-500"/>, bg: "bg-slate-50 border-slate-200" },
-          { label: "Referências Criadas", value: result.total_referencias, icon: <CreditCard className="w-5 h-5 text-blue-500"/>, bg: "bg-blue-50 border-blue-200" },
-          { label: "SMS Enviados", value: result.total_sms, icon: <MessageCircle className="w-5 h-5 text-emerald-500"/>, bg: "bg-emerald-50 border-emerald-200" },
-        ].map(s => (
-          <div key={s.label} className={`border rounded-xl p-3 flex items-center gap-3 ${s.bg}`}>
-            {s.icon}
-            <div>
-              <p className="text-xl font-bold text-slate-900">{s.value}</p>
-              <p className="text-xs text-slate-500">{s.label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-      {result.detalhes.some((d: any) => d.reason === "sem_montante") && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-xs font-semibold text-amber-700 mb-1">Alunos sem valor configurado (ignorados):</p>
-          <ul className="text-xs text-amber-600 space-y-0.5">
-            {result.detalhes.filter((d: any) => d.reason === "sem_montante").map((d: any) => (
-              <li key={d.student_id}>• {d.nome}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <Button className="w-full" onClick={onClose}>Fechar</Button>
-    </div>
-  );
-
-  return (
-    <form onSubmit={run} className="p-6 space-y-5">
-      {/* Period */}
-      <div>
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Período de faturação</p>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Mês" required>
-            <select className={selectCls} value={mes} onChange={e => setMes(e.target.value)}>
-              {MESES.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </Field>
-          <Field label="Ano" required>
-            <input className={inputCls} value={ano} onChange={e => setAno(e.target.value)} placeholder="2026"/>
-          </Field>
-        </div>
-      </div>
-
-      {/* Options */}
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Automações</p>
-        <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${autoRef ? "bg-primary/5 border-primary/30" : "bg-slate-50 border-slate-200"}`}>
-          <input type="checkbox" checked={autoRef} onChange={e => setAutoRef(e.target.checked)} className="mt-0.5 rounded text-primary"/>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-              <CreditCard className="w-3.5 h-3.5 text-primary"/> Gerar referências bancárias automáticas
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">Cria uma referência Multicaixa (EMIS) para cada propina gerada, pronta para pagamento.</p>
-          </div>
-        </label>
-        <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${autoSMS ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
-          <input type="checkbox" checked={autoSMS} onChange={e => setAutoSMS(e.target.checked)} className="mt-0.5 rounded text-primary"/>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-              <MessageCircle className="w-3.5 h-3.5 text-emerald-600"/> Notificar encarregados por SMS
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">Envia SMS automático com o valor e referência a cada encarregado (requer SMS activo nas Configurações).</p>
-          </div>
-        </label>
-      </div>
-
-      {/* Optional fallback */}
-      <Field label="Valor de fallback (Kz)" hint="Para alunos sem pacote ou emolumento definido">
-        <input className={inputCls} type="number" min="0" value={fallback}
-          onChange={e => setFallback(e.target.value)} placeholder="ex: 25000 (opcional)"/>
-      </Field>
-
-      {/* Preview pill */}
-      <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
-        <Zap className="w-4 h-4 shrink-0"/>
-        <span>Ciclo para <strong>{mes} {ano}</strong>: gerar propinas{autoRef ? " + referências" : ""}{autoSMS ? " + SMS" : ""} para todos os alunos activos.</span>
-      </div>
-
-      <Feedback error={error} success=""/>
-      <div className="flex gap-3 pt-1">
-        <Button type="button" variant="outline" onClick={onClose} className="flex-1">Cancelar</Button>
-        <Button type="submit" disabled={saving} className="flex-1 gap-2 bg-gradient-to-r from-primary to-accent text-white">
-          <Zap className="w-4 h-4"/> Executar Ciclo
-        </Button>
-      </div>
-    </form>
   );
 }
 
@@ -2959,10 +2829,9 @@ function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
   );
 }
 
-function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote, onOpenCiclo }: {
+function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote }: {
   token: string | null; propinas: Propina[]; alunos: Aluno[]; turmas: Turma[];
   onOpenGerarPropina: () => void; onOpenGerarRef: () => void; onOpenGerarLote: () => void;
-  onOpenCiclo: () => void;
 }) {
   const [propinas, setPropinas] = useState<Propina[]>(initialPropinas);
   const [filterStatus, setFilterStatus] = useState<"todos"|"pendente"|"vencido"|"pago">("todos");
@@ -3051,12 +2920,9 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div><h2 className="text-2xl font-bold text-slate-900">Propinas & Faturas</h2></div>
         <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Gerar Propina</Button>
-          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Lote</Button>
-          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
-          <Button className="gap-2 bg-gradient-to-r from-primary to-accent text-white shadow-sm" onClick={onOpenCiclo}>
-            <Zap className="w-4 h-4"/> Ciclo de Faturação
-          </Button>
+          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Nova Propina</Button>
+          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Massa</Button>
+          <Button className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
         </div>
       </div>
       <div className="space-y-3 mb-5">
@@ -9110,7 +8976,7 @@ export default function Dashboard() {
   const [schoolModuloInfantil, setSchoolModuloInfantil] = useState(false);
 
   // Modals
-  const [modal, setModal] = useState<"turma"|"aluno"|"propina"|"referencia"|"lote"|"ciclo"|null>(null);
+  const [modal, setModal] = useState<"turma"|"aluno"|"propina"|"referencia"|"lote"|null>(null);
 
   const schoolName = session?.schoolName ?? "Colégio";
   const schoolId = session?.schoolId ?? "";
@@ -9314,7 +9180,7 @@ export default function Dashboard() {
               <motion.div key="propinas" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
                 <PropinasView token={token} propinas={propinas} alunos={alunos} turmas={turmas}
                   onOpenGerarPropina={() => setModal("propina")} onOpenGerarRef={() => setModal("referencia")}
-                  onOpenGerarLote={() => setModal("lote")} onOpenCiclo={() => setModal("ciclo")}/>
+                  onOpenGerarLote={() => setModal("lote")}/>
               </motion.div>
             )}
             {view === "reconciliacao" && (
@@ -9374,15 +9240,11 @@ export default function Dashboard() {
           </Modal>
         )}
         {modal === "lote" && token && (
-          <Modal key="m-lote" title="Gerar Propinas em Lote" onClose={() => setModal(null)}>
+          <Modal key="m-lote" title="Gerar Propinas em Massa" onClose={() => setModal(null)}>
             <ModalGerarLote token={token} onClose={() => setModal(null)} onCreated={loadAll}/>
           </Modal>
         )}
-        {modal === "ciclo" && token && (
-          <Modal key="m-ciclo" title="Ciclo de Faturação Automática" onClose={() => setModal(null)}>
-            <ModalCicloFaturacao token={token} onClose={() => setModal(null)} onCreated={loadAll}/>
-          </Modal>
-        )}
+
       </AnimatePresence>
     </div>
   );
