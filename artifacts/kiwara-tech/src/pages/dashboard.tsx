@@ -7894,8 +7894,8 @@ function StoreManagementView({ token, onPendingChange }: { token: string; onPend
 /* ══════════════════════════════════════════════════════════
    MÓDULO: CALENDÁRIO ESCOLAR
    ══════════════════════════════════════════════════════════ */
-function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
-  type CTab = "calendarios" | "tipos";
+function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turmas: Turma[]; moduloInfantil?: boolean }) {
+  type CTab = "calendarios" | "tipos" | "infantil";
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
@@ -8076,15 +8076,17 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Calendário Escolar</h2>
           <p className="text-slate-500 text-sm mt-0.5">Horários de aulas e calendários de provas</p>
         </div>
-        <button onClick={() => { setShowCalForm(true); setEditCal(null); setCalForm(emptyCalForm); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm">
-          <Plus className="w-4 h-4"/> Novo Calendário
-        </button>
+        {cTab !== "infantil" && (
+          <button onClick={() => { setShowCalForm(true); setEditCal(null); setCalForm(emptyCalForm); }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm">
+            <Plus className="w-4 h-4"/> Novo Calendário
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-6 w-fit">
-        {([["calendarios","Calendários"],["tipos","Tipos de Prova"]] as [CTab,string][]).map(([k,l]) => (
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-6 w-fit flex-wrap">
+        {([["calendarios","Calendários"],["tipos","Tipos de Prova"],...(moduloInfantil?[["infantil","Módulo Infantil"]]:[])] as [CTab,string][]).map(([k,l]) => (
           <button key={k} onClick={() => setCTab(k)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cTab===k?"bg-white shadow text-slate-900":"text-slate-500 hover:text-slate-700"}`}>{l}</button>
         ))}
@@ -8452,6 +8454,11 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
       )}
       </AnimatePresence>
 
+      {/* ─── TAB: MÓDULO INFANTIL ─── */}
+      {cTab === "infantil" && moduloInfantil && (
+        <InfantilView token={token} embedded/>
+      )}
+
       {/* MODAL: Evento */}
       <AnimatePresence>
       {showEvtForm!==null && (() => {
@@ -8611,7 +8618,7 @@ function getMondayStr(d: Date) {
   return dt.toISOString().slice(0, 10);
 }
 
-function InfantilView({ token }: { token: string }) {
+function InfantilView({ token, embedded }: { token: string; embedded?: boolean }) {
   const apiH = useCallback((ct = true) => {
     const h: Record<string,string> = { Authorization: `Bearer ${token}` };
     if (ct) h["Content-Type"] = "application/json";
@@ -8735,8 +8742,13 @@ function InfantilView({ token }: { token: string }) {
   ];
   const inp = "w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
 
+  const Outer: React.ElementType = embedded ? "div" : (motion.div as React.ElementType);
+  const outerProps: Record<string, any> = embedded
+    ? { className: "space-y-5" }
+    : { key: "modulo_infantil", initial:{opacity:0,x:16}, animate:{opacity:1,x:0}, exit:{opacity:0}, className:"flex-1 p-4 md:p-6 space-y-5" };
+
   return (
-    <motion.div key="modulo_infantil" initial={{opacity:0,x:16}} animate={{opacity:1,x:0}} exit={{opacity:0}} className="flex-1 p-4 md:p-6 space-y-5">
+    <Outer {...outerProps}>
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
@@ -9080,7 +9092,7 @@ function InfantilView({ token }: { token: string }) {
           </AnimatePresence>
         </div>
       )}
-    </motion.div>
+    </Outer>
   );
 }
 
@@ -9172,7 +9184,6 @@ export default function Dashboard() {
     { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
     { key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>, label: "Gestão de Acessos" },
     { key: "avaliacoes", icon: <CalendarDays className="w-5 h-5"/>, label: "Calendário Escolar" },
-    ...(schoolModuloInfantil ? [{ key: "modulo_infantil" as DashView, icon: <Baby className="w-5 h-5"/>, label: "Módulo Infantil" }] : []),
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -9333,11 +9344,8 @@ export default function Dashboard() {
             )}
             {view === "avaliacoes" && token && (
               <motion.div key="avaliacoes" initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="flex-1">
-                <CalendarioView token={token} turmas={turmas}/>
+                <CalendarioView token={token} turmas={turmas} moduloInfantil={schoolModuloInfantil}/>
               </motion.div>
-            )}
-            {view === "modulo_infantil" && token && (
-              <InfantilView key="modulo_infantil" token={token}/>
             )}
           </AnimatePresence>
         )}
