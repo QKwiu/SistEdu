@@ -327,7 +327,7 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { status, student_id, mes, ano } = req.query as any;
+  const { status, student_id, mes, ano, data_from, data_to } = req.query as any;
   const conditions: string[] = ["p.school_id = $1"];
   const params: any[] = [school.school_id];
 
@@ -335,6 +335,17 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
   if (student_id) { params.push(student_id); conditions.push(`p.student_id = $${params.length}`); }
   if (mes)        { params.push(mes);        conditions.push(`p.mes = $${params.length}`); }
   if (ano)        { params.push(ano);        conditions.push(`p.ano = $${params.length}`); }
+
+  /* Date range on pago_em — used by stats to keep receita_total consistent with Fecho de Caixa */
+  const statsConditionsPaid: string[] = [];
+  if (data_from) {
+    params.push(new Date((data_from as string) + "T00:00:00.000").toISOString());
+    statsConditionsPaid.push(`(p.status != 'pago' OR p.pago_em >= $${params.length})`);
+  }
+  if (data_to) {
+    params.push(new Date((data_to as string) + "T23:59:59.999").toISOString());
+    statsConditionsPaid.push(`(p.status != 'pago' OR p.pago_em <= $${params.length})`);
+  }
 
   const r = await pool.query(`
     SELECT
@@ -364,20 +375,27 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
     ORDER BY p.ano DESC, p.mes DESC, s.nome
   `, params);
 
+  /* Stats use the same base conditions as the propinas list PLUS the optional pago_em
+     date range, so that receita_total/pagas always match what Fecho de Caixa shows
+     for the same period. Pending/vencidas counts ignore the date range (they have no pago_em). */
+  const allStatsConditions = [...conditions, ...statsConditionsPaid];
+
   const stats = await pool.query(`
     SELECT
-      COUNT(*) FILTER (WHERE status = 'pendente')  AS pendentes,
-      COUNT(*) FILTER (WHERE status = 'vencido')   AS vencidas,
-      COUNT(*) FILTER (WHERE status = 'pago')      AS pagas,
-      COALESCE(SUM(montante + multa) FILTER (WHERE status != 'pago'), 0) AS divida_total,
-      COALESCE(SUM(montante + multa) FILTER (WHERE status = 'pago'),  0) AS receita_total,
-      COALESCE(SUM(montante)        FILTER (WHERE status = 'pago'),   0) AS receita_escola,
+      COUNT(*) FILTER (WHERE p.status = 'pendente')                                          AS pendentes,
+      COUNT(*) FILTER (WHERE p.status = 'vencido')                                           AS vencidas,
+      COUNT(*) FILTER (WHERE p.status = 'pago')                                              AS pagas,
+      COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status != 'pago'),              0) AS divida_total,
+      COALESCE(SUM(p.montante + p.multa) FILTER (WHERE p.status = 'pago'),               0) AS receita_total,
+      COALESCE(SUM(p.montante)           FILTER (WHERE p.status = 'pago'),               0) AS receita_escola,
       COALESCE(
         (SELECT SUM(ps.valor) FROM payment_splits ps
-         JOIN propinas pp ON pp.id = ps.propina_id WHERE pp.school_id = $1 AND ps.destino = 'platform'), 0
+         JOIN propinas pp ON pp.id = ps.propina_id
+         WHERE pp.school_id = $1 AND ps.destino = 'platform'), 0
       ) AS comissao_plataforma
-    FROM propinas WHERE school_id = $1
-  `, [school.school_id]);
+    FROM propinas p
+    WHERE ${allStatsConditions.join(" AND ")}
+  `, params);
 
   res.json({ propinas: r.rows, stats: stats.rows[0], commission_rate: school.commission_rate });
 });

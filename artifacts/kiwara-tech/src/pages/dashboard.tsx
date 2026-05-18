@@ -3455,8 +3455,13 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     if (!token) return;
     setLoading(true);
     try {
-      const qs = filterStatus ? `?status=${filterStatus}` : "";
-      const r = await fetch(`${API}/school/reconciliacao${qs}`, { headers: authHeader() });
+      const qs = new URLSearchParams();
+      if (filterStatus) qs.set("status", filterStatus);
+      /* Pass the same date range used by Fecho de Caixa so that receita_total
+         in the stats KPIs reflects exactly the same payments scope */
+      qs.set("data_from", dateInicio);
+      qs.set("data_to", dateFim);
+      const r = await fetch(`${API}/school/reconciliacao?${qs}`, { headers: authHeader() });
       if (r.ok) {
         const d = await r.json();
         setPropinas(d.propinas ?? []);
@@ -3464,7 +3469,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
         setCommissionRate(Number(d.commission_rate ?? 0));
       }
     } finally { setLoading(false); }
-  }, [token, filterStatus]);
+  }, [token, filterStatus, dateInicio, dateFim]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -3924,7 +3929,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
             { label: "Faturas Pendentes", value: stats.pendentes, icon: <Clock className="w-5 h-5"/>, color: "text-amber-600 bg-amber-50 border-amber-200" },
             { label: "Faturas Vencidas",  value: stats.vencidas,  icon: <AlertCircle className="w-5 h-5"/>, color: "text-red-600 bg-red-50 border-red-200" },
             { label: "Faturas Pagas",     value: stats.pagas,     icon: <CheckCircle2 className="w-5 h-5"/>, color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
-            { label: "Receita Total",     value: fmt(stats.receita_total), icon: <Banknote className="w-5 h-5"/>, color: "text-primary bg-primary/5 border-primary/20" },
+            { label: `Receita Total (${dateInicio.slice(0,7)} → ${dateFim.slice(0,7)})`, value: fmt(stats.receita_total), icon: <Banknote className="w-5 h-5"/>, color: "text-primary bg-primary/5 border-primary/20" },
           ].map(c => (
             <div key={c.label} className={`border rounded-xl p-4 flex items-center gap-3 ${c.color}`}>
               <div className="shrink-0">{c.icon}</div>
