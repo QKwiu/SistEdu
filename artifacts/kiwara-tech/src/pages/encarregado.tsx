@@ -10,6 +10,7 @@ import {
   FileText, Send, ChevronRight, ChevronLeft, Banknote,
   BadgeCheck, XCircle, GraduationCap, CalendarDays,
   ShoppingCart, Truck, Store, MinusCircle, PlusCircle,
+  UtensilsCrossed, Image as ImageIcon, Play, Soup,
 } from "lucide-react";
 
 const API = "/api";
@@ -84,7 +85,7 @@ interface DDSubscription {
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
 type StudentTab = "propinas" | "ocorrencias";
-type ActiveMenu = "facturas" | "ocorrencias" | "comunicados" | "avaliacoes" | "loja";
+type ActiveMenu = "facturas" | "ocorrencias" | "comunicados" | "avaliacoes" | "loja" | "inf_rotinas" | "inf_ementa" | "inf_galeria";
 
 const TIPO_COLORS_ENC: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   "Comportamento Inadequado": { bg:"bg-red-50", text:"text-red-700", border:"border-red-200", dot:"bg-red-500" },
@@ -1591,6 +1592,255 @@ function ChangePasswordScreen({ token, guardian, onSuccess }: {
 }
 
 /* ─── Dashboard ─── */
+/* ══════════════════════════════════════════════════════════════════
+   Infant Screens — read-only guardian portal views
+══════════════════════════════════════════════════════════════════ */
+const INF_DIAS = ["","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira"];
+const INF_REFEICOES = [
+  { key:"pequeno_almoco", label:"Pequeno-almoço", emoji:"☕" },
+  { key:"almoco",         label:"Almoço",         emoji:"🍽️" },
+  { key:"lanche",         label:"Lanche",          emoji:"🥪" },
+];
+const INF_DIAS_ALL = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+
+function getMondayISO(d: Date) {
+  const dt = new Date(d);
+  const diff = dt.getDate() - dt.getDay() + (dt.getDay() === 0 ? -6 : 1);
+  dt.setDate(diff);
+  return dt.toISOString().slice(0, 10);
+}
+
+function InfantRotinaScreen({ token, headers }: { token: string; headers: Record<string,string> }) {
+  const [rotinas, setRotinas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API}/guardian/infant/rotinas`, { headers })
+      .then(r => r.ok ? r.json() : []).then(setRotinas).finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16"><RefreshCw size={22} className="animate-spin text-blue-400"/></div>
+  );
+
+  const byDay: Record<number, any[]> = {};
+  for (const r of rotinas) {
+    if (!byDay[r.dia_semana]) byDay[r.dia_semana] = [];
+    byDay[r.dia_semana].push(r);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 mb-1">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Clock size={12}/> Rotinas Diárias
+        </p>
+      </div>
+      {rotinas.length === 0 ? (
+        <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+          <Clock size={36} className="text-gray-200 mx-auto mb-3"/>
+          <p className="font-semibold text-gray-400">Sem rotinas definidas</p>
+          <p className="text-gray-300 text-xs mt-1">A escola ainda não publicou rotinas para a sua sala.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {[0,1,2,3,4,5,6].map(dia => {
+            const items = byDay[dia] || [];
+            if (!items.length) return null;
+            return (
+              <div key={dia} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                  <p className="text-sm font-semibold text-gray-700">{INF_DIAS_ALL[dia]}</p>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {items.map((r: any) => (
+                    <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: r.cor || "#3B82F6" }}/>
+                      <div className="text-xs text-gray-400 font-mono shrink-0 w-24">{r.hora_inicio?.slice(0,5)}–{r.hora_fim?.slice(0,5)}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{r.atividade}</p>
+                        {r.descricao && <p className="text-xs text-gray-400 truncate">{r.descricao}</p>}
+                        {r.turma_nome && <p className="text-xs text-emerald-600 font-medium mt-0.5">{r.turma_nome}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfantEmentaScreen({ token, headers }: { token: string; headers: Record<string,string> }) {
+  const [ementas, setEmentas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [semana, setSemana] = useState(() => getMondayISO(new Date()));
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API}/guardian/infant/ementa?semana=${semana}`, { headers })
+      .then(r => r.ok ? r.json() : []).then(setEmentas).finally(() => setLoading(false));
+  }, [token, semana]);
+
+  const shiftWeek = (n: number) => {
+    const d = new Date(semana + "T00:00:00");
+    d.setDate(d.getDate() + n * 7);
+    setSemana(getMondayISO(d));
+  };
+
+  const emap: Record<string, any> = {};
+  for (const e of ementas) emap[`${e.dia_semana}-${e.refeicao}`] = e;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => shiftWeek(-1)} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors active:scale-95">
+          <ChevronLeft size={16} className="text-gray-600"/>
+        </button>
+        <p className="text-sm font-semibold text-gray-700 text-center">
+          Semana de {new Date(semana + "T00:00:00").toLocaleDateString("pt-AO", { day:"numeric", month:"long" })}
+        </p>
+        <button onClick={() => shiftWeek(1)} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors active:scale-95">
+          <ChevronRight size={16} className="text-gray-600"/>
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16"><RefreshCw size={22} className="animate-spin text-blue-400"/></div>
+      ) : (
+        <div className="space-y-3 pb-6">
+          {[1,2,3,4,5].map(dia => (
+            <div key={dia} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                <p className="text-sm font-semibold text-gray-700">{INF_DIAS[dia]}</p>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {INF_REFEICOES.map(ref => {
+                  const entry = emap[`${dia}-${ref.key}`];
+                  return (
+                    <div key={ref.key} className="flex items-start gap-3 px-4 py-3">
+                      <span className="text-lg mt-0.5">{ref.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-500 mb-0.5">{ref.label}</p>
+                        {entry ? (
+                          <>
+                            <p className="text-sm text-gray-800">{entry.descricao}</p>
+                            {entry.alergenios && (
+                              <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                                <AlertTriangle size={11}/> {entry.alergenios}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm text-gray-300 italic">Não definido</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {ementas.length === 0 && (
+            <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+              <UtensilsCrossed size={36} className="text-gray-200 mx-auto mb-3"/>
+              <p className="font-semibold text-gray-400">Ementa não disponível</p>
+              <p className="text-gray-300 text-xs mt-1">Ainda não há ementa publicada para esta semana.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfantGaleriaScreen({ token, headers }: { token: string; headers: Record<string,string> }) {
+  const [galeria, setGaleria] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lightbox, setLightbox] = useState<any>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API}/guardian/infant/galeria`, { headers })
+      .then(r => r.ok ? r.json() : []).then(setGaleria).finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16"><RefreshCw size={22} className="animate-spin text-blue-400"/></div>
+  );
+
+  return (
+    <div className="space-y-4 pb-6">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+        <ImageIcon size={12}/> Galeria de Momentos
+      </p>
+
+      {galeria.length === 0 ? (
+        <div className="bg-white rounded-2xl p-10 border border-gray-100 text-center">
+          <ImageIcon size={36} className="text-gray-200 mx-auto mb-3"/>
+          <p className="font-semibold text-gray-400">Galeria vazia</p>
+          <p className="text-gray-300 text-xs mt-1">A escola ainda não publicou fotografias.</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            {galeria.map((g: any) => (
+              <div key={g.id} onClick={() => setLightbox(g)}
+                className="relative rounded-2xl overflow-hidden bg-gray-100 aspect-square cursor-pointer active:scale-95 transition-transform">
+                {g.tipo === "video" ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800">
+                    <Play size={28} className="text-white/70"/>
+                    {g.titulo && <p className="text-white/60 text-xs mt-2 px-2 text-center truncate">{g.titulo}</p>}
+                  </div>
+                ) : (
+                  <img src={`${API}/guardian/infant/media/${g.filename}`}
+                    alt={g.titulo || ""}
+                    className="w-full h-full object-cover"
+                    onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}/>
+                )}
+                {(g.titulo || g.turma_nome) && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
+                    {g.titulo && <p className="text-white text-xs font-medium truncate">{g.titulo}</p>}
+                    {g.turma_nome && <p className="text-white/70 text-xs truncate">{g.turma_nome}</p>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <AnimatePresence>
+            {lightbox && (
+              <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+                onClick={() => setLightbox(null)}
+                className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
+                <motion.div initial={{scale:0.9}} animate={{scale:1}} exit={{scale:0.9}}
+                  onClick={e => e.stopPropagation()} className="relative max-w-lg w-full">
+                  {lightbox.tipo === "video" ? (
+                    <video src={`${API}/guardian/infant/media/${lightbox.filename}`}
+                      controls autoPlay className="w-full rounded-2xl max-h-[75vh]"/>
+                  ) : (
+                    <img src={`${API}/guardian/infant/media/${lightbox.filename}`}
+                      alt={lightbox.titulo || ""} className="w-full rounded-2xl max-h-[75vh] object-contain"/>
+                  )}
+                  {lightbox.titulo && <p className="text-white text-center mt-3 font-medium text-sm">{lightbox.titulo}</p>}
+                  <button onClick={() => setLightbox(null)}
+                    className="absolute top-3 right-3 p-2 bg-white/20 hover:bg-white/30 rounded-full text-white transition-colors">
+                    <X size={16}/>
+                  </button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Guardian; onLogout: ()=>void }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<Student|null>(null);
@@ -1599,6 +1849,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [loadingPropinas, setLoadingPropinas] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<ActiveMenu>("facturas");
+  const [schoolModuloInfantil, setSchoolModuloInfantil] = useState(false);
 
   const portalLabel = selectedStudent?.portal_nomenclatura === "aluno" ? "Portal do Aluno" : "Portal do Encarregado";
 
@@ -1784,6 +2035,15 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   useEffect(() => { if (activeMenu === "avaliacoes") { loadHorario(); loadProvas(); } }, [activeMenu]);
   useEffect(() => { if (activeMenu === "loja") { loadStoreItems(); loadStoreOrders(); } }, [activeMenu, selectedStudent?.school_id]);
 
+  // Fetch infant module status when student changes
+  useEffect(() => {
+    if (!token || !selectedStudent) { setSchoolModuloInfantil(false); return; }
+    fetch(`${API}/guardian/infant/status`, { headers })
+      .then(r => r.ok ? r.json() : { modulo_infantil: false })
+      .then(d => setSchoolModuloInfantil(d.modulo_infantil === true))
+      .catch(() => setSchoolModuloInfantil(false));
+  }, [selectedStudent?.id, token]);
+
   // Load per-school data on initial mount (no specific school yet — auto-detect)
   useEffect(() => { loadAvailableMethods(); loadDDSubscription(); }, [token]);
 
@@ -1856,8 +2116,13 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     { key: "facturas",    label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
     { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
     { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
-    { key: "avaliacoes",  label: "Calendário Escolar",            icon: <CalendarDays size={16} /> },
-    { key: "loja",        label: "Outros Emolumentos & Artigos",         icon: <ShoppingCart size={16} /> },
+    { key: "avaliacoes",  label: "Calendário Escolar",                  icon: <CalendarDays size={16} /> },
+    { key: "loja",        label: "Outros Emolumentos & Artigos",        icon: <ShoppingCart size={16} /> },
+    ...(schoolModuloInfantil ? [
+      { key: "inf_rotinas" as ActiveMenu, label: "Rotinas Diárias",       icon: <Clock size={16} /> },
+      { key: "inf_ementa"  as ActiveMenu, label: "Ementa Semanal",        icon: <UtensilsCrossed size={16} /> },
+      { key: "inf_galeria" as ActiveMenu, label: "Galeria de Momentos",   icon: <ImageIcon size={16} /> },
+    ] : []),
   ];
 
   if (loadingStudents) return (
@@ -2971,6 +3236,21 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           </>;
         })()}
         {/* end loja screen */}
+
+        {/* ══ ECRÃ: ROTINAS DIÁRIAS ══ */}
+        {activeMenu === "inf_rotinas" && (
+          <InfantRotinaScreen token={token} headers={headers}/>
+        )}
+
+        {/* ══ ECRÃ: EMENTA SEMANAL ══ */}
+        {activeMenu === "inf_ementa" && (
+          <InfantEmentaScreen token={token} headers={headers}/>
+        )}
+
+        {/* ══ ECRÃ: GALERIA ══ */}
+        {activeMenu === "inf_galeria" && (
+          <InfantGaleriaScreen token={token} headers={headers}/>
+        )}
 
         <div className="text-center pt-2">
           <p className="text-xs text-gray-300">Kiwara Escolar — {portalLabel}</p>

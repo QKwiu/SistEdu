@@ -195,6 +195,13 @@ router.put("/admin/colegios/:id/reset-password", adminAuth, async (req, res) => 
   res.json({ ok: true });
 });
 
+/* ─── PUT /admin/colegios/:id/modulo-infantil — toggle infant module ─── */
+router.put("/admin/colegios/:id/modulo-infantil", adminAuth, async (req, res) => {
+  const { modulo_infantil } = req.body;
+  await pool.query("UPDATE schools SET modulo_infantil=$1 WHERE id=$2", [!!modulo_infantil, req.params.id]);
+  res.json({ ok: true, modulo_infantil: !!modulo_infantil });
+});
+
 /* ─── PUT /admin/colegios/:id/configuracao — update school settings ─── */
 router.put("/admin/colegios/:id/configuracao", adminAuth, async (req, res) => {
   const { usa_pacotes } = req.body;

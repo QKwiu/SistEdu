@@ -16,6 +16,7 @@ import {
   Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent, Tag,
   Zap, Printer, Building2, Hash, MessageCircle, ArrowRight, PlayCircle,
   ShoppingCart, Truck, Store,
+  Baby, UtensilsCrossed, Image as ImageIcon, Film, Soup,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -53,7 +54,7 @@ interface Propina {
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
 interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil";
 
 /* ─── Store Interfaces ─── */
 interface StoreItemDB { id: number; school_id: number; nome: string; descricao?: string; preco: number; stock: number | null; visivel_portal: boolean; ativo: boolean; categoria?: string; }
@@ -1610,6 +1611,7 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
   const anoLectivo = `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`;
   const [nextNumeroProcesso, setNextNumeroProcesso] = useState<string | undefined>(undefined);
   const [schoolUsaPacotes, setSchoolUsaPacotes] = useState(false);
+  const [schoolModuloInfantil, setSchoolModuloInfantil] = useState(false);
   const [schoolPacotes, setSchoolPacotes] = useState<import("../components/student-form").FormPacote[]>([]);
   const [schoolEmolumentos, setSchoolEmolumentos] = useState<import("../components/student-form").FormEmolumento[]>([]);
 
@@ -1633,6 +1635,10 @@ function SchoolAddAlunoPanel({ token, turmas, onSuccess, onCreateTurma }: {
     ]).then(([prof, pkts, ems]: [any, any[], any[]]) => {
       const active = pkts.filter((p: any) => p.activo);
       setSchoolUsaPacotes(prof.usa_pacotes === true);
+      fetch(`${API}/school/infant/status`, { headers: hdrs })
+        .then(r => r.ok ? r.json() : { modulo_infantil: false })
+        .then(d => setSchoolModuloInfantil(d.modulo_infantil === true))
+        .catch(() => {});
       setSchoolPacotes(active);
       setSchoolEmolumentos((ems as any[]).filter(e => !e.is_global && e.tipo === "propina"));
     }).catch(() => {});
@@ -8345,6 +8351,498 @@ function CalendarioView({ token, turmas }: { token: string; turmas: Turma[] }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   InfantilView — Módulo de Gestão Infantil (Creche / Centro Infantil)
+══════════════════════════════════════════════════════════════════ */
+const DIAS_SEM = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+const DIAS_UTEIS_INF = [1,2,3,4,5];
+const REFEICOES_INF = [
+  { key: "pequeno_almoco", label: "Pequeno-almoço", emoji: "☕" },
+  { key: "almoco",         label: "Almoço",         emoji: "🍽️" },
+  { key: "lanche",         label: "Lanche",          emoji: "🥪" },
+];
+const COR_OPTS = ["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16"];
+
+function getMondayStr(d: Date) {
+  const dt = new Date(d);
+  const diff = dt.getDate() - dt.getDay() + (dt.getDay() === 0 ? -6 : 1);
+  dt.setDate(diff);
+  return dt.toISOString().slice(0, 10);
+}
+
+function InfantilView({ token }: { token: string }) {
+  const apiH = useCallback((ct = true) => {
+    const h: Record<string,string> = { Authorization: `Bearer ${token}` };
+    if (ct) h["Content-Type"] = "application/json";
+    return h;
+  }, [token]);
+
+  const [sub, setSub] = useState<"rotinas"|"ementas"|"galeria">("rotinas");
+
+  /* ── Rotinas state ── */
+  const [rotinas, setRotinas]     = useState<any[]>([]);
+  const [rTurmas, setRTurmas]     = useState<any[]>([]);
+  const [loadRot, setLoadRot]     = useState(true);
+  const [filTurma, setFilTurma]   = useState("");
+  const [showRF, setShowRF]       = useState(false);
+  const [editRot, setEditRot]     = useState<any>(null);
+  const [rf, setRf] = useState({ turma_id:"", dia_semana:1, hora_inicio:"08:00", hora_fim:"09:00", atividade:"", descricao:"", cor:"#3B82F6" });
+
+  /* ── Ementas state ── */
+  const [ementas, setEmentas]       = useState<any[]>([]);
+  const [loadEm, setLoadEm]         = useState(false);
+  const [semana, setSemana]         = useState(() => getMondayStr(new Date()));
+  const [emModal, setEmModal]       = useState<{ dia_semana: number; refeicao: string } | null>(null);
+  const [emForm, setEmForm]         = useState({ descricao:"", alergenios:"" });
+  const [savingEm, setSavingEm]     = useState(false);
+
+  /* ── Galeria state ── */
+  const [galeria, setGaleria]       = useState<any[]>([]);
+  const [loadGal, setLoadGal]       = useState(false);
+  const [filGalTurma, setFilGalTurma] = useState("");
+  const [uploading, setUploading]   = useState(false);
+  const fileRef                     = useRef<HTMLInputElement>(null);
+  const [galForm, setGalForm]       = useState({ turma_id:"", titulo:"" });
+  const [lightbox, setLightbox]     = useState<any>(null);
+
+  /* turmas */
+  useEffect(() => {
+    fetch(`${API}/school/infant/turmas`, { headers: apiH() })
+      .then(r => r.ok ? r.json() : []).then(setRTurmas).catch(() => {});
+  }, [token]);
+
+  /* load rotinas */
+  const loadRotinas = useCallback(() => {
+    setLoadRot(true);
+    const url = filTurma ? `${API}/school/infant/rotinas?turma_id=${filTurma}` : `${API}/school/infant/rotinas`;
+    fetch(url, { headers: apiH() }).then(r => r.ok ? r.json() : []).then(setRotinas).finally(() => setLoadRot(false));
+  }, [token, filTurma]);
+  useEffect(() => { if (sub === "rotinas") loadRotinas(); }, [sub, loadRotinas]);
+
+  /* load ementas */
+  const loadEmentas = useCallback(() => {
+    setLoadEm(true);
+    fetch(`${API}/school/infant/ementas?semana=${semana}`, { headers: apiH() }).then(r => r.ok ? r.json() : []).then(setEmentas).finally(() => setLoadEm(false));
+  }, [token, semana]);
+  useEffect(() => { if (sub === "ementas") loadEmentas(); }, [sub, loadEmentas]);
+
+  /* load galeria */
+  const loadGaleria = useCallback(() => {
+    setLoadGal(true);
+    const url = filGalTurma ? `${API}/school/infant/galeria?turma_id=${filGalTurma}` : `${API}/school/infant/galeria`;
+    fetch(url, { headers: apiH() }).then(r => r.ok ? r.json() : []).then(setGaleria).finally(() => setLoadGal(false));
+  }, [token, filGalTurma]);
+  useEffect(() => { if (sub === "galeria") loadGaleria(); }, [sub, loadGaleria]);
+
+  /* rotinas CRUD */
+  const saveRotina = async () => {
+    const method = editRot ? "PUT" : "POST";
+    const url = editRot ? `${API}/school/infant/rotinas/${editRot.id}` : `${API}/school/infant/rotinas`;
+    const r = await fetch(url, { method, headers: apiH(), body: JSON.stringify({ ...rf, turma_id: rf.turma_id || null }) });
+    if (r.ok) { loadRotinas(); setShowRF(false); setEditRot(null); setRf({ turma_id:"", dia_semana:1, hora_inicio:"08:00", hora_fim:"09:00", atividade:"", descricao:"", cor:"#3B82F6" }); }
+  };
+  const delRotina = async (id: number) => {
+    await fetch(`${API}/school/infant/rotinas/${id}`, { method:"DELETE", headers: apiH(false) });
+    setRotinas(p => p.filter(x => x.id !== id));
+  };
+
+  /* ementas CRUD */
+  const saveEmenta = async () => {
+    setSavingEm(true);
+    const r = await fetch(`${API}/school/infant/ementas`, { method:"POST", headers: apiH(), body: JSON.stringify({ semana_inicio: semana, ...emModal, ...emForm }) });
+    if (r.ok) { loadEmentas(); setEmModal(null); setEmForm({ descricao:"", alergenios:"" }); }
+    setSavingEm(false);
+  };
+  const delEmenta = async (id: number) => {
+    await fetch(`${API}/school/infant/ementas/${id}`, { method:"DELETE", headers: apiH(false) });
+    setEmentas(p => p.filter(x => x.id !== id));
+  };
+
+  /* galeria upload */
+  const handleUpload = async (file: File) => {
+    if (!galForm.turma_id) { alert("Selecione uma sala/turma."); return; }
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("turma_id", galForm.turma_id);
+    if (galForm.titulo) fd.append("titulo", galForm.titulo);
+    const r = await fetch(`${API}/school/infant/galeria`, { method:"POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+    if (r.ok) { loadGaleria(); setGalForm(f => ({ ...f, titulo:"" })); }
+    setUploading(false);
+  };
+  const delGaleria = async (id: number) => {
+    await fetch(`${API}/school/infant/galeria/${id}`, { method:"DELETE", headers: apiH(false) });
+    setGaleria(p => p.filter(x => x.id !== id));
+  };
+
+  const ementaMap = useMemo(() => {
+    const m: Record<string, any> = {};
+    for (const e of ementas) m[`${e.dia_semana}-${e.refeicao}`] = e;
+    return m;
+  }, [ementas]);
+
+  const shiftWeek = (n: number) => {
+    const d = new Date(semana + "T00:00:00");
+    d.setDate(d.getDate() + n * 7);
+    setSemana(getMondayStr(d));
+  };
+
+  const SUBTABS = [
+    { key:"rotinas"  as const, label:"Rotinas Diárias",      icon:<Clock className="w-4 h-4"/> },
+    { key:"ementas"  as const, label:"Ementas Alimentares",   icon:<UtensilsCrossed className="w-4 h-4"/> },
+    { key:"galeria"  as const, label:"Galeria Multimédia",    icon:<ImageIcon className="w-4 h-4"/> },
+  ];
+  const inp = "w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+  return (
+    <motion.div key="modulo_infantil" initial={{opacity:0,x:16}} animate={{opacity:1,x:0}} exit={{opacity:0}} className="flex-1 p-4 md:p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
+          <Baby className="w-5 h-5 text-emerald-600"/>
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">Módulo Infantil</h2>
+          <p className="text-xs text-slate-500">Rotinas, ementas alimentares e galeria multimédia</p>
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 max-w-xl">
+        {SUBTABS.map(t => (
+          <button key={t.key} onClick={() => setSub(t.key)}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${sub===t.key?"bg-white text-slate-800 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+            {t.icon}<span className="hidden sm:inline">{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ────── ROTINAS ────── */}
+      {sub === "rotinas" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-500 shrink-0">Sala:</label>
+              <select value={filTurma} onChange={e => setFilTurma(e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <option value="">Todas</option>
+                {rTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+              </select>
+            </div>
+            <button onClick={() => { setEditRot(null); setShowRF(true); setRf({ turma_id:"", dia_semana:1, hora_inicio:"08:00", hora_fim:"09:00", atividade:"", descricao:"", cor:"#3B82F6" }); }}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+              <Plus className="w-4 h-4"/> Nova Rotina
+            </button>
+          </div>
+
+          {loadRot ? (
+            <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+          ) : rotinas.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
+              <Clock className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+              <p className="font-semibold text-slate-400">Nenhuma rotina definida</p>
+              <p className="text-xs text-slate-300 mt-1">Adicione as actividades diárias da sala.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {[0,1,2,3,4,5,6].map(dia => {
+                const dias = rotinas.filter(r => r.dia_semana === dia);
+                if (!dias.length) return null;
+                return (
+                  <div key={dia} className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+                      <p className="text-sm font-semibold text-slate-700">{DIAS_SEM[dia]}</p>
+                    </div>
+                    <div className="divide-y divide-slate-50">
+                      {dias.map(r => (
+                        <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: r.cor || "#3B82F6" }}/>
+                          <div className="text-xs text-slate-400 font-mono shrink-0 w-24">{r.hora_inicio?.slice(0,5)}–{r.hora_fim?.slice(0,5)}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{r.atividade}</p>
+                            {r.descricao && <p className="text-xs text-slate-400 truncate">{r.descricao}</p>}
+                            {r.turma_nome && <p className="text-xs text-emerald-600 font-medium mt-0.5">{r.turma_nome}</p>}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => { setEditRot(r); setRf({ turma_id: r.turma_id?.toString()||"", dia_semana:r.dia_semana, hora_inicio:r.hora_inicio?.slice(0,5)||"08:00", hora_fim:r.hora_fim?.slice(0,5)||"09:00", atividade:r.atividade, descricao:r.descricao||"", cor:r.cor||"#3B82F6" }); setShowRF(true); }}
+                              className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                            <button onClick={() => delRotina(r.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Rotina Form Modal */}
+          <AnimatePresence>
+            {showRF && (
+              <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                <motion.div initial={{scale:0.95,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.95,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                  <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800">{editRot ? "Editar Rotina" : "Nova Rotina"}</h3>
+                    <button onClick={() => { setShowRF(false); setEditRot(null); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
+                  </div>
+                  <div className="p-5 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Dia da semana</label>
+                        <select value={rf.dia_semana} onChange={e => setRf(f => ({ ...f, dia_semana: Number(e.target.value) }))} className={inp}>
+                          {DIAS_SEM.map((d,i) => <option key={i} value={i}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Sala/Turma</label>
+                        <select value={rf.turma_id} onChange={e => setRf(f => ({ ...f, turma_id: e.target.value }))} className={inp}>
+                          <option value="">Todas as salas</option>
+                          {rTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Hora início</label>
+                        <input type="time" value={rf.hora_inicio} onChange={e => setRf(f => ({ ...f, hora_inicio: e.target.value }))} className={inp}/>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Hora fim</label>
+                        <input type="time" value={rf.hora_fim} onChange={e => setRf(f => ({ ...f, hora_fim: e.target.value }))} className={inp}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Actividade *</label>
+                      <input type="text" placeholder="ex: Hora da Brincadeira" value={rf.atividade} onChange={e => setRf(f => ({ ...f, atividade: e.target.value }))} className={inp}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Descrição (opcional)</label>
+                      <input type="text" placeholder="Detalhes adicionais..." value={rf.descricao} onChange={e => setRf(f => ({ ...f, descricao: e.target.value }))} className={inp}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Cor da actividade</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {COR_OPTS.map(c => (
+                          <button key={c} onClick={() => setRf(f => ({ ...f, cor: c }))}
+                            className={`w-7 h-7 rounded-full transition-transform ${rf.cor===c?"ring-2 ring-offset-2 ring-slate-400 scale-110":"hover:scale-105"}`}
+                            style={{ backgroundColor: c }}/>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 p-5 border-t border-slate-100">
+                    <button onClick={() => { setShowRF(false); setEditRot(null); }} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+                    <button onClick={saveRotina} disabled={!rf.atividade.trim()}
+                      className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                      {editRot ? "Guardar" : "Adicionar"}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* ────── EMENTAS ────── */}
+      {sub === "ementas" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={() => shiftWeek(-1)} className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"><ChevronLeft className="w-4 h-4 text-slate-600"/></button>
+            <p className="text-sm font-semibold text-slate-700 text-center">
+              Semana de {new Date(semana + "T00:00:00").toLocaleDateString("pt-AO", { day:"numeric", month:"long", year:"numeric" })}
+            </p>
+            <button onClick={() => shiftWeek(1)} className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"><ChevronRight className="w-4 h-4 text-slate-600"/></button>
+          </div>
+
+          {loadEm ? (
+            <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+          ) : (
+            <div className="grid gap-3">
+              {DIAS_UTEIS_INF.map(dia => (
+                <div key={dia} className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                  <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+                    <p className="text-sm font-semibold text-slate-700">{DIAS_SEM[dia]}</p>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {REFEICOES_INF.map(ref => {
+                      const entry = ementaMap[`${dia}-${ref.key}`];
+                      return (
+                        <div key={ref.key} className="flex items-center gap-3 px-4 py-3">
+                          <span className="text-lg shrink-0">{ref.emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-500 mb-0.5">{ref.label}</p>
+                            {entry ? (
+                              <>
+                                <p className="text-sm text-slate-800">{entry.descricao}</p>
+                                {entry.alergenios && <p className="text-xs text-amber-600 mt-0.5">⚠ Alergénios: {entry.alergenios}</p>}
+                              </>
+                            ) : (
+                              <p className="text-sm text-slate-300 italic">Não definido</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => { setEmModal({ dia_semana:dia, refeicao:ref.key }); setEmForm({ descricao:entry?.descricao||"", alergenios:entry?.alergenios||"" }); }}
+                              className="p-1.5 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
+                            {entry && (
+                              <button onClick={() => delEmenta(entry.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Ementa Modal */}
+          <AnimatePresence>
+            {emModal && (
+              <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                <motion.div initial={{scale:0.95,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.95,opacity:0}} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+                  <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800">
+                      {DIAS_SEM[emModal.dia_semana]} — {REFEICOES_INF.find(r => r.key === emModal.refeicao)?.label}
+                    </h3>
+                    <button onClick={() => setEmModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
+                  </div>
+                  <div className="p-5 space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Descrição da refeição *</label>
+                      <textarea rows={3} placeholder="ex: Arroz de frango, feijão, salada..." value={emForm.descricao} onChange={e => setEmForm(f => ({ ...f, descricao: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Alergénios (opcional)</label>
+                      <input type="text" placeholder="ex: Glúten, Lactose..." value={emForm.alergenios} onChange={e => setEmForm(f => ({ ...f, alergenios: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 p-5 border-t border-slate-100">
+                    <button onClick={() => setEmModal(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+                    <button onClick={saveEmenta} disabled={!emForm.descricao.trim() || savingEm}
+                      className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                      {savingEm ? "A guardar..." : "Guardar"}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* ────── GALERIA ────── */}
+      {sub === "galeria" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-100 p-5">
+            <h3 className="font-semibold text-slate-800 mb-3 text-sm">Carregar ficheiro</h3>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Sala/Turma *</label>
+                <select value={galForm.turma_id} onChange={e => setGalForm(f => ({ ...f, turma_id: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <option value="">Selecionar sala</option>
+                  {rTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Título (opcional)</label>
+                <input type="text" placeholder="Título..." value={galForm.titulo} onChange={e => setGalForm(f => ({ ...f, titulo: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+              </div>
+            </div>
+            <input ref={fileRef} type="file" accept="image/*,video/mp4,video/quicktime,video/webm" className="hidden"
+              onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ""; }}/>
+            <button onClick={() => fileRef.current?.click()} disabled={uploading || !galForm.turma_id}
+              className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-slate-200 rounded-xl text-sm text-slate-500 hover:border-primary hover:text-primary disabled:opacity-50 transition-all w-full justify-center">
+              {uploading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Upload className="w-4 h-4"/>}
+              {uploading ? "A carregar..." : "Selecionar imagem ou vídeo"}
+            </button>
+            <p className="text-xs text-slate-400 mt-2 text-center">Imagens JPG/PNG/WebP e vídeos MP4/MOV até 80MB</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-500">Filtrar sala:</label>
+            <select value={filGalTurma} onChange={e => setFilGalTurma(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none">
+              <option value="">Todas</option>
+              {rTurmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </div>
+
+          {loadGal ? (
+            <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+          ) : galeria.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
+              <ImageIcon className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+              <p className="font-semibold text-slate-400">Galeria vazia</p>
+              <p className="text-xs text-slate-300 mt-1">Carregue fotos e vídeos dos momentos especiais.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {galeria.map(g => (
+                <div key={g.id} className="relative group rounded-xl overflow-hidden bg-slate-100 aspect-square">
+                  {g.tipo === "video" ? (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-700 cursor-pointer" onClick={() => setLightbox(g)}>
+                      <Film className="w-8 h-8 text-white/70"/>
+                      <span className="absolute bottom-2 left-2 text-xs text-white/80 bg-black/40 px-1.5 py-0.5 rounded">Vídeo</span>
+                    </div>
+                  ) : (
+                    <img src={`${API}/school/infant/media/${g.filename}`}
+                      alt={g.titulo||""} className="w-full h-full object-cover cursor-pointer" onClick={() => setLightbox(g)}
+                      onError={e => { (e.target as HTMLImageElement).style.display="none"; }}/>
+                  )}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex flex-col justify-between opacity-0 group-hover:opacity-100">
+                    <div className="flex justify-end p-2">
+                      <button onClick={() => delGaleria(g.id)}
+                        className="p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
+                        <Trash2 className="w-3 h-3"/>
+                      </button>
+                    </div>
+                    <div className="p-2">
+                      {g.titulo && <p className="text-white text-xs font-medium truncate">{g.titulo}</p>}
+                      {g.turma_nome && <p className="text-white/70 text-xs truncate">{g.turma_nome}</p>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Lightbox */}
+          <AnimatePresence>
+            {lightbox && (
+              <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+                onClick={() => setLightbox(null)}
+                className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-pointer">
+                <motion.div initial={{scale:0.9}} animate={{scale:1}} exit={{scale:0.9}} onClick={e => e.stopPropagation()} className="relative max-w-3xl w-full">
+                  {lightbox.tipo === "video" ? (
+                    <video src={`${API}/school/infant/media/${lightbox.filename}`}
+                      controls className="w-full rounded-2xl max-h-[80vh]" autoPlay/>
+                  ) : (
+                    <img src={`${API}/school/infant/media/${lightbox.filename}`}
+                      alt={lightbox.titulo||""} className="w-full rounded-2xl max-h-[80vh] object-contain"/>
+                  )}
+                  {lightbox.titulo && <p className="text-white text-center mt-3 font-medium">{lightbox.titulo}</p>}
+                  <button onClick={() => setLightbox(null)} className="absolute top-3 right-3 p-2 bg-white/20 hover:bg-white/30 rounded-full text-white transition-colors">
+                    <X className="w-4 h-4"/>
+                  </button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -8356,9 +8854,10 @@ export default function Dashboard() {
   const [propinas, setPropinas] = useState<Propina[]>([]);
   const [pacotes, setPacotes] = useState<Pacote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [schoolModuloInfantil, setSchoolModuloInfantil] = useState(false);
 
   // Modals
-  const [modal, setModal] = useState<"turma"|"aluno"|"propina"|"referencia"|"lote"|null>(null);
+  const [modal, setModal] = useState<"turma"|"aluno"|"propina"|"referencia"|"lote"|"ciclo"|null>(null);
 
   const schoolName = session?.schoolName ?? "Colégio";
   const schoolId = session?.schoolId ?? "";
@@ -8388,6 +8887,14 @@ export default function Dashboard() {
   }, [token]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API}/school/infant/status`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { modulo_infantil: false })
+      .then((d: { modulo_infantil: boolean }) => setSchoolModuloInfantil(!!d.modulo_infantil))
+      .catch(() => {});
+  }, [token]);
 
   const handleDeleteAluno = async (id: number) => {
     if (!token) return;
@@ -8424,6 +8931,7 @@ export default function Dashboard() {
     { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
     { key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>, label: "Gestão de Acessos" },
     { key: "avaliacoes", icon: <CalendarDays className="w-5 h-5"/>, label: "Calendário Escolar" },
+    ...(schoolModuloInfantil ? [{ key: "modulo_infantil" as DashView, icon: <Baby className="w-5 h-5"/>, label: "Módulo Infantil" }] : []),
   ];
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
@@ -8586,6 +9094,9 @@ export default function Dashboard() {
               <motion.div key="avaliacoes" initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="flex-1">
                 <CalendarioView token={token} turmas={turmas}/>
               </motion.div>
+            )}
+            {view === "modulo_infantil" && token && (
+              <InfantilView key="modulo_infantil" token={token}/>
             )}
           </AnimatePresence>
         )}

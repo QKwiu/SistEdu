@@ -10,6 +10,7 @@ import paymentsRouter from "./payments";
 import smsRouter, { runSMSMigration } from "./sms";
 import reportsRouter, { runReportsMigration } from "./reports";
 import rbacRouter, { runRBACMigration } from "./rbac";
+import infantRouter, { runInfantMigration } from "./infant";
 
 const router: IRouter = Router();
 
@@ -24,6 +25,7 @@ router.use(paymentsRouter);
 router.use(smsRouter);
 router.use(reportsRouter);
 router.use(rbacRouter);
+router.use(infantRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>
@@ -37,6 +39,9 @@ runReportsMigration().catch(err =>
 );
 runRBACMigration().catch(err =>
   console.error("[rbac migration]", err)
+);
+runInfantMigration().catch(err =>
+  console.error("[infant migration]", err)
 );
 
 export default router;

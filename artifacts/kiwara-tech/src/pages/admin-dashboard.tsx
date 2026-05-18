@@ -73,6 +73,7 @@ interface ColegioDetail extends Colegio {
   emolumentos: Emolumento[];
   multa_regra: MultaRegra | null;
   pacotes: PacoteEmolumento[];
+  modulo_infantil?: boolean;
 }
 interface Emolumento {
   id: number; school_id: number | null; tipo: string; nome: string;
@@ -3342,9 +3343,11 @@ type GeralViewProps = {
   onUpdated: (patch: Partial<ColegioDetail>) => void;
   onTogglePacotes: () => void;
   togglingPacotes: boolean;
+  onToggleModuloInfantil: () => void;
+  togglingModuloInfantil: boolean;
 };
 
-function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: GeralViewProps) {
+function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes, onToggleModuloInfantil, togglingModuloInfantil }: GeralViewProps) {
   const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
   const num = `${inp} w-28`;
 
@@ -3596,19 +3599,35 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes }: Gera
       {/* ── Funcionalidades ── */}
       <div className="bg-white border border-slate-100 rounded-2xl p-5">
         <h3 className="font-semibold text-slate-800 mb-4">Funcionalidades</h3>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-slate-800">Pacotes de emolumentos</p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Agrupa serviços (mensalidade, transporte, ATL…) num pacote com valor fixo por aluno.
-              {school.usa_pacotes && " A aba «Pacotes» fica disponível."}
-            </p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-800">Pacotes de emolumentos</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Agrupa serviços (mensalidade, transporte, ATL…) num pacote com valor fixo por aluno.
+                {school.usa_pacotes && " A aba «Pacotes» fica disponível."}
+              </p>
+            </div>
+            <button onClick={onTogglePacotes} disabled={togglingPacotes}
+              className={`relative shrink-0 rounded-full transition-colors disabled:opacity-60 ${school.usa_pacotes ? "bg-primary" : "bg-slate-300"}`}
+              style={{ height: 24, width: 44 }}>
+              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${school.usa_pacotes ? "translate-x-[20px]" : "translate-x-0.5"}`} />
+            </button>
           </div>
-          <button onClick={onTogglePacotes} disabled={togglingPacotes}
-            className={`relative shrink-0 rounded-full transition-colors disabled:opacity-60 ${school.usa_pacotes ? "bg-primary" : "bg-slate-300"}`}
-            style={{ height: 24, width: 44 }}>
-            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${school.usa_pacotes ? "translate-x-[20px]" : "translate-x-0.5"}`} />
-          </button>
+          <div className="border-t border-slate-100 pt-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-800">Módulo Infantil (Creche / Centro Infantil)</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Activa rotinas diárias, ementas alimentares e galeria multimédia para o portal do encarregado.
+                {school.modulo_infantil && " Módulo activo."}
+              </p>
+            </div>
+            <button onClick={onToggleModuloInfantil} disabled={togglingModuloInfantil}
+              className={`relative shrink-0 rounded-full transition-colors disabled:opacity-60 ${school.modulo_infantil ? "bg-emerald-500" : "bg-slate-300"}`}
+              style={{ height: 24, width: 44 }}>
+              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${school.modulo_infantil ? "translate-x-[20px]" : "translate-x-0.5"}`} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -5168,6 +5187,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
+  const [togglingModuloInfantil, setTogglingModuloInfantil] = useState(false);
   const [pendingDDCount, setPendingDDCount] = useState(0);
 
   useEffect(() => {
@@ -5188,6 +5208,17 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
       const d = await r.json();
       if (r.ok) setCurrentSchool(s => ({ ...s, usa_pacotes: d.usa_pacotes }));
     } finally { setTogglingPacotes(false); }
+  };
+
+  const toggleModuloInfantil = async () => {
+    setTogglingModuloInfantil(true);
+    try {
+      const r = await api(`/admin/colegios/${currentSchool.id}/modulo-infantil`, {
+        method: "PUT", body: JSON.stringify({ modulo_infantil: !currentSchool.modulo_infantil }),
+      });
+      const d = await r.json();
+      if (r.ok) setCurrentSchool(s => ({ ...s, modulo_infantil: d.modulo_infantil }));
+    } finally { setTogglingModuloInfantil(false); }
   };
 
   const TABS = [
@@ -5250,6 +5281,8 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
           onUpdated={patch => setCurrentSchool(s => ({ ...s, ...patch }))}
           onTogglePacotes={toggleUsaPacotes}
           togglingPacotes={togglingPacotes}
+          onToggleModuloInfantil={toggleModuloInfantil}
+          togglingModuloInfantil={togglingModuloInfantil}
         />
       )}
       {tab === "alunos" && (
