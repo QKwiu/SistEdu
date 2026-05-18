@@ -9140,31 +9140,149 @@ export default function Dashboard() {
       .catch(() => {});
   }, [token]);
 
-  const NAV: { key: DashView; icon: React.ReactNode; label: string; badge?: number }[] = [
-    { key: "inicio", icon: <LayoutDashboard className="w-5 h-5"/>, label: "Início" },
-    { key: "alunos", icon: <Users className="w-5 h-5"/>, label: "Alunos & Turmas" },
-    { key: "propinas", icon: <FileText className="w-5 h-5"/>, label: "Propinas & Faturas" },
-    { key: "reconciliacao", icon: <ShieldCheck className="w-5 h-5"/>, label: "Reconciliação" },
-    { key: "ocorrencias", icon: <AlertTriangle className="w-5 h-5"/>, label: "Ocorrências" },
-    { key: "comunicar", icon: <Megaphone className="w-5 h-5"/>, label: "Comunicar" },
-    { key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>, label: "Débito Direto", badge: ddPendingCount },
-    { key: "emolumentos", icon: <Receipt className="w-5 h-5"/>, label: "Emolumentos", badge: storePendingCount },
-    { key: "relatorios", icon: <BarChart3 className="w-5 h-5"/>, label: "Relatórios" },
-    { key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>, label: "Gestão de Acessos" },
-    { key: "avaliacoes", icon: <CalendarDays className="w-5 h-5"/>, label: "Calendário Escolar" },
+  /* ── Navigation types ── */
+  type NavLeaf  = { type: "item";  key: DashView; icon: React.ReactNode; label: string; badge?: number };
+  type NavGroup = { type: "group"; key: string;   icon: React.ReactNode; label: string; children: NavLeaf[] };
+  type NavEntry = NavLeaf | NavGroup;
+
+  /* Views that belong to each accordion group */
+  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios"];
+  const COMUNICAR_VIEWS: DashView[] = ["comunicar", "ocorrencias"];
+
+  /* ── Structured NAV ── */
+  const NAV: NavEntry[] = [
+    { type: "item",  key: "inicio",        icon: <LayoutDashboard className="w-5 h-5"/>, label: "Início" },
+    { type: "item",  key: "alunos",        icon: <Users className="w-5 h-5"/>,           label: "Alunos & Turmas" },
+    { type: "item",  key: "propinas",      icon: <FileText className="w-5 h-5"/>,         label: "Propinas & Faturas" },
+    {
+      type: "group", key: "financeiro",
+      icon: <Banknote className="w-5 h-5"/>, label: "Financeiro",
+      children: [
+        { type: "item", key: "reconciliacao", icon: <ShieldCheck className="w-4 h-4"/>, label: "Reconciliação" },
+        { type: "item", key: "relatorios",    icon: <BarChart3 className="w-4 h-4"/>,   label: "Relatórios" },
+      ],
+    },
+    { type: "item",  key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>,     label: "Débito Direto", badge: ddPendingCount },
+    { type: "item",  key: "emolumentos",   icon: <Receipt className="w-5 h-5"/>,         label: "Emolumentos",   badge: storePendingCount },
+    {
+      type: "group", key: "comunicar_group",
+      icon: <Megaphone className="w-5 h-5"/>, label: "Comunicar",
+      children: [
+        { type: "item", key: "comunicar",   icon: <Send className="w-4 h-4"/>,          label: "Enviar Comunicado" },
+        { type: "item", key: "ocorrencias", icon: <AlertTriangle className="w-4 h-4"/>, label: "Ocorrências" },
+      ],
+    },
+    { type: "item",  key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>,          label: "Gestão de Acessos" },
+    { type: "item",  key: "avaliacoes",     icon: <CalendarDays className="w-5 h-5"/>,  label: "Calendário Escolar" },
   ];
 
+  /* ── Accordion state: which groups are manually expanded ── */
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    if (FINANCIAL_VIEWS.includes("inicio" as DashView)) s.add("financeiro");
+    if (COMUNICAR_VIEWS.includes("inicio" as DashView)) s.add("comunicar_group");
+    return s;
+  });
+
+  /* Auto-expand parent group when navigating to a child view */
+  useEffect(() => {
+    if (FINANCIAL_VIEWS.includes(view)) setExpandedGroups(prev => new Set([...prev, "financeiro"]));
+    else if (COMUNICAR_VIEWS.includes(view)) setExpandedGroups(prev => new Set([...prev, "comunicar_group"]));
+  }, [view]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  /* Resolve the display label for any view (including nested) */
+  const getViewLabel = (v: DashView): string => {
+    for (const entry of NAV) {
+      if (entry.type === "item" && entry.key === v) return entry.label;
+      if (entry.type === "group") {
+        const child = entry.children.find(c => c.key === v);
+        if (child) return child.label;
+      }
+    }
+    return v;
+  };
+
+  /* ── Sidebar nav renderer ── */
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
     <>
-      <nav className="flex-1 px-4 py-6 space-y-1">
-        {NAV.map(item => (
-          <button key={item.key} onClick={() => { setView(item.key); onNav?.(); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm ${view===item.key?"bg-primary/10 text-primary font-medium":"hover:bg-slate-800 text-slate-400 hover:text-slate-200"}`}>
-            {item.icon}
-            <span className="flex-1 text-left">{item.label}</span>
-            {item.badge && item.badge > 0 ? <span className="ml-auto px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none">{item.badge}</span> : null}
-          </button>
-        ))}
+      <nav className="flex-1 px-4 py-6 space-y-0.5">
+        {NAV.map(entry => {
+          if (entry.type === "item") {
+            const active = view === entry.key;
+            return (
+              <button key={entry.key}
+                onClick={() => { setView(entry.key); onNav?.(); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm
+                  ${active ? "bg-primary/10 text-primary font-medium" : "hover:bg-slate-800 text-slate-400 hover:text-slate-200"}`}>
+                {entry.icon}
+                <span className="flex-1 text-left">{entry.label}</span>
+                {entry.badge && entry.badge > 0
+                  ? <span className="ml-auto px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none">{entry.badge}</span>
+                  : null}
+              </button>
+            );
+          }
+
+          /* Group (accordion) */
+          const hasActiveChild = entry.children.some(c => c.key === view);
+          const isOpen = hasActiveChild || expandedGroups.has(entry.key);
+
+          return (
+            <div key={entry.key}>
+              {/* Group header */}
+              <button
+                onClick={() => toggleGroup(entry.key)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors text-sm
+                  ${hasActiveChild ? "text-primary font-medium" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"}`}>
+                {entry.icon}
+                <span className="flex-1 text-left">{entry.label}</span>
+                <motion.span
+                  animate={{ rotate: isOpen ? 180 : 0 }}
+                  transition={{ duration: 0.18, ease: "easeInOut" }}
+                  className="ml-auto flex-shrink-0">
+                  <ChevronDown className="w-4 h-4 opacity-60"/>
+                </motion.span>
+              </button>
+
+              {/* Children (animated slide) */}
+              <AnimatePresence initial={false}>
+                {isOpen && (
+                  <motion.div
+                    key="children"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden">
+                    <div className="ml-3 pl-3 border-l border-slate-700 mt-0.5 mb-1 space-y-0.5">
+                      {entry.children.map(child => {
+                        const childActive = view === child.key;
+                        return (
+                          <button key={child.key}
+                            onClick={() => { setView(child.key); onNav?.(); }}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors text-sm
+                              ${childActive ? "bg-primary/10 text-primary font-medium" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"}`}>
+                            {child.icon}
+                            <span className="flex-1 text-left">{child.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+
         <div className="border-t border-slate-800 mt-2 pt-2">
           <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-sm text-slate-400 hover:text-slate-200">
             <Settings className="w-5 h-5"/> Configurações
@@ -9245,7 +9363,7 @@ export default function Dashboard() {
               <Menu className="w-5 h-5"/>
             </button>
             <h1 className="font-semibold text-slate-900 text-sm md:text-base">
-              {NAV.find(n => n.key === view)?.label ?? view}
+              {getViewLabel(view)}
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
