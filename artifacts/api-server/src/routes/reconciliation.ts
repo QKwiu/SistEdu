@@ -661,16 +661,20 @@ router.get("/school/reconciliacao/splits", schoolAuth, async (req: any, res) => 
   res.json(r.rows);
 });
 
-/* ─── Helper: period → date_from ─── */
-function periodDateFrom(periodo: string): Date {
-  const now = new Date();
+/* ─── Helper: period + optional reference date → { from, to } ─── */
+function periodRange(periodo: string, dataRef?: string): { from: Date; to: Date } {
+  const ref = dataRef ? new Date(dataRef) : new Date();
+  /* to = end of the reference day */
+  const to = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), 23, 59, 59, 999);
+  let from: Date;
   switch (periodo) {
-    case "semanal":    return new Date(now.getTime() - 7  * 86_400_000);
-    case "trimestral": return new Date(now.getTime() - 90 * 86_400_000);
-    case "semestral":  return new Date(now.getTime() - 180 * 86_400_000);
-    case "anual":      return new Date(now.getFullYear(), 0, 1);
-    default:           return new Date(now.getFullYear(), now.getMonth(), now.getDate()); // diario
+    case "semanal":    from = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 6);   break;
+    case "trimestral": from = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 89);  break;
+    case "semestral":  from = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 179); break;
+    case "anual":      from = new Date(ref.getFullYear(), 0, 1);                                break;
+    default:           from = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());       break; // diario
   }
+  return { from, to };
 }
 
 function metodoToChannel(metodo: string): string {
@@ -687,11 +691,11 @@ router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { periodo = "diario", metodo } = req.query as any;
-  const dateFrom = periodDateFrom(periodo);
+  const { periodo = "anual", metodo, data_ref } = req.query as any;
+  const { from: dateFrom, to: dateTo } = periodRange(periodo, data_ref);
 
-  const baseConditions = ["p.school_id = $1", "p.status = 'pago'", "p.pago_em >= $2"];
-  const baseParams: any[] = [school.school_id, dateFrom.toISOString()];
+  const baseConditions = ["p.school_id = $1", "p.status = 'pago'", "p.pago_em >= $2", "p.pago_em <= $3"];
+  const baseParams: any[] = [school.school_id, dateFrom.toISOString(), dateTo.toISOString()];
 
   if (metodo) {
     baseParams.push(metodo);
@@ -726,10 +730,10 @@ router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res
         COALESCE(p.payment_channel, 'CASH')  AS canal,
         COALESCE(SUM(p.montante + p.multa), 0) AS valor
       FROM propinas p
-      WHERE p.school_id = $1 AND p.status = 'pago' AND p.pago_em >= $2
+      WHERE p.school_id = $1 AND p.status = 'pago' AND p.pago_em >= $2 AND p.pago_em <= $3
       GROUP BY DATE_TRUNC('day', p.pago_em), COALESCE(p.payment_channel, 'CASH')
       ORDER BY dia
-    `, [school.school_id, dateFrom.toISOString()]),
+    `, [school.school_id, dateFrom.toISOString(), dateTo.toISOString()]),
     pool.query("SELECT COALESCE(demo_mode, FALSE) AS demo_mode FROM schools WHERE id = $1", [school.school_id]),
   ]);
 

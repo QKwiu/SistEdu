@@ -3551,6 +3551,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
 
   /* ── Fecho de Caixa state ── */
   const [periodo, setPeriodo] = useState<"diario"|"semanal"|"trimestral"|"semestral"|"anual">("anual");
+  const [refDate, setRefDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [filterCanal, setFilterCanal] = useState<PayChannel>("");
   const [fechoData, setFechoData] = useState<FechoData | null>(null);
   const [fechoLoading, setFechoLoading] = useState(false);
@@ -3584,7 +3585,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     if (!token) return;
     setFechoLoading(true);
     try {
-      const qs = new URLSearchParams({ periodo });
+      const qs = new URLSearchParams({ periodo, data_ref: refDate });
       if (filterCanal) qs.set("metodo", filterCanal);
       const r = await fetch(`${API}/school/reconciliacao/fecho-caixa?${qs}`, { headers: authHeader() });
       if (r.ok) {
@@ -3593,7 +3594,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
         setDemoMode(d.demo_mode);
       }
     } finally { setFechoLoading(false); }
-  }, [token, periodo, filterCanal]);
+  }, [token, periodo, filterCanal, refDate]);
 
   useEffect(() => {
     if (recSubTab === "fecho_caixa") loadFecho();
@@ -3779,25 +3780,51 @@ function ReconciliacaoView({ token }: { token: string | null }) {
       {recSubTab === "fecho_caixa" && (
         <div className="space-y-6">
           {/* Controls row */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-            {/* Period selector */}
-            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-              {(["diario","semanal","trimestral","semestral","anual"] as const).map(p => (
-                <button key={p} onClick={() => setPeriodo(p)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${periodo===p?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
-                  {p === "diario" ? "Diário" : p === "semanal" ? "Semanal" : p === "trimestral" ? "Trimestral" : p === "semestral" ? "Semestral" : "Anual"}
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+              {/* Period selector */}
+              <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+                {(["diario","semanal","trimestral","semestral","anual"] as const).map(p => (
+                  <button key={p} onClick={() => setPeriodo(p)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${periodo===p?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+                    {p === "diario" ? "Diário" : p === "semanal" ? "Semanal" : p === "trimestral" ? "Trimestral" : p === "semestral" ? "Semestral" : "Anual"}
+                  </button>
+                ))}
+              </div>
+              {/* Demo mode + refresh */}
+              <div className="flex items-center gap-2">
+                <button onClick={toggleDemo} disabled={demoToggeling}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${demoMode ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
+                  {demoMode ? <><Zap className="w-3.5 h-3.5 animate-pulse"/> Parar Demo</> : <><PlayCircle className="w-3.5 h-3.5"/> Modo Demo</>}
                 </button>
-              ))}
+                <button onClick={loadFecho} className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
+                  <RefreshCw className={`w-4 h-4 ${fechoLoading ? "animate-spin" : ""}`}/>
+                </button>
+              </div>
             </div>
-            {/* Demo mode + refresh */}
+            {/* Date reference picker */}
             <div className="flex items-center gap-2">
-              <button onClick={toggleDemo} disabled={demoToggeling}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${demoMode ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100" : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}>
-                {demoMode ? <><Zap className="w-3.5 h-3.5 animate-pulse"/> Parar Demo</> : <><PlayCircle className="w-3.5 h-3.5"/> Modo Demo</>}
-              </button>
-              <button onClick={loadFecho} className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 transition-colors">
-                <RefreshCw className={`w-4 h-4 ${fechoLoading ? "animate-spin" : ""}`}/>
-              </button>
+              <div className="relative">
+                <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                <input
+                  type="date"
+                  value={refDate}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setRefDate(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                />
+              </div>
+              <span className="text-xs text-slate-400">
+                {(() => {
+                  const ref = new Date(refDate + "T12:00:00");
+                  const fmt = (d: Date) => d.toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" });
+                  if (periodo === "diario") return fmt(ref);
+                  if (periodo === "anual") return `01 Jan ${ref.getFullYear()} – ${fmt(ref)}`;
+                  const days = periodo === "semanal" ? 6 : periodo === "trimestral" ? 89 : 179;
+                  const from = new Date(ref); from.setDate(ref.getDate() - days);
+                  return `${fmt(from)} – ${fmt(ref)}`;
+                })()}
+              </span>
             </div>
           </div>
 
