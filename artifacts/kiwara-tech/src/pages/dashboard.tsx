@@ -3550,7 +3550,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
 
   /* ── Fecho de Caixa state ── */
-  const [periodo, setPeriodo] = useState<"diario"|"semanal"|"trimestral"|"semestral"|"anual">("diario");
+  const [periodo, setPeriodo] = useState<"diario"|"semanal"|"trimestral"|"semestral"|"anual">("anual");
   const [filterCanal, setFilterCanal] = useState<PayChannel>("");
   const [fechoData, setFechoData] = useState<FechoData | null>(null);
   const [fechoLoading, setFechoLoading] = useState(false);

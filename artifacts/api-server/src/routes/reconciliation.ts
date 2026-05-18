@@ -141,14 +141,20 @@ export async function runReconciliationMigration() {
   await pool.query(`
     UPDATE propinas SET payment_channel =
       CASE
-        WHEN metodo_pagamento ILIKE '%emis%' OR metodo_pagamento ILIKE '%gpo%' OR metodo_pagamento ILIKE '%multicaixa%' THEN 'GPO_EMIS'
+        WHEN metodo_pagamento ILIKE '%emis%' OR metodo_pagamento ILIKE '%gpo%'
+          OR metodo_pagamento ILIKE '%multicaixa%' OR metodo_pagamento ILIKE '%express%' THEN 'GPO_EMIS'
         WHEN metodo_pagamento ILIKE '%debito%' OR metodo_pagamento ILIKE '%direct%' THEN 'DIRECT_DEBIT'
         WHEN metodo_pagamento ILIKE '%transfer%' OR metodo_pagamento ILIKE '%iban%' OR metodo_pagamento ILIKE '%bancari%' THEN 'BANK_TRANSFER'
         WHEN metodo_pagamento ILIKE '%tpa%' OR metodo_pagamento ILIKE '%terminal%' THEN 'POS_TPA'
-        WHEN metodo_pagamento ILIKE '%cash%' OR metodo_pagamento ILIKE '%numer%' OR metodo_pagamento ILIKE '%dinheiro%' THEN 'CASH'
-        ELSE NULL
+        ELSE 'CASH'
       END
-    WHERE payment_channel IS NULL AND metodo_pagamento IS NOT NULL;
+    WHERE payment_channel IS NULL;
+  `);
+  /* Backfill pago_em for paid records missing a payment date */
+  await pool.query(`
+    UPDATE propinas
+    SET pago_em = COALESCE(created_at, NOW())
+    WHERE status = 'pago' AND pago_em IS NULL;
   `);
   /* Composite performance index */
   await pool.query(`
