@@ -1819,5 +1819,206 @@ router.post("/payments/gpo/initiate", adminAuth, async (req, res) => {
   res.json(result.payload);
 });
 
+/* ════════════════════════════════════════════════════════════════
+   DRILL-DOWN — KPI Cards Navigation Endpoints
+════════════════════════════════════════════════════════════════ */
+
+/* GET /admin/schools-list — lista minimalista para filtros dropdown */
+router.get("/admin/schools-list", adminAuth, async (_req, res) => {
+  try {
+    const r = await pool.query("SELECT id, name FROM schools ORDER BY name");
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* GET /admin/students — lista global de alunos */
+router.get("/admin/students", adminAuth, async (req, res) => {
+  const { search = "", school_id } = req.query;
+  try {
+    const params: unknown[] = [];
+    let where = "WHERE 1=1";
+    if (school_id && String(school_id) !== "") {
+      params.push(Number(school_id));
+      where += ` AND s.school_id = $${params.length}`;
+    }
+    if (String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      const idx = params.length;
+      where += ` AND (s.nome ILIKE $${idx} OR COALESCE(s.numero_processo,'') ILIKE $${idx})`;
+    }
+    const r = await pool.query(`
+      SELECT s.id, s.nome, s.numero_processo, s.estado, s.sexo, s.data_nascimento,
+             s.nome_encarregado, s.telefone_encarregado, s.created_at,
+             sc.id AS school_id, sc.name AS school_name,
+             t.id AS turma_id, t.nome AS turma_nome, t.ano AS turma_ano
+      FROM students s
+      JOIN schools sc ON sc.id = s.school_id
+      LEFT JOIN turmas t ON t.id = s.turma_id
+      ${where}
+      ORDER BY sc.name, s.nome
+      LIMIT 500
+    `, params);
+    res.json({ total: r.rowCount, alunos: r.rows });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* GET /admin/classes — distribuição de turmas por colégio */
+router.get("/admin/classes", adminAuth, async (req, res) => {
+  const { school_id } = req.query;
+  try {
+    const params: unknown[] = [];
+    let where = "WHERE 1=1";
+    if (school_id && String(school_id) !== "") {
+      params.push(Number(school_id));
+      where += ` AND t.school_id = $${params.length}`;
+    }
+    const r = await pool.query(`
+      SELECT t.id, t.nome, t.ano, t.turno, t.created_at,
+             sc.id AS school_id, sc.name AS school_name,
+             COUNT(s.id)::int AS total_alunos,
+             COUNT(s.id) FILTER (WHERE s.estado = 'activo')::int AS alunos_activos
+      FROM turmas t
+      JOIN schools sc ON sc.id = t.school_id
+      LEFT JOIN students s ON s.turma_id = t.id
+      ${where}
+      GROUP BY t.id, sc.id, sc.name
+      ORDER BY sc.name, t.nome
+    `, params);
+    res.json({ total: r.rowCount, turmas: r.rows });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* GET /admin/finance/overdue — propinas vencidas (inadimplência global) */
+router.get("/admin/finance/overdue", adminAuth, async (req, res) => {
+  const { search = "", school_id } = req.query;
+  try {
+    const params: unknown[] = [];
+    let where = "WHERE p.status = 'vencido'";
+    if (school_id && String(school_id) !== "") {
+      params.push(Number(school_id));
+      where += ` AND p.school_id = $${params.length}`;
+    }
+    if (String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      where += ` AND s.nome ILIKE $${params.length}`;
+    }
+    const r = await pool.query(`
+      SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.desconto, p.data_vencimento, p.created_at,
+             s.id AS student_id, s.nome AS aluno_nome, s.numero_processo,
+             sc.id AS school_id, sc.name AS school_name,
+             t.nome AS turma_nome
+      FROM propinas p
+      JOIN students s ON s.id = p.student_id
+      JOIN schools sc ON sc.id = p.school_id
+      LEFT JOIN turmas t ON t.id = s.turma_id
+      ${where}
+      ORDER BY p.data_vencimento ASC NULLS LAST, sc.name
+      LIMIT 500
+    `, params);
+    const totais = {
+      qtd:    r.rowCount ?? 0,
+      divida: r.rows.reduce((a, row) => a + Number(row.montante) + Number(row.multa ?? 0) - Number(row.desconto ?? 0), 0),
+      multas: r.rows.reduce((a, row) => a + Number(row.multa ?? 0), 0),
+    };
+    res.json({ totais, propinas: r.rows });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* GET /admin/finance/receipts — histórico de recebimentos */
+router.get("/admin/finance/receipts", adminAuth, async (req, res) => {
+  const { search = "", school_id, start, end } = req.query;
+  const now   = new Date();
+  const dfrom = new Date(now.getFullYear(), now.getMonth(), 1);
+  const dto   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const startDate = start ? new Date(String(start)) : dfrom;
+  const endDate   = end
+    ? new Date(new Date(String(end)).setDate(new Date(String(end)).getDate() + 1))
+    : dto;
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()))
+    return res.status(400).json({ error: "Datas inválidas." });
+  try {
+    const params: unknown[] = [startDate.toISOString(), endDate.toISOString()];
+    let where = "WHERE p.status = 'pago' AND p.pago_em >= $1 AND p.pago_em < $2";
+    if (school_id && String(school_id) !== "") {
+      params.push(Number(school_id));
+      where += ` AND p.school_id = $${params.length}`;
+    }
+    if (String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      where += ` AND s.nome ILIKE $${params.length}`;
+    }
+    const r = await pool.query(`
+      SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.desconto, p.pago_em,
+             p.metodo_pagamento, p.payment_channel, p.referencia, p.internal_reference,
+             p.baixa_manual, p.baixa_manual_por,
+             s.id AS student_id, s.nome AS aluno_nome, s.numero_processo,
+             sc.id AS school_id, sc.name AS school_name
+      FROM propinas p
+      JOIN students s ON s.id = p.student_id
+      JOIN schools sc ON sc.id = p.school_id
+      ${where}
+      ORDER BY p.pago_em DESC
+      LIMIT 500
+    `, params);
+    const totais = {
+      qtd:    r.rowCount ?? 0,
+      volume: r.rows.reduce((a, row) => a + Number(row.montante) - Number(row.desconto ?? 0) + Number(row.multa ?? 0), 0),
+    };
+    res.json({
+      periodo: {
+        start: startDate.toISOString().slice(0, 10),
+        end:   new Date(endDate.getTime() - 86400000).toISOString().slice(0, 10),
+      },
+      totais,
+      recibos: r.rows,
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* GET /admin/finance/reconciliation — carteira de cobranças pendentes por escola */
+router.get("/admin/finance/reconciliation", adminAuth, async (req, res) => {
+  const { school_id } = req.query;
+  try {
+    const params: unknown[] = [];
+    let where = "WHERE p.status = 'vencido'";
+    if (school_id && String(school_id) !== "") {
+      params.push(Number(school_id));
+      where += ` AND p.school_id = $${params.length}`;
+    }
+    const [sumR, detailR] = await Promise.all([
+      pool.query(`
+        SELECT sc.id AS school_id, sc.name AS school_name, sc.commission_rate,
+               COUNT(p.id)::int AS qtd_vencidas,
+               ROUND(SUM(p.montante + COALESCE(p.multa,0) - COALESCE(p.desconto,0)), 2) AS divida_total,
+               ROUND(SUM(COALESCE(p.multa,0)), 2) AS total_multas,
+               MIN(p.data_vencimento) AS mais_antiga
+        FROM propinas p
+        JOIN schools sc ON sc.id = p.school_id
+        ${where}
+        GROUP BY sc.id, sc.name, sc.commission_rate
+        ORDER BY divida_total DESC
+      `, params),
+      pool.query(`
+        SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.desconto, p.data_vencimento,
+               s.nome AS aluno_nome, s.numero_processo,
+               p.school_id, t.nome AS turma_nome
+        FROM propinas p
+        JOIN students s ON s.id = p.student_id
+        LEFT JOIN turmas t ON t.id = s.turma_id
+        ${where}
+        ORDER BY p.school_id, p.data_vencimento ASC NULLS LAST
+        LIMIT 500
+      `, params),
+    ]);
+    const totais = {
+      divida_global: sumR.rows.reduce((a, r) => a + Number(r.divida_total), 0),
+      qtd_global:    sumR.rows.reduce((a, r) => a + r.qtd_vencidas, 0),
+      multas_global: sumR.rows.reduce((a, r) => a + Number(r.total_multas), 0),
+    };
+    res.json({ totais, por_escola: sumR.rows, detalhe: detailR.rows });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
 export default router;
+
 

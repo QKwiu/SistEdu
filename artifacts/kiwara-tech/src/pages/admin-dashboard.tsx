@@ -153,14 +153,14 @@ function Badge({ text, color }: { text: string; color: "green" | "amber" | "red"
 function StatsView({ stats, onNavigate }: { stats: Stats | null; onNavigate: (view: AdminView) => void }) {
   if (!stats) return <div className="flex items-center justify-center h-64"><RefreshCw className="w-6 h-6 animate-spin text-slate-300" /></div>;
   const cards: { icon: React.ReactNode; label: string; value: string | number; bg: string; dest: AdminView; hint: string }[] = [
-    { icon: <Building2 className="w-6 h-6 text-blue-500" />, label: "Instituições de Ensino", value: stats.total_colegios, bg: "bg-blue-50", dest: "colegios", hint: "Gerir instituições" },
-    { icon: <Users className="w-6 h-6 text-violet-500" />, label: "Alunos", value: fmt(stats.total_alunos), bg: "bg-violet-50", dest: "colegios", hint: "Ver por instituição" },
-    { icon: <GraduationCap className="w-6 h-6 text-emerald-500" />, label: "Turmas", value: fmt(stats.total_turmas), bg: "bg-emerald-50", dest: "colegios", hint: "Ver por instituição" },
-    { icon: <Receipt className="w-6 h-6 text-amber-500" />, label: "Propinas Vencidas", value: fmt(stats.propinas_vencidas), bg: "bg-amber-50", dest: "colegios", hint: "Ver inadimplência" },
-    { icon: <CheckCircle2 className="w-6 h-6 text-emerald-500" />, label: "Propinas Pagas", value: fmt(stats.propinas_pagas), bg: "bg-emerald-50", dest: "colegios", hint: "Ver recebimentos" },
-    { icon: <Banknote className="w-6 h-6 text-red-500" />, label: "Dívida Total", value: fmtCur(stats.divida_total), bg: "bg-red-50", dest: "colegios", hint: "Ver reconciliação" },
-    { icon: <Users className="w-6 h-6 text-indigo-500" />, label: "Encarregados", value: fmt(stats.total_encarregados), bg: "bg-indigo-50", dest: "gestao_acessos", hint: "Ver utilizadores" },
-    { icon: <TrendingUp className="w-6 h-6 text-primary" />, label: "Total Propinas", value: fmt(stats.total_propinas), bg: "bg-primary/8", dest: "colegios", hint: "Ver relatório" },
+    { icon: <Building2 className="w-6 h-6 text-blue-500" />, label: "Instituições de Ensino", value: stats.total_colegios, bg: "bg-blue-50", dest: "colegios" as AdminView, hint: "Gerir instituições" },
+    { icon: <Users className="w-6 h-6 text-violet-500" />, label: "Alunos", value: fmt(stats.total_alunos), bg: "bg-violet-50", dest: "admin_students" as AdminView, hint: "Ver todos os alunos" },
+    { icon: <GraduationCap className="w-6 h-6 text-emerald-500" />, label: "Turmas", value: fmt(stats.total_turmas), bg: "bg-emerald-50", dest: "admin_classes" as AdminView, hint: "Ver distribuição de turmas" },
+    { icon: <Receipt className="w-6 h-6 text-amber-500" />, label: "Propinas Vencidas", value: fmt(stats.propinas_vencidas), bg: "bg-amber-50", dest: "admin_finance_overdue" as AdminView, hint: "Ver inadimplência global" },
+    { icon: <CheckCircle2 className="w-6 h-6 text-emerald-500" />, label: "Propinas Pagas", value: fmt(stats.propinas_pagas), bg: "bg-emerald-50", dest: "admin_finance_receipts" as AdminView, hint: "Ver histórico de recibos" },
+    { icon: <Banknote className="w-6 h-6 text-red-500" />, label: "Dívida Total", value: fmtCur(stats.divida_total), bg: "bg-red-50", dest: "admin_finance_reconciliation" as AdminView, hint: "Ver reconciliação de dívidas" },
+    { icon: <Users className="w-6 h-6 text-indigo-500" />, label: "Encarregados", value: fmt(stats.total_encarregados), bg: "bg-indigo-50", dest: "gestao_acessos" as AdminView, hint: "Ver utilizadores" },
+    { icon: <TrendingUp className="w-6 h-6 text-primary" />, label: "Total Propinas", value: fmt(stats.total_propinas), bg: "bg-primary/8", dest: "relatorios_financeiros" as AdminView, hint: "Ver relatório financeiro" },
   ];
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -8102,8 +8102,698 @@ function RelatoriosFinanceirosView() {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════
+   SHARED HOOK — lista de escolas para dropdowns de filtro
+════════════════════════════════════════════════════════════════ */
+function useSchoolsList() {
+  const [schools, setSchools] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    api("/admin/schools-list").then(r => r.json()).then(setSchools).catch(() => {});
+  }, []);
+  return schools;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ALUNOS GLOBAL — drill-down do card "Alunos"
+════════════════════════════════════════════════════════════════ */
+interface AdminStudent {
+  id: number; nome: string; numero_processo: string | null; estado: string;
+  sexo: string | null; nome_encarregado: string | null; telefone_encarregado: string | null;
+  school_id: number; school_name: string;
+  turma_id: number | null; turma_nome: string | null; turma_ano: string | null;
+}
+
+function AdminStudentsView() {
+  const [data, setData] = useState<{ total: number; alunos: AdminStudent[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [schoolId, setSchoolId] = useState("");
+  const schools = useSchoolsList();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadData = useCallback(async (s: string, sid: string) => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    if (s.trim()) p.set("search", s.trim());
+    if (sid) p.set("school_id", sid);
+    const r = await api(`/admin/students?${p}`);
+    const d = await r.json();
+    setData(d);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData("", ""); }, []);
+
+  const onSearch = (v: string) => {
+    setSearch(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => loadData(v, schoolId), 400);
+  };
+
+  const estadoColor = (e: string) =>
+    e === "activo" ? "bg-emerald-100 text-emerald-700" :
+    e === "inactivo" ? "bg-slate-100 text-slate-500" : "bg-amber-100 text-amber-700";
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Alunos do Ecossistema</h2>
+        <p className="text-sm text-slate-500 mt-1">Listagem consolidada de todos os alunos registados nas instituições cliente</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+            placeholder="Pesquisar por nome ou nº processo..." value={search} onChange={e => onSearch(e.target.value)} />
+        </div>
+        <select value={schoolId} onChange={e => { setSchoolId(e.target.value); loadData(search, e.target.value); }}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[180px]">
+          <option value="">Todas as instituições</option>
+          {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      {data && <p className="text-xs text-slate-500 mb-3">{data.total} aluno{data.total !== 1 ? "s" : ""} encontrado{data.total !== 1 ? "s" : ""}{Number(data.total) >= 500 ? " (máx. 500 exibido)" : ""}</p>}
+
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center h-48"><RefreshCw className="w-5 h-5 animate-spin text-slate-300" /></div>
+        ) : !data?.alunos.length ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-2">
+            <Users className="w-10 h-10 text-slate-200" />
+            <p className="text-sm text-slate-400">Nenhum aluno encontrado</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Aluno</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Instituição</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Turma</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Encarregado</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Estado</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.alunos.map(a => (
+                  <tr key={a.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <div className="font-medium text-slate-900">{a.nome}</div>
+                      {a.numero_processo && <div className="text-xs text-slate-400">Proc. {a.numero_processo}</div>}
+                    </td>
+                    <td className="px-4 py-3.5 text-slate-600 text-sm">{a.school_name}</td>
+                    <td className="px-4 py-3.5 text-slate-500 text-sm">
+                      {a.turma_nome
+                        ? <>{a.turma_nome}{a.turma_ano ? <span className="text-xs text-slate-400 ml-1">{a.turma_ano}</span> : null}</>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {a.nome_encarregado ? (
+                        <>
+                          <div className="text-xs text-slate-600">{a.nome_encarregado}</div>
+                          {a.telefone_encarregado && <div className="text-xs text-slate-400">{a.telefone_encarregado}</div>}
+                        </>
+                      ) : <span className="text-xs text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${estadoColor(a.estado)}`}>{a.estado}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TURMAS GLOBAL — drill-down do card "Turmas"
+════════════════════════════════════════════════════════════════ */
+interface AdminTurma {
+  id: number; nome: string; ano: string; turno: string;
+  school_id: number; school_name: string;
+  total_alunos: number; alunos_activos: number;
+}
+
+function AdminClassesView() {
+  const [data, setData] = useState<{ total: number; turmas: AdminTurma[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [schoolId, setSchoolId] = useState("");
+  const schools = useSchoolsList();
+
+  useEffect(() => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    if (schoolId) p.set("school_id", schoolId);
+    api(`/admin/classes?${p}`).then(r => r.json()).then(d => { setData(d); setLoading(false); });
+  }, [schoolId]);
+
+  const turnoColor = (t: string) =>
+    t === "Manhã" ? "bg-amber-100 text-amber-700" :
+    t === "Tarde" ? "bg-blue-100 text-blue-700" : "bg-violet-100 text-violet-700";
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Turmas do Ecossistema</h2>
+        <p className="text-sm text-slate-500 mt-1">Distribuição de turmas por colégio/creche cliente</p>
+      </div>
+
+      <div className="flex gap-3 mb-5">
+        <select value={schoolId} onChange={e => setSchoolId(e.target.value)}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[220px]">
+          <option value="">Todas as instituições</option>
+          {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      {data && <p className="text-xs text-slate-500 mb-3">{data.total} turma{data.total !== 1 ? "s" : ""}</p>}
+
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center h-48"><RefreshCw className="w-5 h-5 animate-spin text-slate-300" /></div>
+        ) : !data?.turmas.length ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-2">
+            <GraduationCap className="w-10 h-10 text-slate-200" />
+            <p className="text-sm text-slate-400">Nenhuma turma encontrada</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Turma</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Instituição</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Ano Lectivo</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Turno</th>
+                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Total</th>
+                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Activos</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.turmas.map(t => (
+                  <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3.5 font-medium text-slate-900">{t.nome}</td>
+                    <td className="px-4 py-3.5 text-slate-600">{t.school_name}</td>
+                    <td className="px-4 py-3.5 text-center text-slate-500">{t.ano}</td>
+                    <td className="px-4 py-3.5 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${turnoColor(t.turno)}`}>{t.turno}</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-800">{t.total_alunos}</td>
+                    <td className="px-5 py-3.5 text-right font-mono font-semibold">
+                      <span className={t.alunos_activos === t.total_alunos ? "text-emerald-600" : "text-amber-600"}>{t.alunos_activos}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INADIMPLÊNCIA GLOBAL — drill-down do card "Propinas Vencidas"
+════════════════════════════════════════════════════════════════ */
+interface OverduePropina {
+  id: number; mes: string; ano: string; montante: string; multa: string; desconto: string;
+  data_vencimento: string | null;
+  aluno_nome: string; numero_processo: string | null;
+  school_id: number; school_name: string; turma_nome: string | null;
+}
+interface OverdueData { totais: { qtd: number; divida: number; multas: number }; propinas: OverduePropina[] }
+
+function AdminFinanceOverdueView() {
+  const [data, setData] = useState<OverdueData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [schoolId, setSchoolId] = useState("");
+  const schools = useSchoolsList();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadData = useCallback(async (s: string, sid: string) => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    if (s.trim()) p.set("search", s.trim());
+    if (sid) p.set("school_id", sid);
+    const r = await api(`/admin/finance/overdue?${p}`);
+    const d = await r.json();
+    setData(d);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData("", ""); }, []);
+
+  const onSearch = (v: string) => {
+    setSearch(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => loadData(v, schoolId), 400);
+  };
+
+  const daysOverdue = (dv: string | null) => {
+    if (!dv) return null;
+    const diff = Math.floor((Date.now() - new Date(dv).getTime()) / 86400000);
+    return diff > 0 ? diff : null;
+  };
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Inadimplência Global</h2>
+        <p className="text-sm text-slate-500 mt-1">Propinas vencidas em todo o ecossistema da plataforma</p>
+      </div>
+
+      {data && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+          <div className="bg-white border border-amber-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Propinas em Atraso</p>
+            <p className="text-2xl font-bold text-amber-600">{data.totais.qtd}</p>
+          </div>
+          <div className="bg-white border border-red-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Dívida Total</p>
+            <p className="text-2xl font-bold text-red-600">{fmtCur(data.totais.divida)}</p>
+          </div>
+          <div className="bg-white border border-orange-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Total em Multas</p>
+            <p className="text-2xl font-bold text-orange-600">{fmtCur(data.totais.multas)}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+            placeholder="Pesquisar por nome do aluno..." value={search} onChange={e => onSearch(e.target.value)} />
+        </div>
+        <select value={schoolId} onChange={e => { setSchoolId(e.target.value); loadData(search, e.target.value); }}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[180px]">
+          <option value="">Todas as instituições</option>
+          {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center h-48"><RefreshCw className="w-5 h-5 animate-spin text-slate-300" /></div>
+        ) : !data?.propinas.length ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-2">
+            <CheckCircle2 className="w-10 h-10 text-emerald-200" />
+            <p className="text-sm text-slate-400">Sem propinas vencidas</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Aluno</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Instituição</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Ref. Mês</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Vencimento</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Montante</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Multa</th>
+                <th className="text-right px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Total Dívida</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.propinas.map(p => {
+                  const total = Number(p.montante) + Number(p.multa ?? 0) - Number(p.desconto ?? 0);
+                  const dias = daysOverdue(p.data_vencimento);
+                  return (
+                    <tr key={p.id} className="hover:bg-red-50/30 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <div className="font-medium text-slate-900">{p.aluno_nome}</div>
+                        {p.turma_nome && <div className="text-xs text-slate-400">{p.turma_nome}</div>}
+                      </td>
+                      <td className="px-4 py-3.5 text-slate-600 text-xs">{p.school_name}</td>
+                      <td className="px-4 py-3.5 text-center text-slate-600">{p.mes}/{p.ano}</td>
+                      <td className="px-4 py-3.5 text-center">
+                        {p.data_vencimento ? (
+                          <div>
+                            <div className="text-slate-600 text-xs">{new Date(p.data_vencimento).toLocaleDateString("pt-AO")}</div>
+                            {dias !== null && <div className="text-red-500 text-xs font-medium">{dias}d atraso</div>}
+                          </div>
+                        ) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3.5 text-right font-mono text-slate-700">{fmtCur(p.montante)}</td>
+                      <td className="px-4 py-3.5 text-right font-mono text-orange-500">
+                        {Number(p.multa) > 0 ? fmtCur(p.multa) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">{fmtCur(total)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-red-50 border-t-2 border-red-100">
+                  <td colSpan={6} className="px-5 py-3 text-right text-xs font-semibold text-red-700 uppercase tracking-wide">Dívida Total Consolidada</td>
+                  <td className="px-5 py-3 text-right font-mono font-bold text-red-700">{data ? fmtCur(data.totais.divida) : "—"}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HISTÓRICO DE RECIBOS — drill-down do card "Propinas Pagas"
+════════════════════════════════════════════════════════════════ */
+interface ReceiptRow {
+  id: number; mes: string; ano: string; montante: string; multa: string; desconto: string;
+  pago_em: string; metodo_pagamento: string | null; payment_channel: string | null;
+  referencia: string | null; internal_reference: string | null;
+  baixa_manual: boolean; baixa_manual_por: string | null;
+  aluno_nome: string; numero_processo: string | null;
+  school_id: number; school_name: string;
+}
+interface ReceiptsData {
+  periodo: { start: string; end: string };
+  totais: { qtd: number; volume: number };
+  recibos: ReceiptRow[];
+}
+
+function AdminFinanceReceiptsView() {
+  const now = new Date();
+  const [data, setData]         = useState<ReceiptsData | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState("");
+  const [schoolId, setSchoolId] = useState("");
+  const [startDate, setStartDate] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
+  const [endDate, setEndDate]     = useState(() => new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10));
+  const schools = useSchoolsList();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadData = useCallback(async (s: string, sid: string, sd: string, ed: string) => {
+    setLoading(true);
+    const p = new URLSearchParams({ start: sd, end: ed });
+    if (s.trim()) p.set("search", s.trim());
+    if (sid) p.set("school_id", sid);
+    const r = await api(`/admin/finance/receipts?${p}`);
+    const d = await r.json();
+    setData(d);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData("", "", startDate, endDate); }, []);
+
+  const onSearch = (v: string) => {
+    setSearch(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => loadData(v, schoolId, startDate, endDate), 400);
+  };
+
+  const metodoLabel = (m: string | null, ch: string | null) => {
+    if (ch) return ch;
+    if (!m) return "—";
+    const map: Record<string, string> = {
+      MCX_EXPRESS: "Multicaixa Express", MULTICAIXA: "Multicaixa",
+      NUMERARIO: "Numerário", TRANSFERENCIA: "Transferência", GPO_EMIS: "GPO/EMIS",
+    };
+    return map[m] ?? m;
+  };
+
+  const exportCSV = () => {
+    if (!data) return;
+    const hdrs = ["Data Pgto","Aluno","Instituição","Mês/Ano","Montante","Desconto","Multa","Método","Referência","Manual"];
+    const rows = data.recibos.map(r => [
+      r.pago_em ? new Date(r.pago_em).toLocaleDateString("pt-AO") : "",
+      r.aluno_nome, r.school_name, `${r.mes}/${r.ano}`,
+      r.montante, r.desconto ?? "0", r.multa ?? "0",
+      metodoLabel(r.metodo_pagamento, r.payment_channel),
+      r.internal_reference ?? r.referencia ?? "",
+      r.baixa_manual ? "Sim" : "Não",
+    ]);
+    const csv = [hdrs, ...rows].map(row => row.map(c => `"${c}"`).join(",")).join("\n");
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" })),
+      download: `recibos-${startDate}-${endDate}.csv`,
+    });
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Histórico de Recebimentos</h2>
+          <p className="text-sm text-slate-500 mt-1">Log de transações liquidadas via EMIS ou outros canais</p>
+        </div>
+        {data && data.recibos.length > 0 && (
+          <button onClick={exportCSV}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm">
+            <Download className="w-4 h-4" /> CSV
+          </button>
+        )}
+      </div>
+
+      {data && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+          <div className="bg-white border border-emerald-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Recibos no Período</p>
+            <p className="text-2xl font-bold text-emerald-600">{data.totais.qtd}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{data.periodo.start} → {data.periodo.end}</p>
+          </div>
+          <div className="bg-white border border-blue-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Volume Recebido</p>
+            <p className="text-2xl font-bold text-blue-600">{fmtCur(data.totais.volume)}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-5 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+            placeholder="Pesquisar aluno..." value={search} onChange={e => onSearch(e.target.value)} />
+        </div>
+        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30" />
+        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30" />
+        <button onClick={() => loadData(search, schoolId, startDate, endDate)}
+          className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2">
+          <RefreshCw className="w-4 h-4" /> Actualizar
+        </button>
+        <select value={schoolId} onChange={e => { setSchoolId(e.target.value); loadData(search, e.target.value, startDate, endDate); }}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[180px]">
+          <option value="">Todas as instituições</option>
+          {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center h-48"><RefreshCw className="w-5 h-5 animate-spin text-slate-300" /></div>
+        ) : !data?.recibos.length ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-2">
+            <Receipt className="w-10 h-10 text-slate-200" />
+            <p className="text-sm text-slate-400">Sem recibos no período seleccionado</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Data Pgto</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Aluno</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Instituição</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Mês/Ano</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Montante</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Método</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wide">Referência</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.recibos.map(r => (
+                  <tr key={r.id} className="hover:bg-emerald-50/30 transition-colors">
+                    <td className="px-5 py-3.5 text-xs text-slate-600 whitespace-nowrap">
+                      {r.pago_em ? new Date(r.pago_em).toLocaleString("pt-AO", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                      {r.baixa_manual && <span className="ml-1 text-[10px] bg-amber-100 text-amber-600 px-1 py-0.5 rounded">Manual</span>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="font-medium text-slate-900">{r.aluno_nome}</div>
+                      {r.numero_processo && <div className="text-xs text-slate-400">Proc. {r.numero_processo}</div>}
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-slate-600">{r.school_name}</td>
+                    <td className="px-4 py-3.5 text-center text-slate-600">{r.mes}/{r.ano}</td>
+                    <td className="px-4 py-3.5 text-right font-mono font-semibold text-emerald-700">{fmtCur(r.montante)}</td>
+                    <td className="px-4 py-3.5 text-xs text-slate-500">{metodoLabel(r.metodo_pagamento, r.payment_channel)}</td>
+                    <td className="px-5 py-3.5 text-xs text-slate-400 font-mono truncate max-w-[140px]">{r.internal_reference ?? r.referencia ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-emerald-50 border-t-2 border-emerald-100">
+                  <td colSpan={4} className="px-5 py-3 text-right text-xs font-semibold text-emerald-700 uppercase tracking-wide">Volume Total do Período</td>
+                  <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700">{data ? fmtCur(data.totais.volume) : "—"}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RECONCILIAÇÃO DE DÍVIDAS — drill-down do card "Dívida Total"
+════════════════════════════════════════════════════════════════ */
+interface ReconEscola {
+  school_id: number; school_name: string;
+  qtd_vencidas: number; divida_total: string; total_multas: string; mais_antiga: string | null;
+}
+interface ReconDetalhe {
+  id: number; mes: string; ano: string; montante: string; multa: string; desconto: string;
+  data_vencimento: string | null; aluno_nome: string; numero_processo: string | null;
+  school_id: number; turma_nome: string | null;
+}
+interface ReconData {
+  totais: { divida_global: number; qtd_global: number; multas_global: number };
+  por_escola: ReconEscola[];
+  detalhe: ReconDetalhe[];
+}
+
+function AdminFinanceReconciliationView() {
+  const [data, setData]         = useState<ReconData | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [schoolId, setSchoolId] = useState("");
+  const schools = useSchoolsList();
+
+  const loadData = useCallback(async (sid: string) => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    if (sid) p.set("school_id", sid);
+    const r = await api(`/admin/finance/reconciliation?${p}`);
+    const d = await r.json();
+    setData(d);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadData(""); }, []);
+
+  const detailFor = (sid: number) => data?.detalhe.filter(d => d.school_id === sid) ?? [];
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Reconciliação — Carteira de Dívidas</h2>
+        <p className="text-sm text-slate-500 mt-1">Extrato analítico das cobranças pendentes por instituição</p>
+      </div>
+
+      {data && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+          <div className="bg-white border border-red-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Dívida Global Consolidada</p>
+            <p className="text-2xl font-bold text-red-600">{fmtCur(data.totais.divida_global)}</p>
+          </div>
+          <div className="bg-white border border-amber-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Propinas Vencidas</p>
+            <p className="text-2xl font-bold text-amber-600">{data.totais.qtd_global}</p>
+          </div>
+          <div className="bg-white border border-orange-200 rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-slate-500 mb-1">Total em Multas</p>
+            <p className="text-2xl font-bold text-orange-600">{fmtCur(data.totais.multas_global)}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3 mb-5">
+        <select value={schoolId} onChange={e => { setSchoolId(e.target.value); setExpanded(null); loadData(e.target.value); }}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 min-w-[220px]">
+          <option value="">Todas as instituições</option>
+          {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center h-48"><RefreshCw className="w-5 h-5 animate-spin text-slate-300" /></div>
+      ) : !data?.por_escola.length ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-2 bg-white rounded-2xl border border-slate-200">
+          <CheckCircle2 className="w-10 h-10 text-emerald-200" />
+          <p className="text-sm text-slate-400">Sem dívidas pendentes</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.por_escola.map(escola => {
+            const isOpen  = expanded === escola.school_id;
+            const detail  = detailFor(escola.school_id);
+            return (
+              <div key={escola.school_id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <button
+                  onClick={() => setExpanded(isOpen ? null : escola.school_id)}
+                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors text-left">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-slate-900">{escola.school_name}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {escola.qtd_vencidas} propina{escola.qtd_vencidas !== 1 ? "s" : ""} vencida{escola.qtd_vencidas !== 1 ? "s" : ""}
+                      {escola.mais_antiga ? ` · desde ${new Date(escola.mais_antiga).toLocaleDateString("pt-AO")}` : ""}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-mono font-bold text-red-600 text-base">{fmtCur(escola.divida_total)}</div>
+                    {Number(escola.total_multas) > 0 && (
+                      <div className="text-xs text-orange-500">+ {fmtCur(escola.total_multas)} multas</div>
+                    )}
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                <AnimatePresence>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden border-t border-slate-100">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead><tr className="bg-red-50/60">
+                            <th className="text-left px-5 py-2.5 text-xs font-semibold text-slate-600 uppercase">Aluno</th>
+                            <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase">Mês/Ano</th>
+                            <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase">Vencimento</th>
+                            <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase">Montante</th>
+                            <th className="text-right px-5 py-2.5 text-xs font-semibold text-slate-600 uppercase">Multa</th>
+                          </tr></thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {detail.map(d => (
+                              <tr key={d.id} className="hover:bg-red-50/20">
+                                <td className="px-5 py-2.5">
+                                  <div className="text-slate-800">{d.aluno_nome}</div>
+                                  {d.turma_nome && <div className="text-xs text-slate-400">{d.turma_nome}</div>}
+                                </td>
+                                <td className="px-4 py-2.5 text-center text-slate-600">{d.mes}/{d.ano}</td>
+                                <td className="px-4 py-2.5 text-center text-xs text-slate-500">
+                                  {d.data_vencimento ? new Date(d.data_vencimento).toLocaleDateString("pt-AO") : "—"}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono text-slate-700">{fmtCur(d.montante)}</td>
+                                <td className="px-5 py-2.5 text-right font-mono text-orange-500">
+                                  {Number(d.multa) > 0 ? fmtCur(d.multa) : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "relatorios_financeiros";
+type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "relatorios_financeiros" | "admin_students" | "admin_classes" | "admin_finance_overdue" | "admin_finance_receipts" | "admin_finance_reconciliation";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -8350,7 +9040,12 @@ export default function AdminDashboard() {
             {view === "gestao_acessos" && <AdminRBACView />}
             {view === "config_tecnicas" && <ConfiguracoesTecnicasView />}
             {view === "parametrizacao" && <ParametrizacaoView />}
-            {view === "relatorios_financeiros" && <RelatoriosFinanceirosView />}
+            {view === "relatorios_financeiros"        && <RelatoriosFinanceirosView />}
+            {view === "admin_students"                && <AdminStudentsView />}
+            {view === "admin_classes"                 && <AdminClassesView />}
+            {view === "admin_finance_overdue"         && <AdminFinanceOverdueView />}
+            {view === "admin_finance_receipts"        && <AdminFinanceReceiptsView />}
+            {view === "admin_finance_reconciliation"  && <AdminFinanceReconciliationView />}
           </>
         )}
       </main>
