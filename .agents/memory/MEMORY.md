@@ -1,0 +1,1 @@
+- [EMIS Payment Engine](emis-payment-engine.md) — Strategy Pattern (GPO/MCX/DD), secrets masking on read, mergePreserveSecrets on write.

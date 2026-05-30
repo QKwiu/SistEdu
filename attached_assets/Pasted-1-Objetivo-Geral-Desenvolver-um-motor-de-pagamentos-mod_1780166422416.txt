@@ -1,0 +1,21 @@
+1. Objetivo Geral
+Desenvolver um motor de pagamentos modular e unificado que prepare o sistema para suportar três fluxos da EMIS: GPO (via Webframe), Referências Multicaixa e Débito Direto. Toda a infraestrutura técnica, credenciais, URLs e testes de diagnóstico devem ser geridos e editados dinamicamente pelo administrador através do Backoffice.
+2. Escopo do Backoffice (Gestão de Parâmetros e Diagnóstico)
+O Painel de Administração deve conter dois menus específicos para isolar a infraestrutura técnica da lógica de negócio:
+A. Novo Menu: "Configurações Técnicas"
+Interface centralizada para a gestão de credenciais e validação de saúde dos serviços por ambiente (Sandbox / Produção). Deve incluir:
+ Parâmetros do GPO (Webframe): Campos para Merchant ID, Terminal ID, Chave Secreta (Secret Key) para assinatura HMAC e URLs de retorno (Success/Fail/Cancel).
+ Parâmetros de Referências MCX: Campos para Código de Entidade, chaves de API e tempo limite de expiração.
+ Parâmetros de Débito Direto: Campos para chaves de autenticação do Web Service e parâmetros de mandato.
+ Módulo de Diagnóstico (Testes de Conectividade): Botões dedicados para "Testar Conectividade" ao lado de cada serviço. O sistema deve disparar um pedido em tempo real (ex: um ping ou chamada de status à API/SOAP correspondente) e exibir o resultado visual (Sucesso / Erro HTTP / Timeout / Erro de Certificado).
+B. Novo Menu: "Parametrização"
+Interface de nível de infraestrutura que permite ao administrador editar variáveis que tipicamente ficariam estáticas no código ou em ficheiros ⁠.env⁠. Deve permitir gerir:
+ Endereços de Rede: Configuração e edição de URLs dos Endpoints (APIs REST e Web Services SOAP) e Whitelist de IPs permitidos.
+ Autenticação de Infraestrutura: Utilizadores, Passwords, chaves básicas de acesso e tokens de comunicação com os gateways.
+ Ferramentas de Teste Integradas: Campos para simular pedidos REST/SOAP diretamente pela interface para validar se a comunicação de rede está funcional antes de ativar o fluxo para o cliente final.
+3. Arquitetura e Lógica do Core (Backend)
+ Padrão de Projeto (Design Pattern): Implementar a lógica utilizando o Strategy Pattern através de uma Interface Única de Pagamentos. O sistema deve processar carrinhos de compras de forma agnóstica, alternando apenas o "driver" de execução (GPO, Referência ou Débito Direto) com base no canal ativo.
+ Webhooks / Callbacks: Centralizar a receção das notificações assíncronas da EMIS para processar a atualização automática dos estados das transações na Base de Dados.
+4. Fluxo de Execução: GPO via Webframe
+ Backend: Consome os dados de autenticação guardados no menu Configurações Técnicas, processa a ordem de pagamento, gera o ID único da transação, calcula o checksum de segurança (hash) e expõe o payload seguro para o frontend.
+ Frontend: Recebe o payload do backend e renderiza o Webframe oficial da EMIS, capturando os eventos de fecho e retorno da janela para atualizar a interface do utilizador.

@@ -1528,4 +1528,214 @@ router.get("/admin/colegios/:id/bolsas/stats", adminAuth, async (req, res) => {
   res.json(r.rows[0]);
 });
 
+/* ════════════════════════════════════════════════════════════════
+   EMIS CONFIG — Configurações Técnicas & Parametrização
+════════════════════════════════════════════════════════════════ */
+
+/* ── Migration ──────────────────────────────────────────────── */
+(async function runEmisConfigMigration() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS platform_config (
+        key        TEXT PRIMARY KEY,
+        value      JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_by TEXT NOT NULL DEFAULT 'admin'
+      );
+    `);
+
+    /* Seed default rows if missing */
+    await pool.query(`
+      INSERT INTO platform_config (key, value) VALUES
+        ('emis_config', $1::jsonb),
+        ('parametrizacao', $2::jsonb)
+      ON CONFLICT (key) DO NOTHING
+    `, [
+      JSON.stringify({
+        gpo: {
+          merchant_id: "", terminal_id: "", secret_key: "",
+          url_success: "", url_fail: "", url_cancel: "",
+          api_url: "", environment: "sandbox",
+        },
+        mcx: {
+          entity_code: "", api_key: "", api_url: "",
+          expiry_minutes: 1440, environment: "sandbox",
+        },
+        debito_direto: {
+          ws_url: "", ws_username: "", ws_password: "",
+          mandate_creditor_id: "", mandate_creditor_name: "",
+          environment: "sandbox",
+        },
+      }),
+      JSON.stringify({
+        endpoints: { gpo_rest_url: "", mcx_api_url: "", dd_soap_url: "" },
+        ip_whitelist: [],
+        auth: { basic_user: "", basic_pass: "", bearer_token: "" },
+      }),
+    ]);
+  } catch (e) {
+    console.error("[emis_config migration]", e);
+  }
+})();
+
+/* ── Helper: mask sensitive fields for read responses ─────── */
+const SENSITIVE = ["secret_key", "api_key", "ws_password", "basic_pass", "bearer_token"];
+function maskSecrets(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (SENSITIVE.includes(k))
+      out[k] = v ? "***" : "";
+    else if (v && typeof v === "object" && !Array.isArray(v))
+      out[k] = maskSecrets(v as Record<string, unknown>);
+    else
+      out[k] = v;
+  }
+  return out;
+}
+
+/* ── Helper: merge without overwriting existing secrets ────── */
+function mergePreserveSecrets(existing: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...existing };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (SENSITIVE.includes(k)) {
+      out[k] = v === "***" ? existing[k] ?? "" : v;
+    } else if (v && typeof v === "object" && !Array.isArray(v)) {
+      out[k] = mergePreserveSecrets(
+        (existing[k] as Record<string, unknown>) ?? {},
+        v as Record<string, unknown>
+      );
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/* ─── GET /admin/emis-config ─── */
+router.get("/admin/emis-config", adminAuth, async (_req, res) => {
+  const r = await pool.query("SELECT value FROM platform_config WHERE key='emis_config'");
+  const raw = (r.rows[0]?.value ?? {}) as Record<string, unknown>;
+  res.json(maskSecrets(raw));
+});
+
+/* ─── PUT /admin/emis-config ─── */
+router.put("/admin/emis-config", adminAuth, async (req, res) => {
+  const incoming = req.body ?? {};
+  const existing = await pool.query("SELECT value FROM platform_config WHERE key='emis_config'");
+  const current = (existing.rows[0]?.value ?? {}) as Record<string, unknown>;
+  const merged = mergePreserveSecrets(current, incoming);
+  await pool.query(
+    `UPDATE platform_config SET value=$1::jsonb, updated_at=NOW(), updated_by='admin'
+     WHERE key='emis_config'`,
+    [JSON.stringify(merged)]
+  );
+  res.json({ ok: true, config: maskSecrets(merged) });
+});
+
+/* ─── POST /admin/emis-config/test/:service ─── */
+router.post("/admin/emis-config/test/:service", adminAuth, async (req, res) => {
+  const { service } = req.params;
+  const allowed = ["gpo", "mcx", "debito_direto"];
+  if (!allowed.includes(service))
+    return res.status(400).json({ error: `Serviço inválido. Use: ${allowed.join(", ")}.` });
+
+  const r = await pool.query("SELECT value FROM platform_config WHERE key='emis_config'");
+  const config = (r.rows[0]?.value ?? {}) as Record<string, Record<string, unknown>>;
+  const svcConfig = config[service] ?? {};
+
+  const { PaymentEngine } = await import("../services/payment-engine.js");
+  const driverKey = service === "gpo" ? "GPO_EMIS" : service === "mcx" ? "MCX_REFERENCE" : "DIRECT_DEBIT";
+
+  try {
+    const result = await PaymentEngine.testConnectivity(driverKey, svcConfig);
+    res.json(result);
+  } catch (err: unknown) {
+    res.json({ ok: false, message: (err as Error).message });
+  }
+});
+
+/* ─── GET /admin/parametrizacao ─── */
+router.get("/admin/parametrizacao", adminAuth, async (_req, res) => {
+  const r = await pool.query("SELECT value FROM platform_config WHERE key='parametrizacao'");
+  const raw = (r.rows[0]?.value ?? {}) as Record<string, unknown>;
+  res.json(maskSecrets(raw));
+});
+
+/* ─── PUT /admin/parametrizacao ─── */
+router.put("/admin/parametrizacao", adminAuth, async (req, res) => {
+  const incoming = req.body ?? {};
+  const existing = await pool.query("SELECT value FROM platform_config WHERE key='parametrizacao'");
+  const current = (existing.rows[0]?.value ?? {}) as Record<string, unknown>;
+  const merged = mergePreserveSecrets(current, incoming);
+  await pool.query(
+    `UPDATE platform_config SET value=$1::jsonb, updated_at=NOW(), updated_by='admin'
+     WHERE key='parametrizacao'`,
+    [JSON.stringify(merged)]
+  );
+  res.json({ ok: true, config: maskSecrets(merged) });
+});
+
+/* ─── POST /admin/parametrizacao/test-request ─── */
+router.post("/admin/parametrizacao/test-request", adminAuth, async (req, res) => {
+  const { url, method = "GET", headers: extraHeaders = {}, body: bodyStr } = req.body ?? {};
+  if (!url?.trim()) return res.status(400).json({ error: "URL é obrigatória." });
+
+  const start = Date.now();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    const fetchInit: RequestInit = {
+      method: (method as string).toUpperCase(),
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json", ...(extraHeaders as Record<string, string>) },
+    };
+    if (bodyStr && !["GET", "HEAD"].includes(fetchInit.method as string))
+      (fetchInit as { body?: string }).body = bodyStr;
+
+    const resp = await fetch(url, fetchInit);
+    clearTimeout(timer);
+    const ms = Date.now() - start;
+    const text = await resp.text().catch(() => "");
+    const truncated = text.length > 2000 ? text.slice(0, 2000) + "…" : text;
+
+    res.json({
+      ok: resp.status < 500,
+      status: resp.status,
+      status_text: resp.statusText,
+      latency_ms: ms,
+      body_preview: truncated,
+      headers: Object.fromEntries(resp.headers.entries()),
+    });
+  } catch (err: unknown) {
+    const ms = Date.now() - start;
+    const e = err as { name?: string; message?: string };
+    res.json({
+      ok: false,
+      status: 0,
+      latency_ms: ms,
+      message: e.name === "AbortError" ? "Timeout (10 s)" : (e.message ?? "Erro de rede"),
+    });
+  }
+});
+
+/* ─── POST /payments/gpo/initiate (escola → GPO payload) ─── */
+router.post("/payments/gpo/initiate", adminAuth, async (req, res) => {
+  const { reference, amount, student_name, school_id, description } = req.body ?? {};
+  if (!reference || !amount || !school_id)
+    return res.status(400).json({ error: "reference, amount e school_id são obrigatórios." });
+
+  const cfgRow = await pool.query("SELECT value FROM platform_config WHERE key='emis_config'");
+  const emisConfig = (cfgRow.rows[0]?.value ?? {}) as Record<string, unknown>;
+  const gpoConfig = (emisConfig.gpo ?? {}) as Record<string, unknown>;
+
+  const { PaymentEngine } = await import("../services/payment-engine.js");
+  const result = await PaymentEngine.initiate("GPO_EMIS", {
+    reference, amount: Number(amount), student_name, school_id: Number(school_id), description,
+  }, gpoConfig);
+
+  if (!result.ok) return res.status(422).json({ error: result.error });
+  res.json(result.payload);
+});
+
 export default router;
+

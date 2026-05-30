@@ -11,6 +11,7 @@ import {
   SlidersHorizontal, Save, MessageSquare, Mail, Smartphone, Globe, Lock,
   Zap, BarChart3, CheckSquare, ToggleLeft, Send, ChevronLeft, ToggleRight, ListFilter,
   Megaphone, CheckCheck, Tag, KeyRound, ShieldOff, UserCheck, UserX,
+  Wifi, Server, Terminal, Network, Settings2, FlaskConical, Play, Copy,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -7291,8 +7292,464 @@ function AdminRBACView() {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════
+   CONFIGURAÇÕES TÉCNICAS — EMIS (GPO, MCX, Débito Direto)
+════════════════════════════════════════════════════════════════ */
+
+type EmisSection = "gpo" | "mcx" | "debito_direto";
+
+interface ConnResult { ok: boolean; status?: number; message: string; latency_ms?: number }
+
+function ConfiguracoesTecnicasView() {
+  const [tab, setTab] = useState<EmisSection>("gpo");
+  const [config, setConfig] = useState<Record<string, Record<string, unknown>>>({ gpo: {}, mcx: {}, debito_direto: {} });
+  const [saving, setSaving] = useState<EmisSection | null>(null);
+  const [saved, setSaved] = useState<EmisSection | null>(null);
+  const [testing, setTesting] = useState<EmisSection | null>(null);
+  const [testResult, setTestResult] = useState<Record<EmisSection, ConnResult | null>>({ gpo: null, mcx: null, debito_direto: null });
+  const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    api("/admin/emis-config").then(r => r.json()).then(d => setConfig(d));
+  }, []);
+
+  const update = (section: EmisSection, key: string, value: unknown) =>
+    setConfig(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
+
+  const save = async (section: EmisSection) => {
+    setSaving(section);
+    await api("/admin/emis-config", { method: "PUT", body: JSON.stringify({ [section]: config[section] }) });
+    setSaving(null); setSaved(section);
+    setTimeout(() => setSaved(null), 3000);
+  };
+
+  const test = async (section: EmisSection) => {
+    setTesting(section);
+    const r = await api(`/admin/emis-config/test/${section}`, { method: "POST" }).then(x => x.json()).catch(() => ({ ok: false, message: "Erro de rede" }));
+    setTestResult(prev => ({ ...prev, [section]: r }));
+    setTesting(null);
+  };
+
+  const field = (section: EmisSection, key: string, label: string, opts?: {
+    type?: string; placeholder?: string; hint?: string; secret?: boolean;
+  }) => {
+    const val = String(config[section]?.[key] ?? "");
+    const isSecret = opts?.secret;
+    const shown = showSecret[`${section}.${key}`];
+    return (
+      <div key={key}>
+        <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+        <div className="relative">
+          <input
+            type={isSecret && !shown ? "password" : "text"}
+            value={val}
+            onChange={e => update(section, key, e.target.value)}
+            placeholder={opts?.placeholder ?? ""}
+            className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-10"
+          />
+          {isSecret && (
+            <button type="button" onClick={() => setShowSecret(p => ({ ...p, [`${section}.${key}`]: !shown }))}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              {shown ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+            </button>
+          )}
+        </div>
+        {opts?.hint && <p className="text-xs text-slate-400 mt-1">{opts.hint}</p>}
+      </div>
+    );
+  };
+
+  const envToggle = (section: EmisSection) => (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-slate-500">Ambiente:</span>
+      {(["sandbox", "producao"] as const).map(env => (
+        <button key={env} onClick={() => update(section, "environment", env)}
+          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+            (config[section]?.environment ?? "sandbox") === env
+              ? env === "producao" ? "bg-emerald-500 border-emerald-500 text-white" : "bg-amber-400 border-amber-400 text-white"
+              : "border-slate-200 text-slate-500 hover:border-slate-300"
+          }`}>
+          {env === "sandbox" ? "Sandbox" : "Produção"}
+        </button>
+      ))}
+    </div>
+  );
+
+  const ConnBadge = ({ res }: { res: ConnResult | null }) => {
+    if (!res) return null;
+    return (
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border ${
+        res.ok ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-700"
+      }`}>
+        <div className={`w-2 h-2 rounded-full ${res.ok ? "bg-emerald-500" : "bg-red-500"}`}/>
+        {res.message}
+        {res.latency_ms !== undefined && <span className="text-slate-400 font-normal ml-1">{res.latency_ms} ms</span>}
+      </div>
+    );
+  };
+
+  const TABS: { key: EmisSection; label: string; icon: React.ReactNode; color: string }[] = [
+    { key: "gpo",         label: "GPO — Webframe",        icon: <Globe className="w-4 h-4"/>,    color: "blue" },
+    { key: "mcx",         label: "Referências MCX",        icon: <CreditCard className="w-4 h-4"/>, color: "purple" },
+    { key: "debito_direto", label: "Débito Direto",       icon: <ArrowLeftRight className="w-4 h-4"/>, color: "emerald" },
+  ];
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <Settings2 className="w-5 h-5 text-primary"/>
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Configurações Técnicas</h2>
+          <p className="text-sm text-slate-500">Credenciais e parâmetros dos serviços de pagamento EMIS</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6 border-b border-slate-200">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
+              tab === t.key ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}>
+            {t.icon}{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* GPO Tab */}
+      {tab === "gpo" && (
+        <div className="space-y-5">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Globe className="w-4 h-4 text-blue-500"/> GPO / Webframe EMIS</h3>
+              {envToggle("gpo")}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {field("gpo", "merchant_id", "Merchant ID", { placeholder: "Ex: 900001" })}
+              {field("gpo", "terminal_id", "Terminal ID", { placeholder: "Ex: 00000001" })}
+              {field("gpo", "secret_key", "Secret Key (HMAC)", { secret: true, hint: "Usada para calcular o checksum de segurança da transação" })}
+              {field("gpo", "api_url", "URL do Webframe", { placeholder: "https://gateway.emis.co.ao/..." })}
+              {field("gpo", "url_success", "URL de Sucesso", { placeholder: "https://escola.kiwara.tech/pago" })}
+              {field("gpo", "url_fail", "URL de Erro", { placeholder: "https://escola.kiwara.tech/falha" })}
+              {field("gpo", "url_cancel", "URL de Cancelamento", { placeholder: "https://escola.kiwara.tech/cancelado" })}
+            </div>
+            <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
+                <button onClick={() => test("gpo")} disabled={!!testing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
+                  {testing === "gpo" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
+                  Testar Conectividade
+                </button>
+                <ConnBadge res={testResult.gpo}/>
+              </div>
+              <button onClick={() => save("gpo")} disabled={!!saving}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
+                {saving === "gpo" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "gpo" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                {saved === "gpo" ? "Guardado!" : "Guardar GPO"}
+              </button>
+            </div>
+          </div>
+
+          {/* GPO Info card */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            <p className="font-semibold mb-1 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5"/> Fluxo GPO</p>
+            <p className="text-blue-700 text-xs leading-relaxed">O backend calcula o checksum HMAC-SHA256 com: <code className="bg-blue-100 px-1 rounded">merchant_id + terminal_id + transaction_id + amount</code>, expõe o payload seguro para o frontend renderizar o Webframe oficial da EMIS.</p>
+          </div>
+        </div>
+      )}
+
+      {/* MCX Tab */}
+      {tab === "mcx" && (
+        <div className="space-y-5">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><CreditCard className="w-4 h-4 text-purple-500"/> Referências Multicaixa</h3>
+              {envToggle("mcx")}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {field("mcx", "entity_code", "Código de Entidade", { placeholder: "Ex: 11111" })}
+              {field("mcx", "api_key", "Chave de API", { secret: true })}
+              {field("mcx", "api_url", "URL da API MCX", { placeholder: "https://api.multicaixa.ao/..." })}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tempo Limite de Expiração (minutos)</label>
+                <input type="number" min={60} max={43200}
+                  value={String(config.mcx?.expiry_minutes ?? 1440)}
+                  onChange={e => update("mcx", "expiry_minutes", Number(e.target.value))}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                <p className="text-xs text-slate-400 mt-1">Padrão: 1440 min (24 h)</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
+                <button onClick={() => test("mcx")} disabled={!!testing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
+                  {testing === "mcx" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
+                  Testar Conectividade
+                </button>
+                <ConnBadge res={testResult.mcx}/>
+              </div>
+              <button onClick={() => save("mcx")} disabled={!!saving}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
+                {saving === "mcx" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "mcx" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                {saved === "mcx" ? "Guardado!" : "Guardar MCX"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DD Tab */}
+      {tab === "debito_direto" && (
+        <div className="space-y-5">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4 text-emerald-500"/> Débito Direto EMIS</h3>
+              {envToggle("debito_direto")}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {field("debito_direto", "ws_url", "URL do Web Service (SOAP)", { placeholder: "https://ws.emis.co.ao/debito/..." })}
+              {field("debito_direto", "ws_username", "Utilizador WS", { placeholder: "user_escola" })}
+              {field("debito_direto", "ws_password", "Password WS", { secret: true })}
+              {field("debito_direto", "mandate_creditor_id", "Creditor ID (Mandato)", { placeholder: "PT73ZZZ..." })}
+              {field("debito_direto", "mandate_creditor_name", "Nome do Credor", { placeholder: "Colégio Exemplo" })}
+            </div>
+            <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
+                <button onClick={() => test("debito_direto")} disabled={!!testing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
+                  {testing === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
+                  Testar Conectividade
+                </button>
+                <ConnBadge res={testResult.debito_direto}/>
+              </div>
+              <button onClick={() => save("debito_direto")} disabled={!!saving}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
+                {saving === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "debito_direto" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                {saved === "debito_direto" ? "Guardado!" : "Guardar DD"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PARAMETRIZAÇÃO — Endpoints, IPs, Auth, Ferramenta de Teste
+════════════════════════════════════════════════════════════════ */
+interface TestReqResult { ok: boolean; status?: number; status_text?: string; latency_ms?: number; body_preview?: string; message?: string }
+
+function ParametrizacaoView() {
+  type Cfg = { endpoints: Record<string, string>; ip_whitelist: string[]; auth: Record<string, string> };
+  const EMPTY_CFG: Cfg = { endpoints: { gpo_rest_url: "", mcx_api_url: "", dd_soap_url: "" }, ip_whitelist: [], auth: { basic_user: "", basic_pass: "", bearer_token: "" } };
+
+  const [cfg, setCfg] = useState<Cfg>(EMPTY_CFG);
+  const [ipRaw, setIpRaw] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showPass, setShowPass] = useState(false);
+
+  /* Test tool */
+  const [testUrl, setTestUrl]         = useState("");
+  const [testMethod, setTestMethod]   = useState("GET");
+  const [testHeaders, setTestHeaders] = useState("{}");
+  const [testBody, setTestBody]       = useState("");
+  const [running, setRunning]         = useState(false);
+  const [testRes, setTestRes]         = useState<TestReqResult | null>(null);
+
+  useEffect(() => {
+    api("/admin/parametrizacao").then(r => r.json()).then((d: Cfg) => {
+      setCfg(d);
+      setIpRaw((d.ip_whitelist ?? []).join("\n"));
+    });
+  }, []);
+
+  const saveAll = async () => {
+    setSaving(true);
+    const payload = { ...cfg, ip_whitelist: ipRaw.split(/[\n,]/).map(s => s.trim()).filter(Boolean) };
+    await api("/admin/parametrizacao", { method: "PUT", body: JSON.stringify(payload) });
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const runTest = async () => {
+    setRunning(true); setTestRes(null);
+    let parsedHeaders: Record<string, string> = {};
+    try { parsedHeaders = JSON.parse(testHeaders || "{}"); } catch { /* ignore */ }
+    const r = await api("/admin/parametrizacao/test-request", {
+      method: "POST",
+      body: JSON.stringify({ url: testUrl, method: testMethod, headers: parsedHeaders, body: testBody || undefined }),
+    }).then(x => x.json()).catch(() => ({ ok: false, message: "Erro de rede" }));
+    setTestRes(r); setRunning(false);
+  };
+
+  const ep = (key: string, label: string, ph: string) => (
+    <div>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+      <input value={cfg.endpoints?.[key] ?? ""} onChange={e => setCfg(p => ({ ...p, endpoints: { ...p.endpoints, [key]: e.target.value } }))}
+        placeholder={ph}
+        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+    </div>
+  );
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+          <Network className="w-5 h-5 text-slate-600"/>
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Parametrização</h2>
+          <p className="text-sm text-slate-500">Endpoints de rede, lista branca de IPs, credenciais de infraestrutura e ferramenta de teste integrada</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Endpoints */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-4"><Globe className="w-4 h-4 text-blue-500"/> Endereços de Rede</h3>
+          <div className="space-y-3">
+            {ep("gpo_rest_url", "GPO REST URL", "https://gateway.emis.co.ao/gpo/...")}
+            {ep("mcx_api_url", "MCX API URL", "https://api.multicaixa.ao/v1/...")}
+            {ep("dd_soap_url", "Débito Direto SOAP URL", "https://ws.emis.co.ao/dd/...")}
+          </div>
+
+          <div className="mt-4">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Whitelist de IPs (um por linha)</label>
+            <textarea rows={4} value={ipRaw} onChange={e => setIpRaw(e.target.value)}
+              placeholder={"196.46.0.0/16\n197.156.64.0/18"}
+              className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"/>
+            <p className="text-xs text-slate-400 mt-1">IPs ou CIDRs dos gateways EMIS autorizados a enviar callbacks</p>
+          </div>
+        </div>
+
+        {/* Auth */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-4"><KeyRound className="w-4 h-4 text-amber-500"/> Autenticação de Infraestrutura</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Utilizador (Basic Auth)</label>
+              <input value={cfg.auth?.basic_user ?? ""} onChange={e => setCfg(p => ({ ...p, auth: { ...p.auth, basic_user: e.target.value } }))}
+                placeholder="gateway_user"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Password (Basic Auth)</label>
+              <div className="relative">
+                <input type={showPass ? "text" : "password"} value={cfg.auth?.basic_pass ?? ""} onChange={e => setCfg(p => ({ ...p, auth: { ...p.auth, basic_pass: e.target.value } }))}
+                  placeholder="••••••••"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-10"/>
+                <button type="button" onClick={() => setShowPass(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                  {showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Bearer Token</label>
+              <textarea rows={3} value={cfg.auth?.bearer_token ?? ""} onChange={e => setCfg(p => ({ ...p, auth: { ...p.auth, bearer_token: e.target.value } }))}
+                placeholder="eyJhbGciOiJIUzI1NiIs..."
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Save all */}
+      <div className="flex justify-end mb-6">
+        <button onClick={saveAll} disabled={saving}
+          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+          {saved ? "Configurações Guardadas!" : "Guardar Configurações"}
+        </button>
+      </div>
+
+      {/* Test Tool */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <h3 className="font-semibold text-slate-800 flex items-center gap-2 mb-4"><FlaskConical className="w-4 h-4 text-violet-500"/> Ferramenta de Teste Integrada</h3>
+        <p className="text-xs text-slate-500 mb-4">Simule pedidos REST/SOAP directamente pela interface para validar a comunicação antes de activar o fluxo para o cliente.</p>
+
+        <div className="space-y-3">
+          <div className="flex gap-3">
+            {/* Method */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Método</label>
+              <select value={testMethod} onChange={e => setTestMethod(e.target.value)}
+                className="border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                {["GET", "POST", "PUT", "HEAD"].map(m => <option key={m}>{m}</option>)}
+              </select>
+            </div>
+            {/* URL */}
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-slate-600 mb-1">URL</label>
+              <input value={testUrl} onChange={e => setTestUrl(e.target.value)}
+                placeholder="https://api.emis.co.ao/health"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Headers (JSON)</label>
+              <textarea rows={3} value={testHeaders} onChange={e => setTestHeaders(e.target.value)}
+                placeholder={'{"Authorization": "Bearer ..."}'}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"/>
+            </div>
+            {["POST", "PUT"].includes(testMethod) && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Body</label>
+                <textarea rows={3} value={testBody} onChange={e => setTestBody(e.target.value)}
+                  placeholder={'{"key": "value"}'}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"/>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={runTest} disabled={running || !testUrl.trim()}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-all disabled:opacity-50">
+              {running ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4"/>}
+              Enviar Pedido
+            </button>
+            {testRes && (
+              <span className={`flex items-center gap-1.5 text-sm font-semibold ${testRes.ok ? "text-emerald-600" : "text-red-600"}`}>
+                <div className={`w-2 h-2 rounded-full ${testRes.ok ? "bg-emerald-500" : "bg-red-500"}`}/>
+                {testRes.status ? `HTTP ${testRes.status}` : ""} {testRes.latency_ms !== undefined ? `— ${testRes.latency_ms} ms` : ""}
+              </span>
+            )}
+          </div>
+
+          {/* Response */}
+          {testRes && (
+            <div className="border border-slate-200 rounded-xl overflow-hidden mt-2">
+              <div className={`flex items-center justify-between px-4 py-2 text-xs font-semibold ${testRes.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>
+                <span>{testRes.ok ? "✓ Sucesso" : "✗ Erro"} {testRes.status_text ? `— ${testRes.status_text}` : testRes.message}</span>
+                {testRes.body_preview && (
+                  <button onClick={() => navigator.clipboard.writeText(testRes.body_preview ?? "")}
+                    className="flex items-center gap-1 text-slate-500 hover:text-slate-700">
+                    <Copy className="w-3 h-3"/> Copiar
+                  </button>
+                )}
+              </div>
+              {testRes.body_preview && (
+                <pre className="p-4 text-xs font-mono text-slate-700 bg-slate-50 overflow-x-auto max-h-56 overflow-y-auto whitespace-pre-wrap">
+                  {testRes.body_preview}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos";
+type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -7327,11 +7784,13 @@ export default function AdminDashboard() {
   };
 
   const NAV = [
-    { id: "stats" as const, label: "Visão Geral", icon: <LayoutDashboard className="w-5 h-5" /> },
-    { id: "colegios" as const, label: "Instituições", icon: <Building2 className="w-5 h-5" /> },
-    { id: "emolumentos_globais" as const, label: "Emolumentos Globais", icon: <Receipt className="w-5 h-5" /> },
-    { id: "sms" as const, label: "SMS & Comunicação", icon: <Smartphone className="w-5 h-5" /> },
-    { id: "gestao_acessos" as const, label: "Gestão de Acessos", icon: <Lock className="w-5 h-5" /> },
+    { id: "stats"               as const, label: "Visão Geral",          icon: <LayoutDashboard className="w-5 h-5" /> },
+    { id: "colegios"            as const, label: "Instituições",          icon: <Building2 className="w-5 h-5" /> },
+    { id: "emolumentos_globais" as const, label: "Emolumentos Globais",   icon: <Receipt className="w-5 h-5" /> },
+    { id: "sms"                 as const, label: "SMS & Comunicação",     icon: <Smartphone className="w-5 h-5" /> },
+    { id: "gestao_acessos"      as const, label: "Gestão de Acessos",     icon: <Lock className="w-5 h-5" /> },
+    { id: "config_tecnicas"     as const, label: "Configurações Técnicas",icon: <Settings2 className="w-5 h-5" /> },
+    { id: "parametrizacao"      as const, label: "Parametrização",        icon: <Network className="w-5 h-5" /> },
   ];
 
   const navigate = (id: AdminView) => {
@@ -7534,6 +7993,8 @@ export default function AdminDashboard() {
             {view === "emolumentos_globais" && <GlobalEmolumentosAdminView />}
             {view === "sms" && <AdminSMSView />}
             {view === "gestao_acessos" && <AdminRBACView />}
+            {view === "config_tecnicas" && <ConfiguracoesTecnicasView />}
+            {view === "parametrizacao" && <ParametrizacaoView />}
           </>
         )}
       </main>
