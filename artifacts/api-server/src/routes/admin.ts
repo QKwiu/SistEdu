@@ -1529,6 +1529,110 @@ router.get("/admin/colegios/:id/bolsas/stats", adminAuth, async (req, res) => {
 });
 
 /* ════════════════════════════════════════════════════════════════
+   RELATÓRIOS FINANCEIROS — Volume consolidado por instituição
+════════════════════════════════════════════════════════════════ */
+
+router.get("/admin/relatorios-financeiros", adminAuth, async (req, res) => {
+  /* Default: mês corrente */
+  const now   = new Date();
+  const dfrom = new Date(now.getFullYear(), now.getMonth(), 1);
+  const dto   = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const start = req.query.start ? new Date(String(req.query.start)) : dfrom;
+  const end   = req.query.end   ? new Date(new Date(String(req.query.end)).setDate(new Date(String(req.query.end)).getDate() + 1)) : dto;
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime()))
+    return res.status(400).json({ error: "Datas inválidas." });
+
+  try {
+    const result = await pool.query(`
+      WITH propinas_agg AS (
+        SELECT
+          school_id,
+          COALESCE(SUM(montante - COALESCE(desconto,0) + COALESCE(multa,0)), 0) AS volume_propinas,
+          COUNT(id)                                                               AS qtd_propinas
+        FROM propinas
+        WHERE status = 'pago'
+          AND pago_em >= $1
+          AND pago_em <  $2
+        GROUP BY school_id
+      ),
+      splits_agg AS (
+        SELECT
+          pr.school_id,
+          COALESCE(SUM(ps.valor), 0) AS comissao_platform
+        FROM payment_splits ps
+        JOIN propinas pr ON pr.id = ps.propina_id
+        WHERE ps.destino = 'platform'
+          AND pr.status  = 'pago'
+          AND pr.pago_em >= $1
+          AND pr.pago_em <  $2
+        GROUP BY pr.school_id
+      ),
+      cobrancas_agg AS (
+        SELECT
+          school_id::integer,
+          COALESCE(SUM(montante * quantidade), 0) AS volume_cobrancas,
+          COUNT(id)                                AS qtd_cobrancas
+        FROM cobrancas
+        WHERE status     = 'pago'
+          AND created_at >= $1
+          AND created_at <  $2
+        GROUP BY school_id
+      )
+      SELECT
+        s.id                                                    AS school_id,
+        s.name,
+        s.email,
+        COALESCE(s.commission_rate, 0)                          AS commission_rate,
+        ROUND(COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0), 2)   AS volume_bruto,
+        ROUND(
+          COALESCE(sa.comissao_platform,0) +
+          CASE
+            WHEN COALESCE(sa.comissao_platform,0) = 0 AND COALESCE(s.commission_rate,0) > 0
+            THEN ROUND((COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0)) * s.commission_rate / 100, 2)
+            ELSE 0
+          END
+        , 2)                                                                            AS comissao_acumulada,
+        ROUND(
+          (COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0))
+          - (
+            COALESCE(sa.comissao_platform,0) +
+            CASE
+              WHEN COALESCE(sa.comissao_platform,0) = 0 AND COALESCE(s.commission_rate,0) > 0
+              THEN ROUND((COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0)) * s.commission_rate / 100, 2)
+              ELSE 0
+            END
+          )
+        , 2)                                                                            AS valor_liquido,
+        COALESCE(pa.qtd_propinas,0) + COALESCE(ca.qtd_cobrancas,0)                    AS qtd_transacoes
+      FROM schools s
+      LEFT JOIN propinas_agg pa  ON pa.school_id  = s.id
+      LEFT JOIN splits_agg   sa  ON sa.school_id  = s.id
+      LEFT JOIN cobrancas_agg ca ON ca.school_id  = s.id
+      ORDER BY volume_bruto DESC NULLS LAST
+    `, [start.toISOString(), end.toISOString()]);
+
+    const rows = result.rows;
+    const totais = {
+      volume_global:    rows.reduce((a, r) => a + Number(r.volume_bruto),    0),
+      comissoes_global: rows.reduce((a, r) => a + Number(r.comissao_acumulada), 0),
+      liquido_global:   rows.reduce((a, r) => a + Number(r.valor_liquido),   0),
+      qtd_global:       rows.reduce((a, r) => a + Number(r.qtd_transacoes),  0),
+    };
+
+    res.json({
+      periodo: { start: start.toISOString().slice(0, 10), end: new Date(end.getTime() - 86400000).toISOString().slice(0, 10) },
+      totais,
+      por_colegio: rows,
+    });
+  } catch (err) {
+    console.error("[relatorios-financeiros]", err);
+    res.status(500).json({ error: "Erro ao calcular relatório financeiro." });
+  }
+});
+
+/* ════════════════════════════════════════════════════════════════
    EMIS CONFIG — Configurações Técnicas & Parametrização
 ════════════════════════════════════════════════════════════════ */
 

@@ -7905,8 +7905,205 @@ function ParametrizacaoView() {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════
+   RELATÓRIOS FINANCEIROS — Volume consolidado por instituição
+════════════════════════════════════════════════════════════════ */
+
+interface RelRow { school_id: number; name: string; email: string; commission_rate: number; volume_bruto: string; comissao_acumulada: string; valor_liquido: string; qtd_transacoes: number }
+interface RelData { periodo: { start: string; end: string }; totais: { volume_global: number; comissoes_global: number; liquido_global: number; qtd_global: number }; por_colegio: RelRow[] }
+
+function RelatoriosFinanceirosView() {
+  const now      = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const today    = now.toISOString().slice(0, 10);
+
+  const [startDate, setStartDate] = useState(firstDay);
+  const [endDate,   setEndDate]   = useState(today);
+  const [loading,   setLoading]   = useState(false);
+  const [data,      setData]      = useState<RelData | null>(null);
+
+  const load = useCallback(async (s = startDate, e = endDate) => {
+    setLoading(true);
+    const r = await api(`/admin/relatorios-financeiros?start=${s}&end=${e}`)
+      .then(x => x.json()).catch(() => null);
+    setData(r);
+    setLoading(false);
+  }, [startDate, endDate]);
+
+  useEffect(() => { load(); }, []);
+
+  const fmt = (n: number | string) =>
+    Number(n).toLocaleString("pt-AO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const exportCSV = () => {
+    if (!data) return;
+    const hdrs = ["Instituição/Colégio", "Email", "Volume Bruto (AOA)", "Comissão Acumulada (AOA)", "Valor Líquido (AOA)", "Qtd. Transações"];
+    const rows = data.por_colegio.map(r => [r.name, r.email, r.volume_bruto, r.comissao_acumulada, r.valor_liquido, String(r.qtd_transacoes)]);
+    const tot  = ["TOTAL CONSOLIDADO", "", data.totais.volume_global.toFixed(2), data.totais.comissoes_global.toFixed(2), data.totais.liquido_global.toFixed(2), String(data.totais.qtd_global)];
+    const csv  = [hdrs, ...rows, tot].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" })),
+      download: `relatorio-financeiro-${startDate}-${endDate}.csv`,
+    });
+    a.click();
+  };
+
+  const KPIS = data ? [
+    { label: "Volume Transacionado Global",   value: fmt(data.totais.volume_global),    sub: "AOA", color: "emerald", icon: <TrendingUp className="w-5 h-5"/>   },
+    { label: "Total de Comissões Global",     value: fmt(data.totais.comissoes_global), sub: "AOA", color: "amber",   icon: <BadgePercent className="w-5 h-5"/> },
+    { label: "Valor Líquido Global",          value: fmt(data.totais.liquido_global),   sub: "AOA", color: "blue",    icon: <Banknote className="w-5 h-5"/>     },
+    { label: "Total de Transações",           value: data.totais.qtd_global.toLocaleString("pt-AO"), sub: "operações", color: "slate", icon: <Receipt className="w-5 h-5"/> },
+  ] : [];
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto" id="relatorio-print">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+            <BarChart3 className="w-5 h-5 text-emerald-600"/>
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Relatórios Financeiros</h2>
+            <p className="text-sm text-slate-500">Volume transacionado consolidado — todas as instituições</p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={exportCSV} disabled={!data || loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 transition-all disabled:opacity-40">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600"/> Excel / CSV
+          </button>
+          <button onClick={() => window.print()} disabled={!data || loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 transition-all disabled:opacity-40">
+            <Download className="w-4 h-4 text-red-500"/> PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Filtros de período */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm mb-6">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Data Início</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+              className="border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Data Fim</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+              className="border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+          </div>
+          <button onClick={() => load(startDate, endDate)} disabled={loading}
+            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-all">
+            {loading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Filter className="w-4 h-4"/>}
+            Actualizar
+          </button>
+          {data && (
+            <span className="text-xs text-slate-400 ml-1">
+              Período: <strong>{data.periodo.start}</strong> → <strong>{data.periodo.end}</strong>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* KPIs */}
+      {data && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {KPIS.map(kpi => (
+              <div key={kpi.label} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${
+                  kpi.color === "emerald" ? "bg-emerald-50 text-emerald-600" :
+                  kpi.color === "amber"   ? "bg-amber-50  text-amber-600"   :
+                  kpi.color === "blue"    ? "bg-blue-50   text-blue-600"    :
+                                            "bg-slate-100 text-slate-600"
+                }`}>{kpi.icon}</div>
+                <p className="text-xs text-slate-500 font-medium mb-1 leading-tight">{kpi.label}</p>
+                <p className="text-xl font-bold text-slate-900 font-mono">{kpi.value}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{kpi.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabela por colégio */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-800">Detalhe Segmentado por Instituição / Colégio</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Valores calculados a partir das transações pagas no período — Volume Líquido = Volume Bruto − Comissão</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-left">
+                    {[
+                      { label: "Instituição / Colégio",      align: "left"  },
+                      { label: "Volume Bruto (AOA)",         align: "right" },
+                      { label: "Comissão Acumulada (AOA)",   align: "right" },
+                      { label: "Valor Líquido (AOA)",        align: "right" },
+                      { label: "Qtd. Transações",            align: "right" },
+                    ].map(h => (
+                      <th key={h.label} className={`px-5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider ${h.align === "right" ? "text-right" : ""}`}>
+                        {h.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.por_colegio.map((row, i) => (
+                    <tr key={row.school_id} className={i % 2 === 0 ? "bg-white hover:bg-slate-50" : "bg-slate-50/50 hover:bg-slate-100/50"}>
+                      <td className="px-5 py-4">
+                        <div className="font-semibold text-slate-800">{row.name}</div>
+                        <div className="text-xs text-slate-400">{row.email}</div>
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono font-semibold text-slate-800">{fmt(row.volume_bruto)}</td>
+                      <td className="px-5 py-4 text-right font-mono text-amber-600">{fmt(row.comissao_acumulada)}</td>
+                      <td className="px-5 py-4 text-right font-mono font-semibold text-emerald-700">{fmt(row.valor_liquido)}</td>
+                      <td className="px-5 py-4 text-right">
+                        <span className="inline-flex items-center justify-center min-w-[2.5rem] px-2 h-6 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">
+                          {row.qtd_transacoes}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {data.por_colegio.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-16 text-center">
+                        <BarChart3 className="w-10 h-10 mx-auto mb-3 text-slate-200"/>
+                        <p className="text-slate-400 font-medium">Sem transações no período seleccionado</p>
+                        <p className="text-slate-300 text-xs mt-1">Ajuste as datas e clique em "Actualizar"</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {data.por_colegio.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-900 text-white">
+                      <td className="px-5 py-4 font-bold text-sm">TOTAL CONSOLIDADO</td>
+                      <td className="px-5 py-4 text-right font-mono font-bold">{fmt(data.totais.volume_global)}</td>
+                      <td className="px-5 py-4 text-right font-mono font-bold text-amber-300">{fmt(data.totais.comissoes_global)}</td>
+                      <td className="px-5 py-4 text-right font-mono font-bold text-emerald-300">{fmt(data.totais.liquido_global)}</td>
+                      <td className="px-5 py-4 text-right font-bold">{data.totais.qtd_global}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {loading && !data && (
+        <div className="flex flex-col items-center justify-center py-32 gap-3">
+          <RefreshCw className="w-8 h-8 animate-spin text-slate-300"/>
+          <p className="text-slate-400 text-sm">A calcular relatório…</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao";
+type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "relatorios_financeiros";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -7941,13 +8138,14 @@ export default function AdminDashboard() {
   };
 
   const NAV = [
-    { id: "stats"               as const, label: "Visão Geral",          icon: <LayoutDashboard className="w-5 h-5" /> },
-    { id: "colegios"            as const, label: "Instituições",          icon: <Building2 className="w-5 h-5" /> },
-    { id: "emolumentos_globais" as const, label: "Emolumentos Globais",   icon: <Receipt className="w-5 h-5" /> },
-    { id: "sms"                 as const, label: "SMS & Comunicação",     icon: <Smartphone className="w-5 h-5" /> },
-    { id: "gestao_acessos"      as const, label: "Gestão de Acessos",     icon: <Lock className="w-5 h-5" /> },
-    { id: "config_tecnicas"     as const, label: "Configurações Técnicas",icon: <Settings2 className="w-5 h-5" /> },
-    { id: "parametrizacao"      as const, label: "Parametrização",        icon: <Network className="w-5 h-5" /> },
+    { id: "stats"                  as const, label: "Visão Geral",            icon: <LayoutDashboard className="w-5 h-5" /> },
+    { id: "colegios"               as const, label: "Instituições",            icon: <Building2 className="w-5 h-5" /> },
+    { id: "emolumentos_globais"    as const, label: "Emolumentos Globais",     icon: <Receipt className="w-5 h-5" /> },
+    { id: "relatorios_financeiros" as const, label: "Relatórios Financeiros",  icon: <BarChart3 className="w-5 h-5" /> },
+    { id: "sms"                    as const, label: "SMS & Comunicação",       icon: <Smartphone className="w-5 h-5" /> },
+    { id: "gestao_acessos"         as const, label: "Gestão de Acessos",       icon: <Lock className="w-5 h-5" /> },
+    { id: "config_tecnicas"        as const, label: "Configurações Técnicas",  icon: <Settings2 className="w-5 h-5" /> },
+    { id: "parametrizacao"         as const, label: "Parametrização",          icon: <Network className="w-5 h-5" /> },
   ];
 
   const navigate = (id: AdminView) => {
@@ -8152,6 +8350,7 @@ export default function AdminDashboard() {
             {view === "gestao_acessos" && <AdminRBACView />}
             {view === "config_tecnicas" && <ConfiguracoesTecnicasView />}
             {view === "parametrizacao" && <ParametrizacaoView />}
+            {view === "relatorios_financeiros" && <RelatoriosFinanceirosView />}
           </>
         )}
       </main>
