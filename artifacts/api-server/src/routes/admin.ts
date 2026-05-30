@@ -1557,18 +1557,6 @@ router.get("/admin/relatorios-financeiros", adminAuth, async (req, res) => {
           AND pago_em <  $2
         GROUP BY school_id
       ),
-      splits_agg AS (
-        SELECT
-          pr.school_id,
-          COALESCE(SUM(ps.valor), 0) AS comissao_platform
-        FROM payment_splits ps
-        JOIN propinas pr ON pr.id = ps.propina_id
-        WHERE ps.destino = 'platform'
-          AND pr.status  = 'pago'
-          AND pr.pago_em >= $1
-          AND pr.pago_em <  $2
-        GROUP BY pr.school_id
-      ),
       cobrancas_agg AS (
         SELECT
           school_id::integer,
@@ -1581,34 +1569,22 @@ router.get("/admin/relatorios-financeiros", adminAuth, async (req, res) => {
         GROUP BY school_id
       )
       SELECT
-        s.id                                                    AS school_id,
+        s.id                                                                        AS school_id,
         s.name,
         s.email,
-        COALESCE(s.commission_rate, 0)                          AS commission_rate,
-        ROUND(COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0), 2)   AS volume_bruto,
-        ROUND(
-          COALESCE(sa.comissao_platform,0) +
-          CASE
-            WHEN COALESCE(sa.comissao_platform,0) = 0 AND COALESCE(s.commission_rate,0) > 0
-            THEN ROUND((COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0)) * s.commission_rate / 100, 2)
-            ELSE 0
-          END
-        , 2)                                                                            AS comissao_acumulada,
+        COALESCE(s.commission_rate, 0)                                              AS commission_rate,
+        ROUND(COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0), 2) AS volume_bruto,
         ROUND(
           (COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0))
-          - (
-            COALESCE(sa.comissao_platform,0) +
-            CASE
-              WHEN COALESCE(sa.comissao_platform,0) = 0 AND COALESCE(s.commission_rate,0) > 0
-              THEN ROUND((COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0)) * s.commission_rate / 100, 2)
-              ELSE 0
-            END
-          )
-        , 2)                                                                            AS valor_liquido,
-        COALESCE(pa.qtd_propinas,0) + COALESCE(ca.qtd_cobrancas,0)                    AS qtd_transacoes
+          * COALESCE(s.commission_rate, 0) / 100
+        , 2)                                                                        AS comissao_acumulada,
+        ROUND(
+          (COALESCE(pa.volume_propinas,0) + COALESCE(ca.volume_cobrancas,0))
+          * (1 - COALESCE(s.commission_rate, 0) / 100)
+        , 2)                                                                        AS valor_liquido,
+        COALESCE(pa.qtd_propinas,0) + COALESCE(ca.qtd_cobrancas,0)                 AS qtd_transacoes
       FROM schools s
       LEFT JOIN propinas_agg pa  ON pa.school_id  = s.id
-      LEFT JOIN splits_agg   sa  ON sa.school_id  = s.id
       LEFT JOIN cobrancas_agg ca ON ca.school_id  = s.id
       ORDER BY volume_bruto DESC NULLS LAST
     `, [start.toISOString(), end.toISOString()]);
