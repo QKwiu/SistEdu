@@ -59,7 +59,7 @@ interface Propina {
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
 interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil" | "caixa";
 
 /* ─── Store Interfaces ─── */
 interface StoreItemDB { id: number; school_id: number; nome: string; descricao?: string; preco: number; stock: number | null; visivel_portal: boolean; ativo: boolean; categoria?: string; }
@@ -4175,6 +4175,649 @@ const SAMPLE_PAYLOAD: Record<string, string> = {
 
 function previewTemplate(tpl: string): string {
   return Object.entries(SAMPLE_PAYLOAD).reduce((t, [k, v]) => t.replaceAll(k, v), tpl);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CaixaView — POS / Faturação Presencial
+   ═══════════════════════════════════════════════════════════════ */
+
+function printCaixaFatura(fatura: any, escola: any, aluno: any, mode: "thermal" | "a4") {
+  const fmt = (v: number) => Number(v).toLocaleString("pt-AO");
+  const dataHora = new Date(fatura.created_at);
+  const dataStr = dataHora.toLocaleDateString("pt-AO");
+  const horaStr = dataHora.toLocaleTimeString("pt-AO", { hour: "2-digit", minute: "2-digit" });
+  const metodoLabel = fatura.metodo_pagamento === "CASH" ? "Numerário" : "POS / TPA";
+
+  const html = mode === "thermal" ? `<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"/>
+<title>${fatura.numero_fatura}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Courier New',monospace;font-size:11px;width:80mm;padding:6px;color:#000;background:#fff}
+  .c{text-align:center} .b{font-weight:bold} .lg{font-size:13px}
+  hr{border:none;border-top:1px dashed #000;margin:5px 0}
+  .row{display:flex;justify-content:space-between;gap:4px}
+  .row span:last-child{white-space:nowrap;font-weight:bold}
+</style></head><body>
+<div class="c b lg">${escola?.nome ?? ""}</div>
+${escola?.nif ? `<div class="c">NIF: ${escola.nif}</div>` : ""}
+${escola?.phone ? `<div class="c">${escola.phone}</div>` : ""}
+<hr/>
+<div class="c b">FATURA DE CAIXA</div>
+<div class="c b" style="font-size:13px">${fatura.numero_fatura}</div>
+<div class="c">${dataStr} ${horaStr}</div>
+<hr/>
+<div><span class="b">Aluno: </span>${fatura.aluno_nome}</div>
+${fatura.aluno_numero_processo ? `<div>Proc: ${fatura.aluno_numero_processo}</div>` : ""}
+${fatura.aluno_turma ? `<div>Turma: ${fatura.aluno_turma}</div>` : ""}
+<hr/>
+<div class="row"><span>${fatura.descricao}</span><span>${fmt(fatura.montante)} Kz</span></div>
+<hr/>
+<div class="row lg b"><span>TOTAL</span><span>${fmt(fatura.montante)} Kz</span></div>
+<div class="c" style="margin-top:3px">${metodoLabel}</div>
+<hr/>
+<div class="c">Operador: ${fatura.operador_nome}</div>
+<div class="c b" style="margin-top:4px">★ LIQUIDADO ★</div>
+<div class="c" style="margin-top:6px">Obrigado!</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}</script>
+</body></html>` : `<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"/>
+<title>${fatura.numero_fatura}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:13px;margin:0;padding:40px;color:#111}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1e293b;padding-bottom:18px;margin-bottom:24px}
+  .school-name{font-size:22px;font-weight:700;margin-bottom:4px}
+  .tag{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b}
+  .inv-num{font-size:22px;font-weight:700;font-family:'Courier New',monospace;text-align:right}
+  .bill-to{margin-bottom:24px}
+  .bill-to p{margin:2px 0}
+  table{width:100%;border-collapse:collapse;margin-bottom:24px}
+  th{background:#f1f5f9;padding:9px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#64748b}
+  td{padding:11px 12px;border-bottom:1px solid #e2e8f0}
+  .total-row td{font-weight:700;font-size:16px;background:#f8fafc}
+  .mono{font-family:'Courier New',monospace}
+  .ftr{display:flex;justify-content:space-between;font-size:12px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:14px}
+  .paid{color:#16a34a;font-weight:700;font-size:15px}
+  @media print{@page{margin:20mm}body{padding:0}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    <div class="school-name">${escola?.nome ?? ""}</div>
+    ${escola?.nif ? `<div style="color:#64748b;font-size:12px">NIF: ${escola.nif}</div>` : ""}
+    ${escola?.phone ? `<div style="color:#64748b;font-size:12px">${escola.phone}</div>` : ""}
+  </div>
+  <div style="text-align:right">
+    <div class="tag">Fatura de Caixa</div>
+    <div class="inv-num">${fatura.numero_fatura}</div>
+    <div style="color:#64748b;font-size:12px">${dataStr}</div>
+  </div>
+</div>
+<div class="bill-to">
+  <div class="tag" style="margin-bottom:6px">Facturado a</div>
+  <p style="font-size:18px;font-weight:700">${fatura.aluno_nome}</p>
+  ${fatura.aluno_turma ? `<p style="color:#64748b">Turma: ${fatura.aluno_turma}</p>` : ""}
+  ${fatura.aluno_numero_processo ? `<p style="color:#64748b">Proc: ${fatura.aluno_numero_processo}</p>` : ""}
+</div>
+<table>
+  <thead><tr><th>Descrição</th><th style="text-align:right">Valor (Kz)</th></tr></thead>
+  <tbody>
+    <tr><td>${fatura.descricao}</td><td class="mono" style="text-align:right;font-weight:600">${fmt(fatura.montante)}</td></tr>
+  </tbody>
+  <tfoot>
+    <tr class="total-row"><td style="text-align:right">TOTAL</td><td class="mono" style="text-align:right">${fmt(fatura.montante)} Kz</td></tr>
+  </tfoot>
+</table>
+<div class="ftr">
+  <div>
+    <p><b>Meio de Pagamento:</b> ${metodoLabel}</p>
+    <p><b>Operador:</b> ${fatura.operador_nome}</p>
+    <p>${dataStr} ${horaStr}</p>
+  </div>
+  <div style="text-align:right"><div class="paid">LIQUIDADO</div></div>
+</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}</script>
+</body></html>`;
+
+  const w = window.open("", "_blank", mode === "thermal" ? "width=340,height=500" : "width=800,height=600");
+  if (!w) { alert("Permita popups para imprimir a fatura."); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+}
+
+function CaixaView({ token }: { token: string }) {
+  const authH = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const [faturas, setFaturas]   = useState<any[]>([]);
+  const [totais, setTotais]     = useState({ qtd_hoje: 0, volume_hoje: 0, qtd_total: 0, volume_total: 0 });
+  const [emolumentos, setEmolumentos] = useState<any[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
+
+  /* ── Modal state ── */
+  const [modal, setModal] = useState(false);
+  const [step, setStep]   = useState<1 | 2 | 3>(1);
+
+  /* Step 1 — student */
+  const [search, setSearch]         = useState("");
+  const [searching, setSearching]   = useState(false);
+  const [results, setResults]       = useState<any[]>([]);
+  const [student, setStudent]       = useState<any>(null);
+
+  /* Step 2 — item */
+  const [itemTipo, setItemTipo]           = useState<"propina" | "emolumento" | "livre">("propina");
+  const [propinas, setPropinas]           = useState<any[]>([]);
+  const [selPropina, setSelPropina]       = useState<any>(null);
+  const [selEmolumento, setSelEmolumento] = useState<any>(null);
+  const [livreDesc, setLivreDesc]         = useState("");
+  const [livreMont, setLivreMont]         = useState("");
+
+  /* Step 3 — payment */
+  const [metodo, setMetodo]     = useState<"CASH" | "POS_TPA">("CASH");
+  const [operador, setOperador] = useState("");
+  const [printMode, setPrintMode] = useState<"thermal" | "a4">("thermal");
+
+  /* Emit */
+  const [emitting, setEmitting]     = useState(false);
+  const [lastFatura, setLastFatura] = useState<any>(null);
+
+  /* ── Load list ── */
+  const loadFaturas = useCallback(() => {
+    setLoadingList(true);
+    fetch(`${API}/school/caixa/faturas`, { headers: authH })
+      .then(r => r.ok ? r.json() : { faturas: [], totais: {} })
+      .then(d => { setFaturas(d.faturas ?? []); setTotais(d.totais ?? {}); })
+      .finally(() => setLoadingList(false));
+  }, [authH]);
+
+  useEffect(() => {
+    loadFaturas();
+    fetch(`${API}/school/caixa/emolumentos`, { headers: authH })
+      .then(r => r.ok ? r.json() : []).then(setEmolumentos);
+  }, [authH]);
+
+  /* ── Student search ── */
+  useEffect(() => {
+    if (!search.trim() || search.length < 2) { setResults([]); return; }
+    const t = setTimeout(() => {
+      setSearching(true);
+      fetch(`${API}/school/caixa/alunos-search?q=${encodeURIComponent(search)}&limit=8`, { headers: authH })
+        .then(r => r.ok ? r.json() : []).then(setResults)
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search, authH]);
+
+  const pickStudent = async (s: any) => {
+    setStudent(s); setResults([]); setSearch(s.nome);
+    setSelPropina(null); setPropinas([]);
+    const r = await fetch(`${API}/school/caixa/aluno-propinas/${s.id}`, { headers: authH });
+    if (r.ok) setPropinas(await r.json());
+  };
+
+  /* ── Open modal fresh ── */
+  const openModal = () => {
+    setModal(true); setStep(1);
+    setSearch(""); setResults([]); setStudent(null);
+    setItemTipo("propina"); setSelPropina(null); setSelEmolumento(null);
+    setLivreDesc(""); setLivreMont("");
+    setMetodo("CASH"); setOperador(""); setPrintMode("thermal");
+  };
+
+  /* ── Derived: description + amount ── */
+  const getDescricao = () => {
+    if (itemTipo === "propina" && selPropina)
+      return `Propina — ${selPropina.mes} ${selPropina.ano}`;
+    if (itemTipo === "emolumento" && selEmolumento)
+      return selEmolumento.nome;
+    return livreDesc;
+  };
+  const getMontante = () => {
+    if (itemTipo === "propina" && selPropina)
+      return Number(selPropina.montante) + Number(selPropina.multa ?? 0);
+    if (itemTipo === "emolumento" && selEmolumento)
+      return Number(selEmolumento.montante);
+    return Number(livreMont) || 0;
+  };
+
+  const canAdvanceStep2 = itemTipo === "propina" ? !!selPropina
+    : itemTipo === "emolumento" ? !!selEmolumento
+    : (livreDesc.trim().length > 0 && Number(livreMont) > 0);
+
+  /* ── Emit ── */
+  const handleEmitir = async () => {
+    setEmitting(true);
+    try {
+      const r = await fetch(`${API}/school/caixa/emitir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authH },
+        body: JSON.stringify({
+          student_id:      student.id,
+          propina_id:      itemTipo === "propina" && selPropina ? selPropina.id : null,
+          emolumento_id:   itemTipo === "emolumento" && selEmolumento ? selEmolumento.id : null,
+          descricao:       getDescricao(),
+          montante:        getMontante(),
+          metodo_pagamento: metodo,
+          operador_nome:   operador.trim() || "Administrador",
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao emitir fatura.");
+      setLastFatura(d);
+      setModal(false);
+      loadFaturas();
+      setTimeout(() => printCaixaFatura(d.fatura, d.escola, d.aluno, printMode), 300);
+    } catch (e: any) {
+      alert(e.message ?? "Erro ao emitir fatura.");
+    } finally {
+      setEmitting(false);
+    }
+  };
+
+  const fmt = (v: number) => Number(v).toLocaleString("pt-AO");
+  const fmtDate = (d: string) => new Date(d).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" });
+
+  /* ─────────────────────────── RENDER ─────────────────────────── */
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Receipt className="w-6 h-6 text-primary"/>
+            Caixa — Faturação Presencial
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">Emissão imediata de faturas no atendimento presencial</p>
+        </div>
+        <button onClick={openModal}
+          className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-primary/90 shadow-sm transition-colors whitespace-nowrap">
+          <Plus className="w-5 h-5"/> Emitir Fatura de Caixa
+        </button>
+      </div>
+
+      {/* Stats bar */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Faturas Hoje",   value: String(totais.qtd_hoje),                  unit: "" },
+          { label: "Volume Hoje",    value: fmt(totais.volume_hoje),                   unit: "Kz" },
+          { label: "Total Faturas",  value: String(totais.qtd_total),                  unit: "" },
+          { label: "Volume Total",   value: fmt(totais.volume_total),                  unit: "Kz" },
+        ].map(({ label, value, unit }) => (
+          <div key={label} className="bg-white rounded-2xl border border-slate-200 px-4 py-3">
+            <p className="text-xs text-slate-500 font-medium">{label}</p>
+            <p className="text-xl font-bold text-slate-900 mt-0.5 font-mono">
+              {value}<span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Invoice list */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="font-semibold text-slate-900">Faturas Emitidas</h3>
+          <button onClick={loadFaturas}
+            className="text-xs text-primary hover:underline flex items-center gap-1">
+            <RefreshCw className={`w-3 h-3 ${loadingList ? "animate-spin" : ""}`}/> Actualizar
+          </button>
+        </div>
+
+        {loadingList ? (
+          <div className="flex justify-center py-12">
+            <RefreshCw className="w-5 h-5 animate-spin text-primary"/>
+          </div>
+        ) : faturas.length === 0 ? (
+          <div className="text-center py-16 text-slate-400">
+            <Receipt className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+            <p className="text-sm font-medium">Nenhuma fatura de caixa emitida.</p>
+            <p className="text-xs mt-1">Clique em "Emitir Fatura de Caixa" para começar.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  {["Nº Fatura","Data","Aluno","Descrição","Valor (Kz)","Método","Operador",""].map(h => (
+                    <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {faturas.map((f: any) => (
+                  <tr key={f.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-primary whitespace-nowrap">{f.numero_fatura}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{fmtDate(f.created_at)}</td>
+                    <td className="px-4 py-3 font-medium text-slate-800 max-w-[140px] truncate">{f.aluno_nome}</td>
+                    <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{f.descricao}</td>
+                    <td className="px-4 py-3 font-mono font-semibold text-slate-900 whitespace-nowrap">{fmt(f.montante)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${f.metodo_pagamento === "CASH" ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"}`}>
+                        {f.metodo_pagamento === "CASH" ? "💵 Numerário" : "💳 POS/TPA"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{f.operador_nome}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => printCaixaFatura(f, null, null, "thermal")}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors"
+                        title="Reimprimir talão">
+                        <Printer className="w-4 h-4"/>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ─────────────────── MODAL ─────────────────── */}
+      <AnimatePresence>
+        {modal && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={e => { if (e.target === e.currentTarget) setModal(false); }}>
+            <motion.div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}>
+
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-primary"/> Emitir Fatura de Caixa
+                </h3>
+                <button onClick={() => setModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                  <X className="w-5 h-5"/>
+                </button>
+              </div>
+
+              {/* Steps indicator */}
+              <div className="px-6 pt-5">
+                <div className="flex items-center">
+                  {[
+                    { n: 1, label: "Aluno" },
+                    { n: 2, label: "Serviço" },
+                    { n: 3, label: "Pagamento" },
+                  ].map(({ n, label }, i) => (
+                    <React.Fragment key={n}>
+                      <div className={`flex items-center gap-1.5 ${step >= n ? "text-primary" : "text-slate-400"}`}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${step > n ? "bg-primary border-primary text-white" : step === n ? "bg-primary/10 border-primary text-primary" : "bg-slate-50 border-slate-200 text-slate-400"}`}>
+                          {step > n ? <CheckCircle2 className="w-4 h-4"/> : n}
+                        </div>
+                        <span className="text-xs font-semibold hidden sm:block">{label}</span>
+                      </div>
+                      {i < 2 && <div className={`flex-1 h-0.5 mx-2 rounded-full transition-all ${step > n ? "bg-primary" : "bg-slate-200"}`}/>}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-6 space-y-5">
+
+                {/* ── STEP 1: Student search ── */}
+                {step === 1 && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+                        Pesquisar Aluno *
+                      </label>
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                        <input
+                          value={search}
+                          onChange={e => { setSearch(e.target.value); setStudent(null); }}
+                          placeholder="Nome ou nº de processo…"
+                          className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"/>
+                        {searching && <RefreshCw className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin"/>}
+                      </div>
+                      {results.length > 0 && !student && (
+                        <div className="mt-1.5 border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                          {results.map((s: any) => (
+                            <button key={s.id} onClick={() => pickStudent(s)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-primary/5 transition-colors text-left border-b border-slate-50 last:border-0">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">
+                                {s.nome?.split(" ").map((w: string) => w[0]).slice(0,2).join("").toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-slate-800 truncate">{s.nome}</p>
+                                <p className="text-xs text-slate-400">{s.turma ?? "Sem turma"}{s.numero_processo ? ` · Proc: ${s.numero_processo}` : ""}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {student && (
+                      <div className="flex items-center gap-3 p-3.5 bg-primary/5 rounded-xl border border-primary/20">
+                        <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                          {student.nome?.split(" ").map((w: string) => w[0]).slice(0,2).join("").toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-slate-900 truncate">{student.nome}</p>
+                          <p className="text-xs text-slate-500">{student.turma ?? "Sem turma"}{student.numero_processo ? ` · Proc: ${student.numero_processo}` : ""}</p>
+                        </div>
+                        <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0"/>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── STEP 2: Service selection ── */}
+                {step === 2 && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Tipo de Serviço</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { k: "propina"    as const, icon: "📋", label: "Propina" },
+                          { k: "emolumento" as const, icon: "🏷️", label: "Emolumento" },
+                          { k: "livre"      as const, icon: "✏️", label: "Livre" },
+                        ].map(({ k, icon, label }) => (
+                          <button key={k}
+                            onClick={() => { setItemTipo(k); setSelPropina(null); setSelEmolumento(null); }}
+                            className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all ${itemTipo === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
+                            <span className="text-xl">{icon}</span>
+                            <span className="text-xs font-bold">{label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {itemTipo === "propina" && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Propinas Pendentes</p>
+                        {propinas.length === 0 ? (
+                          <div className="text-center py-8 bg-slate-50 rounded-xl text-slate-400">
+                            <p className="text-sm">Nenhuma propina pendente para este aluno.</p>
+                          </div>
+                        ) : (
+                          propinas.map((p: any) => {
+                            const total = Number(p.montante) + Number(p.multa ?? 0);
+                            const sel = selPropina?.id === p.id;
+                            return (
+                              <button key={p.id} onClick={() => setSelPropina(p)}
+                                className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${sel ? "bg-primary/5 border-primary" : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
+                                <div className="text-left">
+                                  <p className="text-sm font-semibold text-slate-800">{p.mes} {p.ano}</p>
+                                  <p className={`text-xs mt-0.5 ${p.status === "vencido" ? "text-red-500" : "text-slate-400"}`}>
+                                    {p.status === "vencido" ? "⚠ Vencida" : "Pendente"}
+                                  </p>
+                                </div>
+                                <div className="text-right flex items-center gap-2">
+                                  <div>
+                                    <p className="font-mono font-bold text-slate-900">{Number(p.montante).toLocaleString("pt-AO")} Kz</p>
+                                    {Number(p.multa) > 0 && (
+                                      <p className="text-xs text-red-500">+{Number(p.multa).toLocaleString("pt-AO")} multa</p>
+                                    )}
+                                  </div>
+                                  {sel && <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0"/>}
+                                </div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {itemTipo === "emolumento" && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Seleccionar Emolumento</p>
+                        <select
+                          value={selEmolumento?.id ?? ""}
+                          onChange={e => setSelEmolumento(emolumentos.find((em: any) => em.id === Number(e.target.value)) ?? null)}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                          <option value="">Seleccionar emolumento…</option>
+                          {emolumentos.map((em: any) => (
+                            <option key={em.id} value={em.id}>
+                              {em.nome} — {Number(em.montante).toLocaleString("pt-AO")} Kz
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {itemTipo === "livre" && (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">Descrição *</label>
+                          <input value={livreDesc} onChange={e => setLivreDesc(e.target.value)}
+                            placeholder="Ex: Certificado de habilitações"
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"/>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">Montante (Kz) *</label>
+                          <input type="number" min="0" value={livreMont} onChange={e => setLivreMont(e.target.value)}
+                            placeholder="0"
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"/>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── STEP 3: Payment + confirm ── */}
+                {step === 3 && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Meio de Pagamento</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { k: "CASH"    as const, icon: "💵", label: "Numerário",  desc: "Pagamento em dinheiro" },
+                          { k: "POS_TPA" as const, icon: "💳", label: "POS / TPA",  desc: "Cartão multibanco" },
+                        ].map(({ k, icon, label, desc }) => (
+                          <button key={k} onClick={() => setMetodo(k)}
+                            className={`flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 text-center transition-all ${metodo === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
+                            <span className="text-2xl">{icon}</span>
+                            <span className="text-sm font-bold">{label}</span>
+                            <span className="text-xs text-slate-400">{desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">Operador de Caixa</label>
+                      <input value={operador} onChange={e => setOperador(e.target.value)}
+                        placeholder="Nome do operador (opcional)"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"/>
+                    </div>
+
+                    {/* Summary */}
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-2.5 border border-slate-200">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Resumo da Fatura</p>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex justify-between gap-4">
+                          <span className="text-slate-500">Aluno</span>
+                          <span className="font-semibold text-slate-800 text-right truncate">{student?.nome}</span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-slate-500 flex-shrink-0">Serviço</span>
+                          <span className="font-semibold text-slate-800 text-right">{getDescricao()}</span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span className="text-slate-500">Método</span>
+                          <span className="font-semibold">{metodo === "CASH" ? "💵 Numerário" : "💳 POS/TPA"}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                          <span className="font-bold text-slate-900">Total</span>
+                          <span className="font-bold text-2xl text-primary font-mono">
+                            {getMontante().toLocaleString("pt-AO")} Kz
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Formato de impressão</p>
+                      <div className="flex gap-2">
+                        {([
+                          { k: "thermal" as const, label: "🧾 Talão 80mm" },
+                          { k: "a4"      as const, label: "📄 A4" },
+                        ]).map(({ k, label }) => (
+                          <button key={k} onClick={() => setPrintMode(k)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition-all ${printMode === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Navigation buttons */}
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                  {step > 1 ? (
+                    <button onClick={() => setStep(s => (s - 1) as 1 | 2 | 3)}
+                      className="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900 font-medium">
+                      <ChevronLeft className="w-4 h-4"/> Anterior
+                    </button>
+                  ) : <div/>}
+
+                  {step < 3 ? (
+                    <button
+                      onClick={() => setStep(s => (s + 1) as 1 | 2 | 3)}
+                      disabled={step === 1 ? !student : !canAdvanceStep2}
+                      className="flex items-center gap-2 bg-primary text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                      Próximo <ChevronRight className="w-4 h-4"/>
+                    </button>
+                  ) : (
+                    <button onClick={handleEmitir} disabled={emitting || getMontante() <= 0}
+                      className="flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                      {emitting
+                        ? <><RefreshCw className="w-4 h-4 animate-spin"/> A processar…</>
+                        : <><Printer className="w-4 h-4"/> Confirmar e Imprimir</>}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Success toast after emit */}
+      <AnimatePresence>
+        {lastFatura && (
+          <motion.div
+            className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3.5 rounded-2xl shadow-xl flex items-center gap-3 max-w-sm"
+            initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}>
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0"/>
+            <div className="min-w-0">
+              <p className="font-bold text-sm">Fatura emitida!</p>
+              <p className="text-xs opacity-80 font-mono">{lastFatura.fatura?.numero_fatura}</p>
+            </div>
+            <button onClick={() => setLastFatura(null)} className="ml-2 opacity-70 hover:opacity-100">
+              <X className="w-4 h-4"/>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -9310,7 +9953,7 @@ export default function Dashboard() {
   type NavEntry = NavLeaf | NavGroup;
 
   /* Views that belong to each accordion group */
-  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios"];
+  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios", "caixa"];
   const COMUNICAR_VIEWS: DashView[] = ["comunicar", "ocorrencias"];
 
   /* ── Structured NAV ── */
@@ -9322,6 +9965,7 @@ export default function Dashboard() {
       type: "group", key: "financeiro",
       icon: <Banknote className="w-5 h-5"/>, label: "Financeiro",
       children: [
+        { type: "item", key: "caixa",         icon: <Receipt className="w-4 h-4"/>,     label: "Fatura de Caixa" },
         { type: "item", key: "reconciliacao", icon: <ShieldCheck className="w-4 h-4"/>, label: "Reconciliação" },
         { type: "item", key: "relatorios",    icon: <BarChart3 className="w-4 h-4"/>,   label: "Relatórios" },
       ],
@@ -9578,6 +10222,11 @@ export default function Dashboard() {
             {view === "comunicar" && (
               <motion.div key="comunicar" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
                 <ComunicarView token={token} moduloInfantil={schoolModuloInfantil}/>
+              </motion.div>
+            )}
+            {view === "caixa" && token && (
+              <motion.div key="caixa" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
+                <CaixaView token={token}/>
               </motion.div>
             )}
             {view === "debito_direto" && (

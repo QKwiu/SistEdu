@@ -10,14 +10,15 @@ import {
 const API = "/api";
 
 const MODULES = [
-  { key: "alunos",       label: "Alunos & Turmas" },
-  { key: "propinas",     label: "Propinas & Faturas" },
-  { key: "reconciliacao",label: "Reconciliação" },
-  { key: "ocorrencias",  label: "Ocorrências" },
-  { key: "comunicar",    label: "Comunicados" },
-  { key: "debito_direto",label: "Débito Directo" },
-  { key: "emolumentos",  label: "Emolumentos" },
-  { key: "relatorios",   label: "Relatórios" },
+  { key: "alunos",         label: "Alunos & Turmas" },
+  { key: "propinas",       label: "Propinas & Faturas" },
+  { key: "caixa_fatura",   label: "Caixa — Faturação Presencial" },
+  { key: "reconciliacao",  label: "Reconciliação" },
+  { key: "ocorrencias",    label: "Ocorrências" },
+  { key: "comunicar",      label: "Comunicados" },
+  { key: "debito_direto",  label: "Débito Directo" },
+  { key: "emolumentos",    label: "Emolumentos" },
+  { key: "relatorios",     label: "Relatórios" },
   { key: "gestao_acessos", label: "Gestão de Acessos" },
 ];
 

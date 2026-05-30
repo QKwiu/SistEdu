@@ -1,1 +1,3 @@
 - [EMIS Payment Engine](emis-payment-engine.md) — Strategy Pattern (GPO/MCX/DD), secrets masking on read, mergePreserveSecrets on write.
+- [Propinas schema](propinas-schema.md) — usa school_id (não escola_id); colunas baixa_manual, metodo_pagamento, pagamento_origem existem.
+- [Caixa POS feature](caixa-pos-feature.md) — pg_advisory_xact_lock para numeração sequencial; popups para impressão; print format thermal/A4.

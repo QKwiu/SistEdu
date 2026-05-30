@@ -93,6 +93,29 @@ pool.query(`
   ALTER TABLE comunicados ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'normal';
   ALTER TABLE comunicados ADD COLUMN IF NOT EXISTS foto_base64 TEXT;
 `).catch(() => {});
+
+/* ─── Caixa Faturas: POS sequential invoicing ─── */
+pool.query(`
+  CREATE TABLE IF NOT EXISTS caixa_faturas (
+    id SERIAL PRIMARY KEY,
+    escola_id INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+    numero_seq INTEGER NOT NULL,
+    numero_fatura TEXT NOT NULL,
+    student_id INTEGER REFERENCES students(id) ON DELETE SET NULL,
+    aluno_nome TEXT NOT NULL,
+    aluno_numero_processo TEXT,
+    aluno_turma TEXT,
+    emolumento_id INTEGER REFERENCES emolumentos(id) ON DELETE SET NULL,
+    propina_id INTEGER REFERENCES propinas(id) ON DELETE SET NULL,
+    descricao TEXT NOT NULL,
+    montante NUMERIC(12,2) NOT NULL,
+    metodo_pagamento TEXT NOT NULL DEFAULT 'CASH',
+    operador_nome TEXT DEFAULT 'Administrador',
+    status TEXT NOT NULL DEFAULT 'liquidado',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS caixa_faturas_escola_seq ON caixa_faturas(escola_id, numero_seq);
+`).catch(e => console.error("caixa_faturas migration error:", e));
 pool.query(`
   ALTER TABLE students ADD CONSTRAINT IF NOT EXISTS uniq_student_school_num_proc UNIQUE (school_id, numero_processo);
 `).catch(() => {});
@@ -1456,6 +1479,158 @@ router.post("/school/comunicar/aniversario", schoolAuth, async (req: any, res) =
     [school.school_id, titulo.trim(), conteudo.trim(), foto_base64 ?? null]
   );
   return res.status(201).json({ comunicado_id: r.rows[0].id });
+});
+
+/* ════════════════════════════════════════════════════════════════
+   CAIXA — Faturação Presencial (POS)
+   ════════════════════════════════════════════════════════════════ */
+
+/* ─── GET /school/caixa/alunos-search ─── */
+router.get("/school/caixa/alunos-search", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const q = (req.query.q as string ?? "").trim();
+  const limit = Math.min(Number(req.query.limit ?? 10), 20);
+  if (q.length < 2) return res.json([]);
+  const r = await pool.query(
+    `SELECT s.id, s.nome, s.numero_processo, COALESCE(t.nome,'Sem turma') AS turma
+     FROM students s LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.school_id = $1
+       AND s.estado = 'activo'
+       AND (s.nome ILIKE $2 OR s.numero_processo ILIKE $2)
+     ORDER BY s.nome LIMIT $3`,
+    [school.school_id, `%${q}%`, limit]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── GET /school/caixa/emolumentos ─── */
+router.get("/school/caixa/emolumentos", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT id, nome, montante, tipo FROM emolumentos
+     WHERE school_id = $1 AND activo = true
+     ORDER BY tipo, nome`,
+    [school.school_id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── GET /school/caixa/aluno-propinas/:student_id ─── */
+router.get("/school/caixa/aluno-propinas/:student_id", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT p.id, p.mes, p.ano, p.montante, COALESCE(p.multa,0) AS multa,
+            COALESCE(p.desconto,0) AS desconto, p.status, p.data_vencimento
+     FROM propinas p
+     WHERE p.student_id = $1 AND p.school_id = $2
+       AND p.status IN ('pendente','vencido')
+     ORDER BY p.ano DESC, p.mes`,
+    [req.params.student_id, school.school_id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── POST /school/caixa/emitir ─── */
+router.post("/school/caixa/emitir", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { student_id, emolumento_id, propina_id, descricao, montante, metodo_pagamento, operador_nome } = req.body;
+  if (!student_id || !descricao?.trim() || !montante || Number(montante) <= 0)
+    return res.status(400).json({ error: "Aluno, descrição e montante são obrigatórios." });
+
+  const studentR = await pool.query(
+    `SELECT s.nome, s.numero_processo, COALESCE(t.nome,'Sem turma') AS turma,
+            s.nome_encarregado, e.name AS escola_nome, e.nif AS escola_nif,
+            e.phone AS escola_phone, e.logo_url, e.institution_type
+     FROM students s
+     JOIN schools e ON e.id = s.school_id
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     WHERE s.id = $1 AND s.school_id = $2`,
+    [student_id, school.school_id]
+  );
+  if (!studentR.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+  const st = studentR.rows[0];
+  const year = new Date().getFullYear();
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1)", [school.school_id]);
+    const seqR = await client.query(
+      `SELECT COALESCE(MAX(numero_seq),0)+1 AS seq FROM caixa_faturas WHERE escola_id=$1`,
+      [school.school_id]
+    );
+    const seq = seqR.rows[0].seq;
+    const numero_fatura = `FC-${year}-${String(seq).padStart(5,"0")}`;
+
+    const faturaR = await client.query(
+      `INSERT INTO caixa_faturas
+        (escola_id,numero_seq,numero_fatura,student_id,aluno_nome,aluno_numero_processo,aluno_turma,
+         emolumento_id,propina_id,descricao,montante,metodo_pagamento,operador_nome,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'liquidado') RETURNING *`,
+      [school.school_id, seq, numero_fatura, student_id, st.nome,
+       st.numero_processo ?? null, st.turma,
+       emolumento_id ?? null, propina_id ?? null,
+       descricao.trim(), Number(montante),
+       metodo_pagamento || "CASH",
+       (operador_nome?.trim()) || "Administrador"]
+    );
+
+    if (propina_id) {
+      await client.query(
+        `UPDATE propinas SET status='pago', pago_em=NOW(),
+           metodo_pagamento=$1, pagamento_origem='caixa',
+           baixa_manual=true, baixa_manual_por=$2, baixa_manual_em=NOW()
+         WHERE id=$3 AND school_id=$4 AND status IN ('pendente','vencido')`,
+        [metodo_pagamento || "CASH",
+         (operador_nome?.trim()) || "Administrador",
+         propina_id, school.school_id]
+      );
+    }
+
+    await client.query("COMMIT");
+    return res.status(201).json({
+      fatura: faturaR.rows[0],
+      escola: {
+        nome: st.escola_nome, nif: st.escola_nif,
+        phone: st.escola_phone, institution_type: st.institution_type,
+      },
+      aluno: {
+        nome: st.nome, numero_processo: st.numero_processo,
+        turma: st.turma, nome_encarregado: st.nome_encarregado,
+      },
+    });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error("caixa/emitir:", e);
+    return res.status(500).json({ error: "Erro ao emitir fatura de caixa." });
+  } finally {
+    client.release();
+  }
+});
+
+/* ─── GET /school/caixa/faturas ─── */
+router.get("/school/caixa/faturas", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const limit = Math.min(Number(req.query.limit ?? 50), 100);
+  const r = await pool.query(
+    `SELECT * FROM caixa_faturas WHERE escola_id=$1 ORDER BY created_at DESC LIMIT $2`,
+    [school.school_id, limit]
+  );
+  const hoje = new Date().toISOString().split("T")[0];
+  const totais = r.rows.reduce((acc: any, f: any) => {
+    const dia = new Date(f.created_at).toISOString().split("T")[0];
+    if (dia === hoje) { acc.qtd_hoje++; acc.volume_hoje += Number(f.montante); }
+    acc.qtd_total++;
+    acc.volume_total += Number(f.montante);
+    return acc;
+  }, { qtd_hoje: 0, volume_hoje: 0, qtd_total: 0, volume_total: 0 });
+  return res.json({ faturas: r.rows, totais });
 });
 
 /* ─── POST /school/comunicar/publicar — unified: portal + SMS ─── */
