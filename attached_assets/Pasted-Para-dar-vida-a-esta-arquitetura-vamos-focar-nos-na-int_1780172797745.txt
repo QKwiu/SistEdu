@@ -1,0 +1,20 @@
+Para dar vida a esta arquitetura, vamos focar-nos na **integração do GPO via Webframe** utilizando a **API REST da EMIS**.
+O segredo desta integração está no backend: ele precisa de recolher os parâmetros parametrizados no Backoffice, gerar um identificador único de transação (MerchantReference), calcular a assinatura digital (**HMAC-SHA256**) para garantir que os dados não foram adulterados, e devolver o payload que o frontend usará para abrir o Webframe.
+
+```
+## 2. Campos Obrigatórios para a Integração EMIS (GPO)
+Quando o teu código comunica com a API da EMIS para iniciar o Webframe, estes são os campos que **não podem faltar** no JSON e que devem ser alimentados pelas tuas tabelas de parametrização e de vendas:
+| Campo Técnico | Tipo | Origem no Sistema | Descrição |
+|---|---|---|---|
+| **merchantId** | String | Configurações Técnicas (Admin) | Identificador único da tua empresa fornecido pela EMIS. |
+| **terminalId** | String | Configurações Técnicas (Admin) | Identificador do terminal virtual que processa a venda. |
+| **merchantReference** | String | Motor de Vendas (Backend) | Código único da transação gerado pelo teu sistema (essencial para a reconciliação). |
+| **amount** | Decimal | Carrinho de Compras | O valor total a ser cobrado ao cliente. |
+| **currency** | String | Fixo / Configuração | Código ISO da moeda. Para a rede Multicaixa, o padrão obrigatório é **AOA**. |
+| **returnUrlSuccess** | String | Configurações Técnicas (Admin) | URL do teu site para onde o cliente é redirecionado após pagar com sucesso no Webframe. |
+| **returnUrlFail** | String | Configurações Técnicas (Admin) | URL do teu site caso o pagamento falhe ou seja cancelado. |
+| **timestamp** | String | Backend (Tempo Real) | Data/Hora no formato ISO 8601 para evitar ataques de *replay* de transações. |
+| **signature / hash** | String | Função Criptográfica | O resultado do emparelhamento dos dados acima com a **Secret Key** do Admin através de HMAC-SHA256. |
+## 3. O Fluxo de Teste de Conectividade (Botão no Backoffice)
+Para cumprir o requisito de **"Testar Conectividade"** solicitado na tua nota, o teu desenvolvedor deve expor um endpoint simples no backend que utilize as funções acima para disparar um método GET ou POST de diagnóstico (como o endpoint /status ou /echo da própria API da EMIS).
+Se a EMIS responder com HTTP 200, o painel pinta o botão a verde; se der HTTP 401 Unauthorized, o admin sabe que errou na chave secreta ou nos IPs parametrizados.

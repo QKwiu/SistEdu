@@ -63,33 +63,52 @@ export class GpoDriver implements PaymentDriver {
   readonly name = "GPO_EMIS";
 
   async initiate(order: PaymentOrder, cfg: Record<string, unknown>): Promise<PaymentResult> {
-    const { merchant_id, terminal_id, secret_key, url_success, url_fail, url_cancel, api_url } = cfg as Record<string, string>;
+    const {
+      merchant_id, terminal_id, secret_key,
+      url_success, url_fail, api_url,
+    } = cfg as Record<string, string>;
 
     if (!merchant_id || !terminal_id || !secret_key) {
       return {
         ok: false, driver: this.name,
-        error: "Configuração GPO incompleta — merchant_id, terminal_id e secret_key são obrigatórios.",
+        error: "Configuração GPO incompleta — merchantId, terminalId e Secret Key são obrigatórios.",
       };
     }
 
-    const transaction_id = `GPO-${order.school_id}-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+    /* merchantReference — identificador único gerado pelo sistema (para reconciliação) */
+    const merchantReference = `GPO-${order.school_id}-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+
+    /* timestamp ISO 8601 — previne ataques de replay de transações */
+    const timestamp = new Date().toISOString();
+
+    const currency = "AOA";
     const amount_str = Number(order.amount).toFixed(2);
 
-    /* HMAC-SHA256: merchant_id + terminal_id + transaction_id + amount */
-    const raw = `${merchant_id}${terminal_id}${transaction_id}${amount_str}`;
-    const checksum = crypto.createHmac("sha256", secret_key).update(raw).digest("hex").toUpperCase();
+    /* HMAC-SHA256: merchantId + terminalId + merchantReference + amount + currency
+       Conforme especificação EMIS GPO — a signature nunca é enviada ao browser */
+    const raw = `${merchant_id}${terminal_id}${merchantReference}${amount_str}${currency}`;
+    const signature = crypto.createHmac("sha256", secret_key).update(raw).digest("hex").toUpperCase();
 
     return {
       ok: true, driver: this.name,
       payload: {
-        merchant_id, terminal_id, transaction_id,
-        amount: amount_str, currency: "AOA",
-        description: order.description ?? `Propina — ${order.student_name ?? "Aluno"}`,
-        reference: order.reference, checksum,
-        url_success: url_success ?? "",
-        url_fail:    url_fail    ?? "",
-        url_cancel:  url_cancel  ?? "",
-        webframe_url: api_url    ?? "",
+        /* Campos de identidade do terminal */
+        merchantId:        merchant_id,
+        terminalId:        terminal_id,
+        /* Campos gerados pelo backend */
+        merchantReference,
+        timestamp,
+        /* Dados da transação */
+        amount:            amount_str,
+        currency,
+        description:       order.description ?? `Propina — ${order.student_name ?? "Aluno"}`,
+        /* Assinatura digital */
+        signature,
+        /* URLs de retorno */
+        returnUrlSuccess:  url_success ?? "",
+        returnUrlFail:     url_fail    ?? "",
+        /* Endpoint Webframe */
+        webframe_url:      api_url     ?? "",
       },
     };
   }

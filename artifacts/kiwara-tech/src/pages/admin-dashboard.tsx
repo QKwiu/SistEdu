@@ -7422,21 +7422,109 @@ function ConfiguracoesTecnicasView() {
       {/* GPO Tab */}
       {tab === "gpo" && (
         <div className="space-y-5">
+          {/* ── Campos Admin-Configuráveis ── */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Globe className="w-4 h-4 text-blue-500"/> GPO / Webframe EMIS</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                <Globe className="w-4 h-4 text-blue-500"/> GPO — Gateway de Pagamentos Online
+              </h3>
               {envToggle("gpo")}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {field("gpo", "merchant_id", "Merchant ID", { placeholder: "Ex: 900001" })}
-              {field("gpo", "terminal_id", "Terminal ID", { placeholder: "Ex: 00000001" })}
-              {field("gpo", "secret_key", "Secret Key (HMAC)", { secret: true, hint: "Usada para calcular o checksum de segurança da transação" })}
-              {field("gpo", "api_url", "URL do Webframe", { placeholder: "https://gateway.emis.co.ao/..." })}
-              {field("gpo", "url_success", "URL de Sucesso", { placeholder: "https://escola.kiwara.tech/pago" })}
-              {field("gpo", "url_fail", "URL de Erro", { placeholder: "https://escola.kiwara.tech/falha" })}
-              {field("gpo", "url_cancel", "URL de Cancelamento", { placeholder: "https://escola.kiwara.tech/cancelado" })}
+            <p className="text-xs text-slate-400 mb-5">Integração via Webframe EMIS — Cartões Multicaixa, Visa e Mastercard</p>
+
+            {/* Identidade do terminal */}
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Identidade do Terminal</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Merchant ID <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">merchantId</code></span>
+                </label>
+                <input value={String(config.gpo?.merchant_id ?? "")}
+                  onChange={e => update("gpo", "merchant_id", e.target.value)}
+                  placeholder="Ex: 900001"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                <p className="text-xs text-slate-400 mt-1">Identificador único fornecido pela EMIS</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Terminal ID <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">terminalId</code></span>
+                </label>
+                <input value={String(config.gpo?.terminal_id ?? "")}
+                  onChange={e => update("gpo", "terminal_id", e.target.value)}
+                  placeholder="Ex: 00000001"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                <p className="text-xs text-slate-400 mt-1">Terminal virtual que processa a venda</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Secret Key <span className="font-normal text-slate-400 ml-1">— assinatura <code className="bg-slate-100 px-1 rounded text-[10px]">HMAC-SHA256</code></span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSecret["gpo.secret_key"] ? "text" : "password"}
+                    value={String(config.gpo?.secret_key ?? "")}
+                    onChange={e => update("gpo", "secret_key", e.target.value)}
+                    placeholder="Chave secreta fornecida pela EMIS"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-10"/>
+                  <button type="button"
+                    onClick={() => setShowSecret(p => ({ ...p, "gpo.secret_key": !p["gpo.secret_key"] }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showSecret["gpo.secret_key"] ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Usada para gerar o campo <code className="bg-slate-100 px-1 rounded">signature</code> — nunca é enviada ao browser</p>
+              </div>
             </div>
-            <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100">
+
+            {/* URLs de retorno */}
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">URLs de Retorno</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  URL de Sucesso <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">returnUrlSuccess</code></span>
+                </label>
+                <input value={String(config.gpo?.url_success ?? "")}
+                  onChange={e => update("gpo", "url_success", e.target.value)}
+                  placeholder="https://escola.kiwara.tech/pago"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                <p className="text-xs text-slate-400 mt-1">Redireccionado após pagamento confirmado</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  URL de Falha / Cancelamento <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">returnUrlFail</code></span>
+                </label>
+                <input value={String(config.gpo?.url_fail ?? "")}
+                  onChange={e => update("gpo", "url_fail", e.target.value)}
+                  placeholder="https://escola.kiwara.tech/falha"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                <p className="text-xs text-slate-400 mt-1">Cobre tanto falha de pagamento como cancelamento pelo utilizador</p>
+              </div>
+            </div>
+
+            {/* Endpoint do Webframe */}
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Endpoint</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">URL do Webframe EMIS</label>
+                <input value={String(config.gpo?.api_url ?? "")}
+                  onChange={e => update("gpo", "api_url", e.target.value)}
+                  placeholder="https://gateway.emis.co.ao/webframe/..."
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                <p className="text-xs text-slate-400 mt-1">Endereço do Webframe embebido no checkout</p>
+              </div>
+              {/* Moeda — fixo AOA */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Moeda <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">currency</code></span>
+                </label>
+                <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50">
+                  <span className="text-sm font-semibold text-emerald-700">AOA</span>
+                  <span className="text-xs text-slate-400">— Kwanza Angolano (padrão obrigatório EMIS)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
               <div className="flex items-center gap-3">
                 <button onClick={() => test("gpo")} disabled={!!testing}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
@@ -7453,10 +7541,35 @@ function ConfiguracoesTecnicasView() {
             </div>
           </div>
 
-          {/* GPO Info card */}
+          {/* ── Campos gerados automaticamente pelo backend ── */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Campos Gerados Automaticamente pelo Backend</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { field: "merchantReference", origin: "Motor de Vendas", desc: "ID único da transação — gerado pelo sistema para reconciliação" },
+                { field: "timestamp", origin: "Backend (tempo real)", desc: "Data/hora ISO 8601 — previne ataques de replay de transações" },
+                { field: "signature", origin: "HMAC-SHA256", desc: "Hash calculado com a Secret Key — nunca enviada ao browser" },
+              ].map(item => (
+                <div key={item.field} className="flex items-start gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600"/>
+                  </div>
+                  <div>
+                    <code className="text-xs font-bold text-slate-700">{item.field}</code>
+                    <p className="text-[10px] text-slate-500 font-medium mt-0.5">{item.origin}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Fluxo técnico ── */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-            <p className="font-semibold mb-1 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5"/> Fluxo GPO</p>
-            <p className="text-blue-700 text-xs leading-relaxed">O backend calcula o checksum HMAC-SHA256 com: <code className="bg-blue-100 px-1 rounded">merchant_id + terminal_id + transaction_id + amount</code>, expõe o payload seguro para o frontend renderizar o Webframe oficial da EMIS.</p>
+            <p className="font-semibold mb-1 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5"/> Fluxo GPO (Webframe)</p>
+            <p className="text-blue-700 text-xs leading-relaxed">
+              O backend recolhe os parâmetros configurados acima, gera o <code className="bg-blue-100 px-1 rounded">merchantReference</code> único e o <code className="bg-blue-100 px-1 rounded">timestamp</code>, calcula a <code className="bg-blue-100 px-1 rounded">signature</code> via <strong>HMAC-SHA256</strong> (<code className="bg-blue-100 px-1 rounded">merchantId + terminalId + merchantReference + amount + currency</code>) e expõe o payload seguro. O frontend abre o Webframe da EMIS; após pagamento, a EMIS redirige para a <code className="bg-blue-100 px-1 rounded">returnUrlSuccess</code> ou <code className="bg-blue-100 px-1 rounded">returnUrlFail</code>.
+            </p>
           </div>
         </div>
       )}
