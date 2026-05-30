@@ -4872,6 +4872,9 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   const [anivMensagem, setAnivMensagem] = useState("");
   const [anivPublishing, setAnivPublishing] = useState(false);
   const [anivResult, setAnivResult] = useState(false);
+  const [anivManualSearch, setAnivManualSearch] = useState("");
+  const [anivManualResults, setAnivManualResults] = useState<any[]>([]);
+  const [anivManualSearching, setAnivManualSearching] = useState(false);
 
   // ── Effects ──
   useEffect(() => {
@@ -4893,6 +4896,17 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
         .finally(() => setLoadingAniv(false));
     }
   }, [tab, moduloInfantil]);
+
+  useEffect(() => {
+    if (!anivManualSearch.trim() || anivManualSearch.length < 2) { setAnivManualResults([]); return; }
+    const t = setTimeout(() => {
+      setAnivManualSearching(true);
+      fetch(`${API}/school/caixa/alunos-search?q=${encodeURIComponent(anivManualSearch)}&limit=8`, { headers: authH })
+        .then(r => r.ok ? r.json() : []).then(setAnivManualResults)
+        .finally(() => setAnivManualSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [anivManualSearch, authH]);
 
   const loadGlobalTemplates = () =>
     fetch(`${API}/school/comunicar/templates`, { headers: authH })
@@ -4976,10 +4990,13 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   };
 
   const selectAnivStudent = (a: any) => {
-    const age = new Date().getFullYear() - new Date(a.data_nascimento).getFullYear();
+    const age = a.data_nascimento
+      ? new Date().getFullYear() - new Date(a.data_nascimento).getFullYear()
+      : null;
     setAnivStudentId(a.id); setAnivStudentNome(a.nome);
+    setAnivManualSearch(""); setAnivManualResults([]);
     setAnivTitulo(`🎂 Parabéns, ${a.nome.split(" ")[0]}!`);
-    setAnivMensagem(`🎂 Feliz Aniversário, ${a.nome}! 🎉\n\nA nossa escola deseja-te um dia repleto de alegria e muitas felicidades. Que os teus ${age} anos sejam cheios de conquistas e sorrisos! 🌟`);
+    setAnivMensagem(`🎂 Feliz Aniversário, ${a.nome}! 🎉\n\nA nossa escola deseja-te um dia repleto de alegria e muitas felicidades.${age ? ` Que os teus ${age} anos sejam cheios de conquistas e sorrisos!` : " Que o teu dia especial seja cheio de conquistas e sorrisos!"} 🌟`);
   };
 
   const handlePublishAniversario = async () => {
@@ -5351,10 +5368,9 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
             {loadingAniv ? (
               <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-pink-400"/></div>
             ) : aniversariantesHoje.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">
-                <div className="text-4xl mb-2">🎈</div>
+              <div className="text-center py-6 text-slate-400">
+                <div className="text-3xl mb-2">🎈</div>
                 <p className="text-sm">Nenhum aniversariante hoje.</p>
-                <p className="text-xs mt-1">Pode ainda preencher o formulário abaixo manualmente.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -5377,6 +5393,53 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
                 })}
               </div>
             )}
+
+            {/* ── Selecção manual ── */}
+            <div className="border-t border-slate-100 pt-4 space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5"/> Selecionar outro aniversariante
+              </p>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                <input
+                  value={anivManualSearch}
+                  onChange={e => setAnivManualSearch(e.target.value)}
+                  placeholder="Pesquisar aluno por nome…"
+                  className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-200 focus:border-pink-300 transition-all"/>
+                {anivManualSearching && (
+                  <RefreshCw className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 animate-spin"/>
+                )}
+              </div>
+              {anivManualResults.length > 0 && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                  {anivManualResults.map((s: any) => (
+                    <button key={s.id} onClick={() => selectAnivStudent(s)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-pink-50 transition-colors text-left border-b border-slate-50 last:border-0">
+                      <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center text-sm flex-shrink-0">
+                        🎂
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 truncate">{s.nome}</p>
+                        <p className="text-xs text-slate-400">{s.turma ?? "Sem turma"}{s.numero_processo ? ` · Proc: ${s.numero_processo}` : ""}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {anivStudentId && anivStudentNome && (
+                <div className="flex items-center gap-2.5 p-2.5 bg-pink-50 rounded-xl border border-pink-200">
+                  <span className="text-lg flex-shrink-0">🎂</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-pink-600 font-semibold">Aniversariante seleccionado</p>
+                    <p className="text-sm font-bold text-pink-800 truncate">{anivStudentNome}</p>
+                  </div>
+                  <button onClick={() => { setAnivStudentId(null); setAnivStudentNome(""); setAnivTitulo(""); setAnivMensagem(""); }}
+                    className="p-1 rounded-lg text-pink-400 hover:text-pink-600 hover:bg-pink-100 flex-shrink-0">
+                    <X className="w-4 h-4"/>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Foto */}
