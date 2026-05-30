@@ -87,6 +87,12 @@ pool.query(`
 pool.query(`
   ALTER TABLE schools ADD COLUMN IF NOT EXISTS numero_processo_prefixo TEXT DEFAULT '';
 `).catch(() => {});
+
+/* ─── Comunicados: tipo + foto_base64 ─── */
+pool.query(`
+  ALTER TABLE comunicados ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'normal';
+  ALTER TABLE comunicados ADD COLUMN IF NOT EXISTS foto_base64 TEXT;
+`).catch(() => {});
 pool.query(`
   ALTER TABLE students ADD CONSTRAINT IF NOT EXISTS uniq_student_school_num_proc UNIQUE (school_id, numero_processo);
 `).catch(() => {});
@@ -1417,6 +1423,39 @@ router.delete("/school/comunicados/:id", schoolAuth, async (req: any, res) => {
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query("DELETE FROM comunicados WHERE id = $1 AND escola_id = $2", [req.params.id, school.school_id]);
   res.status(204).end();
+});
+
+/* ─── GET /school/comunicar/aniversarios-hoje ─── */
+router.get("/school/comunicar/aniversarios-hoje", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query(
+    `SELECT id, nome, data_nascimento, turma_id
+     FROM students
+     WHERE school_id = $1
+       AND estado = 'activo'
+       AND data_nascimento IS NOT NULL
+       AND EXTRACT(MONTH FROM data_nascimento) = EXTRACT(MONTH FROM CURRENT_DATE)
+       AND EXTRACT(DAY   FROM data_nascimento) = EXTRACT(DAY   FROM CURRENT_DATE)
+     ORDER BY nome`,
+    [school.school_id]
+  );
+  return res.json(r.rows);
+});
+
+/* ─── POST /school/comunicar/aniversario ─── */
+router.post("/school/comunicar/aniversario", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { titulo, conteudo, foto_base64, student_id } = req.body;
+  if (!titulo?.trim() || !conteudo?.trim())
+    return res.status(400).json({ error: "Título e conteúdo são obrigatórios." });
+  const r = await pool.query(
+    `INSERT INTO comunicados (escola_id, titulo, conteudo, prioridade, tipo, foto_base64)
+     VALUES ($1, $2, $3, 'normal', 'aniversario', $4) RETURNING id`,
+    [school.school_id, titulo.trim(), conteudo.trim(), foto_base64 ?? null]
+  );
+  return res.status(201).json({ comunicado_id: r.rows[0].id });
 });
 
 /* ─── POST /school/comunicar/publicar — unified: portal + SMS ─── */

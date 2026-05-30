@@ -4180,10 +4180,10 @@ function previewTemplate(tpl: string): string {
 /* ═══════════════════════════════════════════════════════════════
    ComunicarView — unified communication hub (portal + SMS)
    ═══════════════════════════════════════════════════════════════ */
-function ComunicarView({ token }: { token: string }) {
+function ComunicarView({ token, moduloInfantil = false }: { token: string; moduloInfantil?: boolean }) {
   const authH = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
-  type ComunicarTab = "compor" | "publicados" | "historico";
+  type ComunicarTab = "compor" | "publicados" | "historico" | "aniversario";
   const [tab, setTab] = useState<ComunicarTab>("compor");
 
   // ── Compor ──
@@ -4218,6 +4218,18 @@ function ComunicarView({ token }: { token: string }) {
   const [logsLoading, setLogsLoading] = useState(false);
   const [stats, setStats] = useState<{ sent: number; failed: number } | null>(null);
 
+  // ── Aniversário ──
+  const [aniversariantesHoje, setAniversariantesHoje] = useState<any[]>([]);
+  const [loadingAniv, setLoadingAniv] = useState(false);
+  const [anivStudentId, setAnivStudentId] = useState<number | null>(null);
+  const [anivStudentNome, setAnivStudentNome] = useState("");
+  const [anivFotoPreview, setAnivFotoPreview] = useState<string | null>(null);
+  const [anivFotoData, setAnivFotoData] = useState<string | null>(null);
+  const [anivTitulo, setAnivTitulo] = useState("");
+  const [anivMensagem, setAnivMensagem] = useState("");
+  const [anivPublishing, setAnivPublishing] = useState(false);
+  const [anivResult, setAnivResult] = useState(false);
+
   // ── Effects ──
   useEffect(() => {
     loadGlobalTemplates();
@@ -4229,6 +4241,15 @@ function ComunicarView({ token }: { token: string }) {
 
   useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
   useEffect(() => { if (tab === "historico") fetchLogs(1); }, [tab]);
+  useEffect(() => {
+    if (tab === "aniversario" && moduloInfantil) {
+      setLoadingAniv(true);
+      fetch(`${API}/school/comunicar/aniversarios-hoje`, { headers: authH })
+        .then(r => r.ok ? r.json() : [])
+        .then(d => setAniversariantesHoje(d))
+        .finally(() => setLoadingAniv(false));
+    }
+  }, [tab, moduloInfantil]);
 
   const loadGlobalTemplates = () =>
     fetch(`${API}/school/comunicar/templates`, { headers: authH })
@@ -4302,6 +4323,39 @@ function ComunicarView({ token }: { token: string }) {
     } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setPublishing(false); }
   };
 
+  const handleAnivFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert("A foto não pode exceder 2MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => { const d = reader.result as string; setAnivFotoPreview(d); setAnivFotoData(d); };
+    reader.readAsDataURL(file);
+  };
+
+  const selectAnivStudent = (a: any) => {
+    const age = new Date().getFullYear() - new Date(a.data_nascimento).getFullYear();
+    setAnivStudentId(a.id); setAnivStudentNome(a.nome);
+    setAnivTitulo(`🎂 Parabéns, ${a.nome.split(" ")[0]}!`);
+    setAnivMensagem(`🎂 Feliz Aniversário, ${a.nome}! 🎉\n\nA nossa escola deseja-te um dia repleto de alegria e muitas felicidades. Que os teus ${age} anos sejam cheios de conquistas e sorrisos! 🌟`);
+  };
+
+  const handlePublishAniversario = async () => {
+    if (!anivTitulo.trim() || !anivMensagem.trim()) return;
+    setAnivPublishing(true); setAnivResult(false);
+    try {
+      const r = await fetch(`${API}/school/comunicar/aniversario`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authH },
+        body: JSON.stringify({ titulo: anivTitulo.trim(), conteudo: anivMensagem.trim(), foto_base64: anivFotoData, student_id: anivStudentId }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+      setAnivResult(true);
+      setAnivFotoPreview(null); setAnivFotoData(null);
+      setAnivTitulo(""); setAnivMensagem(""); setAnivStudentId(null); setAnivStudentNome("");
+      loadComunicados();
+    } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setAnivPublishing(false); }
+  };
+
   const handleDelete = async (id: number) => {
     setDeleteId(id);
     try {
@@ -4357,6 +4411,7 @@ function ComunicarView({ token }: { token: string }) {
           { k: "compor" as ComunicarTab, label: "Compor" },
           { k: "publicados" as ComunicarTab, label: `Publicados${comunicados.length ? ` (${comunicados.length})` : ""}` },
           { k: "historico" as ComunicarTab, label: "Histórico" },
+          ...(moduloInfantil ? [{ k: "aniversario" as ComunicarTab, label: "🎂 Aniversário" }] : []),
         ]).map(({ k, label }) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
@@ -4563,7 +4618,13 @@ function ComunicarView({ token }: { token: string }) {
                         <span className="text-xs text-slate-400">{new Date(c.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</span>
                         <span className="text-xs text-slate-400 flex items-center gap-1"><CheckCheck className="w-3.5 h-3.5"/>{c.total_lidos} lido(s)</span>
                       </div>
-                      <h3 className="font-semibold text-slate-900 text-sm">{c.titulo}</h3>
+                              <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-slate-900 text-sm">{c.titulo}</h3>
+                        {c.tipo === "aniversario" && <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-medium border border-pink-200">🎂 Aniversário</span>}
+                      </div>
+                      {c.foto_base64 && (
+                        <img src={c.foto_base64} alt="Foto do aniversário" className="mt-2 w-full max-h-40 object-cover rounded-xl border border-slate-200"/>
+                      )}
                       <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{c.conteudo}</p>
                     </div>
                     <button onClick={() => handleDelete(c.id)} disabled={deleteId === c.id}
@@ -4628,6 +4689,109 @@ function ComunicarView({ token }: { token: string }) {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── ANIVERSÁRIO ── */}
+      {tab === "aniversario" && moduloInfantil && (
+        <div className="space-y-5">
+          {/* Aniversariantes do dia */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                🎂 Aniversariantes Hoje
+              </h3>
+              <span className="text-xs bg-pink-100 text-pink-700 px-2.5 py-1 rounded-full font-medium">
+                {new Date().toLocaleDateString("pt-AO", { day: "2-digit", month: "long" })}
+              </span>
+            </div>
+            {loadingAniv ? (
+              <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-pink-400"/></div>
+            ) : aniversariantesHoje.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <div className="text-4xl mb-2">🎈</div>
+                <p className="text-sm">Nenhum aniversariante hoje.</p>
+                <p className="text-xs mt-1">Pode ainda preencher o formulário abaixo manualmente.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {aniversariantesHoje.map((a: any) => {
+                  const sel = anivStudentId === a.id;
+                  const age = new Date().getFullYear() - new Date(a.data_nascimento).getFullYear();
+                  return (
+                    <button key={a.id} onClick={() => selectAnivStudent(a)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${sel ? "bg-pink-50 border-pink-300 shadow-sm" : "border-slate-200 hover:border-pink-200 hover:bg-pink-50/40"}`}>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-2xl flex-shrink-0 ${sel ? "bg-pink-200" : "bg-slate-100"}`}>
+                        🎂
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800">{a.nome}</p>
+                        <p className="text-xs text-slate-500">{age} anos · {new Date(a.data_nascimento).toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" })}</p>
+                      </div>
+                      {sel && <CheckCircle2 className="w-5 h-5 text-pink-500 flex-shrink-0"/>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Foto */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <h3 className="font-semibold text-slate-900">Foto do Aniversário <span className="text-xs font-normal text-slate-400">(opcional)</span></h3>
+            {anivFotoPreview ? (
+              <div className="relative">
+                <img src={anivFotoPreview} alt="Pré-visualização" className="w-full max-h-52 object-cover rounded-xl border border-slate-200"/>
+                <button onClick={() => { setAnivFotoPreview(null); setAnivFotoData(null); }}
+                  className="absolute top-2 right-2 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center hover:bg-red-50 transition-colors">
+                  <X className="w-4 h-4 text-red-500"/>
+                </button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-pink-300 hover:bg-pink-50/20 transition-all">
+                <ImageIcon className="w-8 h-8 text-slate-300"/>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-slate-700">Clique para adicionar foto</p>
+                  <p className="text-xs text-slate-400 mt-0.5">PNG, JPG ou WEBP · máx. 2MB</p>
+                </div>
+                <input type="file" accept="image/*" className="hidden" onChange={handleAnivFotoChange}/>
+              </label>
+            )}
+          </div>
+
+          {/* Mensagem */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Mensagem de Aniversário</h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+              <input value={anivTitulo} onChange={e => setAnivTitulo(e.target.value)}
+                placeholder="Ex: 🎂 Parabéns, Maria!"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-pink-200 transition-all"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem *</label>
+              <textarea value={anivMensagem} onChange={e => setAnivMensagem(e.target.value)} rows={5}
+                placeholder="Escreva a mensagem de aniversário para os encarregados…"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-pink-200 resize-none transition-all"/>
+              <p className="text-xs text-slate-400 mt-1">Será publicado no portal dos encarregados de educação.</p>
+            </div>
+          </div>
+
+          {anivResult && (
+            <div className="rounded-xl p-4 flex items-center gap-3 bg-emerald-50 border border-emerald-200">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0"/>
+              <p className="text-sm font-medium text-emerald-800">Comunicado de aniversário publicado com sucesso no portal! 🎉</p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button onClick={handlePublishAniversario}
+              disabled={anivPublishing || !anivMensagem.trim() || !anivTitulo.trim()}
+              className="flex items-center gap-2 bg-pink-500 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-pink-600 disabled:opacity-50 transition-colors">
+              {anivPublishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+              {anivPublishing ? "A publicar…" : "Publicar Aniversário 🎂"}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -9413,7 +9577,7 @@ export default function Dashboard() {
             )}
             {view === "comunicar" && (
               <motion.div key="comunicar" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
-                <ComunicarView token={token}/>
+                <ComunicarView token={token} moduloInfantil={schoolModuloInfantil}/>
               </motion.div>
             )}
             {view === "debito_direto" && (
