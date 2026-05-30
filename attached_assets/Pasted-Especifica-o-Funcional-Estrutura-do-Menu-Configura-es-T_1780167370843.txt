@@ -1,0 +1,21 @@
+Especificação Funcional: Estrutura do Menu "Configurações Técnicas" (Backoffice)
+1. Objetivo da Interface
+Organizar o novo menu "Configurações Técnicas" através de uma navegação por 3 Separadores (Tabs) distintos. Esta estrutura visa segmentar claramente as credenciais, os parâmetros operacionais e as ferramentas de teste de conectividade para cada um dos três canais de pagamento da EMIS.
+2. Arquitetura dos Separadores (Tabs)
+O ecrã deve ser dividido nos seguintes separadores:
+Separador 1: GPO (Gateway de Pagamentos Online)
+ Propósito: Configuração do fluxo de checkout via Webframe (Cartões Multicaixa / Visa / Mastercard).
+ Campos de Input: Merchant ID, Terminal ID, Chave Secreta (Secret Key) para assinatura HMAC, e URLs de retorno (Sucesso, Falha e Cancelamento).
+ Ação de Diagnóstico: Botão "Testar Conectividade GPO" (validação em tempo real com a API REST da EMIS).
+Separador 2: Referências Multicaixa
+ Propósito: Configuração para a geração manual ou automática de entidades e referências para pagamento no ATM ou Internet Banking.
+ Campos de Input: Código de Entidade, Chaves de API, Intervalo de Numeração atribuído e Tempo de Expiração padrão das referências (em horas ou dias).
+ Ação de Diagnóstico: Botão "Testar Conectividade API de Referências" (disparo de teste para validar o estado do serviço).
+Separador 3: Débito Direto
+ Propósito: Configuração das cobranças recorrentes e automáticas em contas bancárias associadas.
+ Campos de Input: Credenciais de autenticação do Web Service SOAP/REST da EMIS, identificadores de contrato e parâmetros de envio de mandatos.
+ Ação de Diagnóstico: Botão "Testar Conectividade Débito Direto" (teste de ping/status contra o endpoint do Web Service).
+3. Comportamento Esperado da Interface (UI/UX)
+ Isolamento de Dados: Ao alternar entre os separadores, os campos de um canal não devem interferir nos outros.
+ Salvaguarda Individual: Cada separador deve ter o seu próprio botão "Gravar Configurações" para evitar a perda de dados ao navegar entre as abas.
+ Feedback de Teste: O resultado do teste de conectividade de cada separador deve ser exibido explicitamente dentro da respetiva aba (ex: através de um indicador visual Verde/Vermelho com o código de resposta do servidor).

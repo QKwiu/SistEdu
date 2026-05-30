@@ -7441,14 +7441,14 @@ function ConfiguracoesTecnicasView() {
                 <button onClick={() => test("gpo")} disabled={!!testing}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
                   {testing === "gpo" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
-                  Testar Conectividade
+                  Testar Conectividade GPO
                 </button>
                 <ConnBadge res={testResult.gpo}/>
               </div>
               <button onClick={() => save("gpo")} disabled={!!saving}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
                 {saving === "gpo" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "gpo" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
-                {saved === "gpo" ? "Guardado!" : "Guardar GPO"}
+                {saved === "gpo" ? "Guardado!" : "Gravar Configurações GPO"}
               </button>
             </div>
           </div>
@@ -7473,13 +7473,52 @@ function ConfiguracoesTecnicasView() {
               {field("mcx", "entity_code", "Código de Entidade", { placeholder: "Ex: 11111" })}
               {field("mcx", "api_key", "Chave de API", { secret: true })}
               {field("mcx", "api_url", "URL da API MCX", { placeholder: "https://api.multicaixa.ao/..." })}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Tempo Limite de Expiração (minutos)</label>
-                <input type="number" min={60} max={43200}
-                  value={String(config.mcx?.expiry_minutes ?? 1440)}
-                  onChange={e => update("mcx", "expiry_minutes", Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
-                <p className="text-xs text-slate-400 mt-1">Padrão: 1440 min (24 h)</p>
+
+              {/* Intervalo de Numeração */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-2">Intervalo de Numeração de Referências</label>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <input type="number" min={1} placeholder="Início (ex: 100000)"
+                      value={String(config.mcx?.range_start ?? "")}
+                      onChange={e => update("mcx", "range_start", e.target.value ? Number(e.target.value) : "")}
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                    <p className="text-xs text-slate-400 mt-1">Referência mínima</p>
+                  </div>
+                  <Slash className="w-4 h-4 text-slate-300 mt-[-14px] shrink-0"/>
+                  <div className="flex-1">
+                    <input type="number" min={1} placeholder="Fim (ex: 999999)"
+                      value={String(config.mcx?.range_end ?? "")}
+                      onChange={e => update("mcx", "range_end", e.target.value ? Number(e.target.value) : "")}
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                    <p className="text-xs text-slate-400 mt-1">Referência máxima</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Expiração em horas / dias */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-2">Tempo de Expiração Padrão das Referências</label>
+                <div className="flex items-center gap-3">
+                  <input type="number" min={1} max={9999}
+                    value={String(config.mcx?.expiry_value ?? 24)}
+                    onChange={e => update("mcx", "expiry_value", Number(e.target.value))}
+                    className="w-28 border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+                  <select value={String(config.mcx?.expiry_unit ?? "horas")}
+                    onChange={e => update("mcx", "expiry_unit", e.target.value)}
+                    className="border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                    <option value="horas">Horas</option>
+                    <option value="dias">Dias</option>
+                  </select>
+                  <span className="text-xs text-slate-400">
+                    {(() => {
+                      const val = Number(config.mcx?.expiry_value ?? 24);
+                      const unit = String(config.mcx?.expiry_unit ?? "horas");
+                      const mins = unit === "dias" ? val * 1440 : val * 60;
+                      return `= ${mins.toLocaleString("pt-AO")} minutos`;
+                    })()}
+                  </span>
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100">
@@ -7487,16 +7526,21 @@ function ConfiguracoesTecnicasView() {
                 <button onClick={() => test("mcx")} disabled={!!testing}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
                   {testing === "mcx" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
-                  Testar Conectividade
+                  Testar Conectividade API de Referências
                 </button>
                 <ConnBadge res={testResult.mcx}/>
               </div>
               <button onClick={() => save("mcx")} disabled={!!saving}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
                 {saving === "mcx" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "mcx" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
-                {saved === "mcx" ? "Guardado!" : "Guardar MCX"}
+                {saved === "mcx" ? "Guardado!" : "Gravar Configurações MCX"}
               </button>
             </div>
+          </div>
+
+          <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-sm text-purple-800">
+            <p className="font-semibold mb-1 flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5"/> Fluxo de Referências</p>
+            <p className="text-purple-700 text-xs leading-relaxed">O motor gera uma referência única dentro do intervalo configurado e associa-a à fatura. O cliente paga no ATM ou Multicaixa Express. A confirmação chega via callback assíncrono ao endpoint de reconciliação.</p>
           </div>
         </div>
       )}
@@ -7521,14 +7565,14 @@ function ConfiguracoesTecnicasView() {
                 <button onClick={() => test("debito_direto")} disabled={!!testing}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
                   {testing === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
-                  Testar Conectividade
+                  Testar Conectividade Débito Direto
                 </button>
                 <ConnBadge res={testResult.debito_direto}/>
               </div>
               <button onClick={() => save("debito_direto")} disabled={!!saving}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
                 {saving === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "debito_direto" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
-                {saved === "debito_direto" ? "Guardado!" : "Guardar DD"}
+                {saved === "debito_direto" ? "Guardado!" : "Gravar Configurações DD"}
               </button>
             </div>
           </div>

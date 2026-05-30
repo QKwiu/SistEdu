@@ -1559,7 +1559,9 @@ router.get("/admin/colegios/:id/bolsas/stats", adminAuth, async (req, res) => {
         },
         mcx: {
           entity_code: "", api_key: "", api_url: "",
-          expiry_minutes: 1440, environment: "sandbox",
+          range_start: null, range_end: null,
+          expiry_value: 24, expiry_unit: "horas",
+          environment: "sandbox",
         },
         debito_direto: {
           ws_url: "", ws_username: "", ws_password: "",
