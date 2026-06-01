@@ -1,3 +1,4 @@
 - [EMIS Payment Engine](emis-payment-engine.md) — Strategy Pattern (GPO/MCX/DD), secrets masking on read, mergePreserveSecrets on write.
 - [Propinas schema](propinas-schema.md) — usa school_id (não escola_id); colunas baixa_manual, metodo_pagamento, pagamento_origem existem.
 - [Caixa POS feature](caixa-pos-feature.md) — pg_advisory_xact_lock para numeração sequencial; popups para impressão; print format thermal/A4.
+- [Security hardening](security-hardening.md) — bcrypt staff passwords, HMAC webhook, rate limiters, helmet, env-var-enforced admin creds. express-rate-limit v8 must not use custom keyGenerator with IP.

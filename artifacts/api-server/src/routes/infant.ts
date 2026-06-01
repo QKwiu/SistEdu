@@ -256,7 +256,8 @@ router.delete("/school/infant/galeria/:id", schoolAuth, async (req: any, res) =>
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const item = await pool.query("SELECT filename FROM infant_galeria WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
   if (!item.rowCount) return res.status(404).json({ error: "Item não encontrado." });
-  const fp = path.join(infantDir, item.rows[0].filename);
+  const safeFilename = path.basename(item.rows[0].filename as string);
+  const fp = path.join(infantDir, safeFilename);
   if (fs.existsSync(fp)) fs.unlinkSync(fp);
   await pool.query("DELETE FROM infant_galeria WHERE id=$1", [req.params.id]);
   res.json({ ok: true });
@@ -266,9 +267,15 @@ router.delete("/school/infant/galeria/:id", schoolAuth, async (req: any, res) =>
 router.get("/school/infant/media/:filename", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const item = await pool.query("SELECT id FROM infant_galeria WHERE filename=$1 AND school_id=$2", [req.params.filename, school.school_id]);
+
+  const safeFilename = path.basename(req.params.filename);
+  if (!/^inf-\d+-[0-9a-f]+\.[a-z0-9]{2,5}$/.test(safeFilename)) {
+    return res.status(400).send("Nome de ficheiro inválido.");
+  }
+
+  const item = await pool.query("SELECT id FROM infant_galeria WHERE filename=$1 AND school_id=$2", [safeFilename, school.school_id]);
   if (!item.rowCount) return res.status(404).send("Not found");
-  const fp = path.join(infantDir, req.params.filename);
+  const fp = path.join(infantDir, safeFilename);
   if (!fs.existsSync(fp)) return res.status(404).send("Not found");
   res.setHeader("Content-Disposition", "inline");
   res.setHeader("X-Content-Type-Options", "nosniff");

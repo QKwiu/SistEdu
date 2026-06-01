@@ -5,6 +5,7 @@ import { sendBulkSMS } from "../services/sms.service";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { loginRateLimiter } from "../lib/rate-limiters";
 
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -27,8 +28,11 @@ const upload = multer({
 
 const router = Router();
 
-const ADMIN_USER = process.env.ADMIN_USERNAME ?? "Superaadmin";
-const ADMIN_PASS = process.env.ADMIN_PASSWORD ?? "Superaadmin";
+const ADMIN_USER = process.env.ADMIN_USERNAME;
+const ADMIN_PASS = process.env.ADMIN_PASSWORD;
+if (!ADMIN_USER || !ADMIN_PASS) {
+  throw new Error("[SECURITY] ADMIN_USERNAME e ADMIN_PASSWORD devem estar definidos nas variáveis de ambiente. Arranque abortado.");
+}
 
 /* ─── Auth helpers ─── */
 async function adminAuth(req: any, res: any, next: any) {
@@ -44,7 +48,7 @@ async function adminAuth(req: any, res: any, next: any) {
 }
 
 /* ─── POST /admin/login ─── */
-router.post("/admin/login", async (req, res) => {
+router.post("/admin/login", loginRateLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (username !== ADMIN_USER || password !== ADMIN_PASS) {
     return res.status(401).json({ error: "Credenciais incorretas." });

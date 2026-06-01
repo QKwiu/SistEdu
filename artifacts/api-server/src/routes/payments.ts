@@ -1,15 +1,20 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
-import { randomBytes } from "crypto";
+import { randomBytes, createHmac, timingSafeEqual } from "crypto";
 import { sendEventSMS } from "../services/sms.service";
 
 const router = Router();
+
+/* Shared webhook secret — set WEBHOOK_SECRET in env vars.
+   If not set in production the webhook is DISABLED for safety. */
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 /* ─────────────────────────────────────────────────────────────────
    POST /payments/webhook
    
    Receives payment confirmation from middleware (EMIS / MCX Express).
    Idempotent: ignores duplicate transaction_id.
+   Requires header: X-Webhook-Signature: sha256=<hmac>
    
    Payload:
    {
@@ -26,6 +31,25 @@ const router = Router();
 const AMOUNT_TOLERANCE_PERCENT = 1;
 
 router.post("/payments/webhook", async (req, res) => {
+  /* ── 0. HMAC signature verification ── */
+  if (WEBHOOK_SECRET) {
+    const sigHeader = req.headers["x-webhook-signature"] as string | undefined;
+    if (!sigHeader?.startsWith("sha256=")) {
+      return res.status(401).json({ error: "Assinatura de webhook em falta." });
+    }
+    const provided = sigHeader.slice(7);
+    const expected = createHmac("sha256", WEBHOOK_SECRET)
+      .update(JSON.stringify(req.body))
+      .digest("hex");
+    try {
+      if (!timingSafeEqual(Buffer.from(provided, "hex"), Buffer.from(expected, "hex"))) {
+        return res.status(401).json({ error: "Assinatura de webhook inválida." });
+      }
+    } catch {
+      return res.status(401).json({ error: "Assinatura de webhook malformada." });
+    }
+  }
+
   const { reference, amount_paid, status, transaction_id, payment_method, timestamp } = req.body ?? {};
 
   /* ── 1. Validate payload ── */

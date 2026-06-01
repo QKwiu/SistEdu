@@ -1,8 +1,3 @@
 uploads = []
 generated = []
-
-[[outputs]]
-id = "Q2L_MXdv-fHZ7fntYtvC8"
-uri = "file://artifacts/kiwara-tech/public/kiwara-tech-arquitectura.md"
-type = "text"
-title = "Kiwara Tech — Documento Técnico (Markdown)"
+outputs = []

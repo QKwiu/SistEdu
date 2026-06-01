@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { pool } from "@workspace/db";
+import { loginRateLimiter, pinResetLimiter } from "../lib/rate-limiters";
 
 const router = Router();
 
@@ -23,7 +24,7 @@ function authMiddleware(req: any, res: any, next: any) {
 }
 
 // POST /guardian/login — phone + password
-router.post("/guardian/login", async (req, res) => {
+router.post("/guardian/login", loginRateLimiter, async (req, res) => {
   const { telefone, password } = req.body;
   if (!telefone || !password) {
     return res.status(400).json({ error: "Telemóvel e palavra-passe obrigatórios." });
@@ -65,7 +66,7 @@ router.post("/guardian/login", async (req, res) => {
 });
 
 // POST /guardian/recuperar-pin — reset PIN to "1234" and force first_login
-router.post("/guardian/recuperar-pin", async (req, res) => {
+router.post("/guardian/recuperar-pin", pinResetLimiter, async (req, res) => {
   const { telefone } = req.body;
   if (!telefone) return res.status(400).json({ error: "Número de telemóvel obrigatório." });
 

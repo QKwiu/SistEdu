@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as crypto from "crypto";
+import bcrypt from "bcryptjs";
 
 const router = Router();
 
@@ -94,11 +95,24 @@ async function logAudit(
 }
 
 function hashPassword(plain: string): string {
-  return crypto.createHash("sha256").update(plain + "kiwara_salt").digest("hex");
+  return bcrypt.hashSync(plain, 12);
+}
+
+function verifyPassword(plain: string, hash: string): boolean {
+  if (hash.startsWith("$2a$") || hash.startsWith("$2b$")) {
+    return bcrypt.compareSync(plain, hash);
+  }
+  if (hash.length === 64) {
+    const legacyHash = crypto.createHash("sha256").update(plain + "kiwara_salt").digest("hex");
+    try {
+      return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(legacyHash, "hex"));
+    } catch { return false; }
+  }
+  return false;
 }
 
 function generateTempPassword(): string {
-  return "Kiwara@" + Math.random().toString(36).slice(2, 8).toUpperCase();
+  return "Kiwara@" + crypto.randomBytes(4).toString("hex").toUpperCase();
 }
 
 /* ══════════════════════════════════════════

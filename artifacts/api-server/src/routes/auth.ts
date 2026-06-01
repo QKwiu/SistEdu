@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { db, schoolsTable, sessionsTable } from "@workspace/db";
 import { eq, and, gt } from "drizzle-orm";
+import { loginRateLimiter } from "../lib/rate-limiters";
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.post("/auth/signup", async (req, res) => {
   }
 });
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", loginRateLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
