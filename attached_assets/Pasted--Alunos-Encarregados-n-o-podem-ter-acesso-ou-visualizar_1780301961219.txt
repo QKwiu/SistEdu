@@ -1,0 +1,60 @@
+(Alunos/Encarregados) não podem ter acesso ou visualizar este botão de faturação manual.
+Interface e Fluxo do Utilizador (UI/UX - Frente de Caixa)
+Botão de Ação Rápida: Na tela de perfil do aluno (ou no menu Financeiro > Caixa), deve existir um botão visível chamado "Emitir Fatura de Caixa".
+Fluxo de Preenchimento: Ao clicar, o sistema abre uma janela modal ou ecrã rápido que permite ao operador:
+1 Selecionar o emolumento na lista dropdown (ex: Propina, Uniforme, Certificado).
+2 Escolher o meio de pagamento físico usado na hora (⁠CASH⁠ ou ⁠POS_TPA⁠).
+3 Clicar em "Confirmar e Imprimir".
+Regras de Negócio e Backend
+Geração de Documento: O sistema deve gerar o documento com o estado ⁠Liquidado⁠ de forma instantânea na base de dados, associando o ⁠User_ID⁠ do operador que realizou o recebimento para auditoria de caixa.
+Comando de Impressão Direta: Após a confirmação do pagamento, o sistema deve abrir automaticamente a folha de estilos de impressão do navegador (⁠window.print()⁠) formatada especificamente para:
+Impressoras Térmicas (Talão de 80mm) OU
+Formato A4 Simplificado (conforme a configuração da secretaria da escola).
+Numeração Sequencial: A fatura emitida na boca do caixa deve seguir rigorosamente a numeração cronológica e sequencial de faturação da instituição, exigida por lei.
+1 day ago
+No separador em anexo, comunicar, aniversário no perfil da creche, deve ser possível selecionar o aniversariante manualmente, na tela em anexo
+1 day ago
+ARQUITETURA E STACK TÉCNICA (Focado em Replit)
+Indica a linguagem de programação e a stack ideal (Front-end e Back-end) considerando as limitações e facilidades do ambiente Replit.
+Indica as bibliotecas ou APIs de IA necessárias
+Indica a base de dados mais adequada e fácil de integrar no Replit
+MATRIZ DE PERFIS E REGRAS DE ACESSO (RBAC)
+Mapeia todas as permissões e regras de negócio específicas para os seguintes perfis de utilizador:
+[Perfil 1, ex: Administrador]
+(Para cada perfil, define o que ele PODE e NÃO PODE fazer na app).
+REQUISITOS FUNCIONAIS (O que a app faz)
+Lista todas as funcionalidades indispensáveis da aplicação, divididas por módulos lógicos (ex: Módulo de Autenticação, Módulo de IA, Módulo de Pagamentos).
+FLUXO DA APLICAÇÃO (User Flow)
+Descreve, passo a passo, a jornada do utilizador principal desde o momento em que faz login/registo até à conclusão do objetivo principal da app.
+22 hours ago
+Para que aplicação é este documento de arquitectura?
+A plataforma Kiwara Tech (escola/SaaS) que já estamos a construir
+22 hours ago
+ARQUITETURA E STACK TÉCNICA - analisa todo o sistema da kiwara e responda os pontos abaixo:
+Indica a linguagem de programação e a stack ideal (Front-end e Back-end) considerando as limitações e facilidades do ambiente Replit.
+Indica as bibliotecas ou APIs de IA necessárias
+Indica a base de dados mais adequada e fácil de integrar no Replit
+MATRIZ DE PERFIS E REGRAS DE ACESSO (RBAC)
+Mapeia todas as permissões e regras de negócio específicas para os seguintes perfis de utilizador:
+[Perfil 1, ex: Administrador]
+(Para cada perfil, define o que ele PODE e NÃO PODE fazer na app).
+REQUISITOS FUNCIONAIS (O que a app faz)
+Lista todas as funcionalidades indispensáveis da aplicação, divididas por módulos lógicos (ex: Módulo de Autenticação, Módulo de IA, Módulo de Pagamentos).
+FLUXO DA APLICAÇÃO (User Flow)
+Descreve, passo a passo, a jornada do utilizador principal desde o momento em que faz login/registo até à conclusão do objetivo principal da app.
+22 hours ago
+Tudo pronto! O documento está baseado na análise completa e real do código — não em suposições.
+
+Fica disponível para referência, onboarding da equipa, ou partilhar com parceiros. Se quiser, posso também:
+
+Exportar como PDF/Markdown para download
+Aprofundar algum módulo específico (ex: detalhar o fluxo de pagamentos GPO)
+Adicionar um roadmap de funcionalidades futuras (incluindo as integrações de IA sugeridas)
+O que pretende fazer a seguir?
+Exportar como PDF/Markdown para download
+6 minutes ago
+Vou criar o ficheiro Markdown agora:
+# Documento Técnico — Kiwara Tech > Plataforma SaaS de Gestão Escolar · Angola · Versão 1.0 · Maio 2026 ...
+O ficheiro Markdown está pronto para download. Pode abri-lo directamente ou importá-lo em qualquer ferramenta que converta para PDF (Notion, Typora, VS Code com extensão, etc.).
+
+Se quiser o PDF gerado directamente na plataforma, posso fazer isso também
