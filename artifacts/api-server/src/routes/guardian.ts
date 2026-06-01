@@ -7,8 +7,10 @@ import { loginRateLimiter, pinResetLimiter } from "../lib/rate-limiters";
 const router = Router();
 
 async function getGuardianFromToken(token: string) {
+  // 🔒 SEGURANÇA: selecção explícita — exclui campo 'password' (bcrypt hash) da resposta
   const res = await pool.query(
-    `SELECT e.* FROM encarregados e
+    `SELECT e.id, e.nome, e.telefone, e.bi, e.email, e.escola_id, e.first_login, e.created_at
+     FROM encarregados e
      JOIN guardian_sessions gs ON gs.encarregado_id = e.id
      WHERE gs.token = $1 AND gs.expires_at > NOW()`,
     [token]
@@ -80,7 +82,8 @@ router.post("/guardian/recuperar-pin", pinResetLimiter, async (req, res) => {
     return res.status(404).json({ error: "Número não encontrado. Verifique se está registado no sistema." });
   }
 
-  const hash = await bcrypt.hash("1234", 10);
+  // 🔒 SEGURANÇA: bcrypt cost 12
+  const hash = await bcrypt.hash("1234", 12);
   await pool.query(
     "UPDATE encarregados SET password = $1, first_login = TRUE WHERE id = $2",
     [hash, result.rows[0].id]
@@ -102,7 +105,8 @@ router.post("/guardian/change-password", authMiddleware, async (req: any, res) =
     return res.status(400).json({ error: "As palavras-passe não coincidem." });
   }
 
-  const hash = await bcrypt.hash(nova_senha, 10);
+  // 🔒 SEGURANÇA: bcrypt cost 12
+  const hash = await bcrypt.hash(nova_senha, 12);
   await pool.query(
     "UPDATE encarregados SET password = $1, first_login = FALSE WHERE id = $2",
     [hash, guardian.id]

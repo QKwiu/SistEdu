@@ -8,9 +8,11 @@ import { loginRateLimiter } from "../lib/rate-limiters";
 const router = Router();
 
 function generateSchoolId(): string {
+  // 🔒 SEGURANÇA: usa crypto.randomBytes — Math.random() é previsível (CWE-338)
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let id = "SCH-";
-  for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+  const bytes = randomBytes(6);
+  for (let i = 0; i < 6; i++) id += chars[bytes[i] % chars.length];
   return id;
 }
 
@@ -30,7 +32,8 @@ router.post("/auth/signup", async (req, res) => {
       return res.status(409).json({ error: "Já existe uma conta com este email." });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    // 🔒 SEGURANÇA: bcrypt cost 12 (mínimo recomendado para produção)
+    const passwordHash = await bcrypt.hash(password, 12);
     const schoolId = generateSchoolId();
     const instType = institution_type || "colegio_geral";
     const portalNom = portal_nomenclatura || (["universidade","centro_formacao","politecnico"].includes(instType) ? "aluno" : "encarregado");

@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { apiLimiter } from "./lib/rate-limiters";
+import { pool } from "@workspace/db";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,8 +57,32 @@ app.use("/api", apiLimiter);
 
 app.use("/api", router);
 
-// Serve uploaded documents
+// 🔒 SEGURANÇA: documentos de alunos requerem sessão autenticada — previne acesso público a BIs e documentos pessoais (IDOR / Data Exposure)
+async function uploadsAuth(req: Request, res: Response, next: NextFunction) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Acesso não autorizado." });
+  }
+  const token = auth.slice(7);
+  try {
+    const r = await pool.query(
+      `SELECT 1 FROM sessions WHERE token=$1 AND expires_at > NOW()
+       UNION ALL
+       SELECT 1 FROM guardian_sessions WHERE token=$1 AND expires_at > NOW()
+       UNION ALL
+       SELECT 1 FROM admin_sessions WHERE token=$1 AND expires_at > NOW()
+       LIMIT 1`,
+      [token]
+    );
+    if (!r.rows.length) return res.status(401).json({ error: "Sessão inválida." });
+    next();
+  } catch {
+    return res.status(500).json({ error: "Erro interno." });
+  }
+}
+
+// Serve uploaded documents (authenticated)
 const uploadsDir = path.join(__dirname, "..", "uploads");
-app.use("/api/uploads", express.static(uploadsDir));
+app.use("/api/uploads", uploadsAuth, express.static(uploadsDir));
 
 export default app;

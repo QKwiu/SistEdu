@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { randomBytes } from "crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { pool } from "@workspace/db";
 import { sendBulkSMS } from "../services/sms.service";
 import multer from "multer";
@@ -102,8 +103,12 @@ router.post("/admin/colegios", adminAuth, async (req, res) => {
     return res.status(400).json({ error: "Nome e email são obrigatórios." });
   }
 
+  // 🔒 SEGURANÇA: password obrigatória — sem credencial default hardcoded (A3); bcrypt cost 12
+  if (!password?.trim() || password.length < 8) {
+    return res.status(400).json({ error: "Password é obrigatória e deve ter pelo menos 8 caracteres." });
+  }
   const { default: bcrypt } = await import("bcryptjs");
-  const hash = await bcrypt.hash(password || "Kiwara@2025", 10);
+  const hash = await bcrypt.hash(password, 12);
   const schoolId = `SCH-${Date.now()}`;
 
   const instType = institution_type || "colegio_geral";
@@ -144,11 +149,19 @@ router.post("/admin/colegios", adminAuth, async (req, res) => {
 /* ─── GET /admin/colegios/:id ─── */
 router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
   const r = await pool.query(
-    `SELECT s.*, COUNT(DISTINCT st.id)::int AS total_alunos, COUNT(DISTINCT t.id)::int AS total_turmas
+    // 🔒 SEGURANÇA: SELECT s.* excluído — campo password_hash removido da resposta (CWE-200)
+    `SELECT s.id, s.school_id, s.name, s.nif, s.phone, s.email, s.iban,
+            s.created_at, s.institution_type, s.portal_nomenclatura,
+            s.usa_pacotes, s.commission_rate, s.logo_url, s.modulo_infantil,
+            COUNT(DISTINCT st.id)::int AS total_alunos,
+            COUNT(DISTINCT t.id)::int  AS total_turmas
      FROM schools s
      LEFT JOIN students st ON st.school_id = s.id
      LEFT JOIN turmas t    ON t.school_id  = s.id
-     WHERE s.id=$1 GROUP BY s.id`,
+     WHERE s.id=$1
+     GROUP BY s.id, s.school_id, s.name, s.nif, s.phone, s.email, s.iban,
+              s.created_at, s.institution_type, s.portal_nomenclatura,
+              s.usa_pacotes, s.commission_rate, s.logo_url, s.modulo_infantil`,
     [req.params.id]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
@@ -194,7 +207,7 @@ router.put("/admin/colegios/:id/reset-password", adminAuth, async (req, res) => 
   const { new_password } = req.body;
   if (!new_password || new_password.length < 6) return res.status(400).json({ error: "Palavra-passe deve ter pelo menos 6 caracteres." });
   const { default: bcrypt } = await import("bcryptjs");
-  const hash = await bcrypt.hash(new_password, 10);
+  const hash = await bcrypt.hash(new_password, 12);
   await pool.query("UPDATE schools SET password_hash=$1 WHERE id=$2", [hash, req.params.id]);
   res.json({ ok: true });
 });
@@ -1761,10 +1774,63 @@ router.put("/admin/parametrizacao", adminAuth, async (req, res) => {
   res.json({ ok: true, config: maskSecrets(merged) });
 });
 
+/* ─── SSRF protection helper ─── */
+function isPrivateIp(ip: string): boolean {
+  // 🔒 SEGURANÇA: bloqueia IPs privados/internos — previne SSRF (CWE-918)
+  const parts = ip.split(".").map(Number);
+  if (parts.length === 4) {
+    const [a, b] = parts;
+    if (a === 127) return true;                         // 127.0.0.0/8 loopback
+    if (a === 10) return true;                          // 10.0.0.0/8 private
+    if (a === 172 && b >= 16 && b <= 31) return true;  // 172.16.0.0/12 private
+    if (a === 192 && b === 168) return true;            // 192.168.0.0/16 private
+    if (a === 169 && b === 254) return true;            // 169.254.0.0/16 link-local / IMDS AWS+GCP
+    if (a === 0) return true;                           // 0.x.x.x reserved
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 shared address space
+  }
+  if (ip === "::1") return true;
+  if (/^fe80:/i.test(ip)) return true;
+  if (/^fc|^fd/i.test(ip)) return true;
+  return false;
+}
+
+async function validateNoSSRF(rawUrl: string): Promise<void> {
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch { throw new Error("URL inválido."); }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Apenas HTTP/HTTPS são permitidos.");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const blockedHosts = [
+    "localhost", "metadata.google.internal", "169.254.169.254", "instance-data",
+  ];
+  if (blockedHosts.includes(hostname)) throw new Error("Destino bloqueado por política de segurança.");
+
+  // Resolve hostname → verificar IPs resolvidos contra blocklist
+  try {
+    const addrs = await dnsLookup(hostname, { all: true });
+    for (const { address } of addrs) {
+      if (isPrivateIp(address)) throw new Error("Destino bloqueado (rede interna).");
+    }
+  } catch (e: any) {
+    if (e.message.includes("bloqueado")) throw e; // re-throw our own errors
+    // DNS ENOTFOUND ou timeout — deixar o fetch falhar naturalmente
+  }
+}
+
 /* ─── POST /admin/parametrizacao/test-request ─── */
 router.post("/admin/parametrizacao/test-request", adminAuth, async (req, res) => {
   const { url, method = "GET", headers: extraHeaders = {}, body: bodyStr } = req.body ?? {};
   if (!url?.trim()) return res.status(400).json({ error: "URL é obrigatória." });
+
+  // 🔒 SEGURANÇA: valida URL contra SSRF antes de qualquer fetch
+  try {
+    await validateNoSSRF(url.trim());
+  } catch (e: any) {
+    return res.status(400).json({ error: e.message ?? "URL não permitida." });
+  }
 
   const start = Date.now();
   try {

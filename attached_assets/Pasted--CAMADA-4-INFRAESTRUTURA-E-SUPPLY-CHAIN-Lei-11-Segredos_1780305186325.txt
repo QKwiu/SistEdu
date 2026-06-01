@@ -1,0 +1,154 @@
+### CAMADA 4 — INFRAESTRUTURA E SUPPLY CHAIN
+
+**Lei 11: Segredos Nunca no Bundle**
+Nenhuma credencial, API key, chave privada, connection string ou service role key deve aparecer em: código client-side, variáveis públicas (`NEXT_PUBLIC_`, `VITE_`, `EXPO_PUBLIC_`), logs expostos ao usuário, respostas de API de erro, ou arquivos commitados no repositório. **Anti-padrão #1 de IA: agentes hardcodam API keys no topo do arquivo client-side para "resolver" erro de conexão.**
+
+**Lei 12: Upload e SSRF Zero-Trust**
+Valide Magic Bytes (não apenas extensão/MIME). Re-processe imagens para eliminar payloads embutidos (polyglot files). Se o sistema faz fetch de URLs fornecidas pelo usuário, aplique allowlist de domínios e bloqueie: `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.169.254` (IMDS AWS/GCP), `fd00::/8`, `[::1]`.
+
+**Lei 13: Dependency e Supply Chain Awareness**
+Avalie dependências contra: pacotes com CVEs conhecidos, pacotes abandonados (sem commit > 12 meses), uso inseguro de APIs de bibliotecas (`jwt.decode()` sem `verify`, `bcrypt` com rounds < 10, ORMs com raw queries sem parameterização, `yaml.load()` sem `SafeLoader`). **Anti-padrão de IA: agentes recomendam pacotes populares no training data mas que têm vulnerabilidades conhecidas em 2026, ou "alucinam" nomes de pacotes que não existem (phantom packages).**
+
+**Lei 14: Logging Seguro e Observável**
+Erros de segurança logados com contexto (IP, user agent, userId, timestamp, ação tentada). Ao cliente: mensagem genérica. Ao log interno: detalhe completo. NUNCA logue: senhas, tokens, números de cartão, bodies completos de request com dados sensíveis. NUNCA exponha stack traces em produção. **Anti-padrão de IA: agentes suprimem erros com try/catch vazio ou `console.log(error)` sem tratamento, fazendo vulnerabilidades ficarem invisíveis.**
+
+**Lei 15: Configuração Segura por Padrão**
+Headers de segurança obrigatórios: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy`. Cookies de sessão: `HttpOnly`, `Secure`, `SameSite=Strict/Lax`. Modo debug/development desabilitado em produção. Source maps não expostos em produção. Portas administrativas não expostas publicamente.
+
+---
+
+## VETORES DE ATAQUE — CHECKLIST SISTEMÁTICO
+
+Para cada trecho de código, investigue sistematicamente:
+
+| # | Vetor | Pergunta-Chave |
+|---|-------|----------------|
+| 1 | **BOLA / IDOR** | Usuário A consegue ler/editar/deletar recursos do usuário B alterando um ID? |
+| 2 | **Broken Access Control** | Usuário comum acessa funções de admin/moderador? Rota protegida acessível sem auth? |
+| 3 | **Race Conditions** | 10 requests simultâneos para "comprar/sacar/curtir" causam saldo negativo ou duplicação? |
+| 4 | **Business Logic Flaws** | Brechas em estorno, cupons, trials, referral, compras? (compra → saca comissão → reembolsa?) |
+| 5 | **SSRF** | Proxy/fetch server-side aceita URLs arbitrárias do usuário? Alcança rede interna/metadata? |
+| 6 | **Injection** | Concatenação de input em SQL, NoSQL, OS commands, templates, LDAP, headers HTTP? |
+| 7 | **Data Exposure** | API retorna campos sensíveis que o frontend não precisa? Erros expõem internals? |
+| 8 | **Auth Bypass** | Rotas protegidas acessíveis sem token? Token manipulável (algoritmo none, secret fraco)? |
+| 9 | **Insecure Deserialization** | Objetos do cliente desserializados sem validação de schema? |
+| 10 | **Secrets Leakage** | Credenciais em código, logs, respostas de erro, variáveis client-side, `.env` commitado? |
+| 11 | **Missing RLS / Tenant Leak** | Queries ao banco sem filtro de ownership/tenant? RLS desabilitado ou permissivo? |
+| 12 | **Phantom Dependencies** | Imports de pacotes que não existem no registry? Versões desatualizadas com CVEs? |
+
+### ANTI-PADRÕES ESPECÍFICOS DE VIBE CODING (buscar ativamente)
+
+| # | Anti-Padrão | Como se manifesta |
+|---|-------------|-------------------|
+| A1 | **Segurança só no cliente** | Auth checks, role guards, validações existem APENAS no frontend. Backend aceita qualquer coisa. |
+| A2 | **Auth removido para "resolver bug"** | Agente removeu middleware de auth, try/catch de verificação de token, ou `requireAuth()` para corrigir erro de runtime. |
+| A3 | **Secrets hardcoded** | API keys, database URLs, service role keys diretamente no código-fonte, especialmente em arquivos client-side. |
+| A4 | **RLS desabilitado** | Supabase/Postgres com `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` ou policies `USING (true)`. |
+| A5 | **Middleware fantasma** | Rate limiter, CORS, helmet, CSRF protection importados e configurados mas nunca montados com `app.use()` ou equivalente. |
+| A6 | **Error swallowing** | `catch (e) {}` ou `catch (e) { console.log(e) }` sem re-throw, sem tratamento, sem logging adequado. Falhas silenciosas que escondem vulnerabilidades. |
+| A7 | **Permissões excessivas** | Service role keys usadas onde anon key bastaria. IAM roles com `*` em resources/actions. `chmod 777`. Tokens sem expiração. |
+| A8 | **Validação ausente em Server Actions/API Routes** | Next.js Server Actions, Remix actions, SvelteKit form actions sem validação de input (confia no `FormData` bruto). |
+| A9 | **Exposição de admin por default** | Painéis admin, rotas `/api/admin/*`, consoles de debug acessíveis sem autenticação em produção. |
+| A10 | **Paginação sem limite** | `SELECT * FROM table` ou queries de listagem sem `LIMIT`, permitindo dump completo do banco via `?pageSize=999999`. |
+
+---
+
+## INSTRUÇÃO DE EXECUÇÃO
+
+### Passo 1: Reconhecimento do Codebase
+
+Leia a estrutura do projeto atual. Identifique:
+
+1. **Linguagem(ns)**: TypeScript, JavaScript, Python, Go, Rust, Java, etc.
+2. **Framework(s)**: Next.js, Express, FastAPI, Django, Rails, SvelteKit, Remix, etc.
+3. **Banco/BaaS**: Convex, Supabase, Prisma, Drizzle, MongoDB, PostgreSQL, Firebase, DynamoDB, etc.
+4. **Auth**: Clerk, NextAuth/Auth.js, Convex Auth, Supabase Auth, Passport, Lucia, custom JWT, etc.
+5. **Infra**: Vercel, AWS, GCP, Railway, Fly.io, Docker, Cloudflare Workers, etc.
+6. **Arquivos críticos de segurança**: middleware, proxy, .env*, auth config, RLS policies, IAM policies.
+
+Comece mapeando a árvore de diretórios e lendo os arquivos de configuração (`package.json`, `requirements.txt`, `.env.example`, `next.config.*`, `convex/schema.*`, `supabase/migrations/*`, `docker-compose.*`, etc.).
+
+### Passo 2: Análise por prioridade
+
+Leia e analise os arquivos na seguinte ordem de prioridade de risco:
+
+1. **Auth e Middleware** — auth config, middleware, session management
+2. **API Routes / Server Actions / Mutations** — todos os endpoints que aceitam input
+3. **Database Schema e Policies** — schema, migrations, RLS, indexes
+4. **Proxy e Integrações Externas** — qualquer fetch server-side com URL dinâmica
+5. **Client-side sensitive** — forms, auth guards no frontend, storage de tokens
+6. **Configuração e Deploy** — env vars, headers de segurança, CORS, CSP
+7. **Dependências** — package.json/lock, requirements.txt, go.mod
+
+### Passo 3: Relatório — 3 FASES OBRIGATÓRIAS
+
+---
+
+#### FASE 1: VISÃO DO ATACANTE (Red Team)
+
+Para cada vulnerabilidade, produza:
+
+```
+🔴 VULN-[N]: [Nome do Vetor]
+├─ Severidade: CRÍTICA | ALTA | MÉDIA | BAIXA
+├─ Localização: arquivo:linha ou função/endpoint
+├─ Tipo: [OWASP Category] | [CWE-ID] | [Anti-Padrão Vibe Coding A1-A10]
+├─ Exploit: Descrição exata — qual payload, qual curl/fetch, qual sequência
+├─ Impacto: O que o atacante obtém (dados, dinheiro, escalação, DoS, RCE)
+└─ Prova de Conceito: Comando ou código reproduzível do ataque
+```
+
+Ordene por severidade (CRÍTICA primeiro).
+
+---
+
+#### FASE 2: CÓDIGO BLINDADO (Blue Team)
+
+- Reescreva **apenas** as partes vulneráveis (não reescreva código seguro).
+- Adicione **comentários inline** com o **POR QUÊ** de cada trava:
+  ```
+  // 🔒 SEGURANÇA [VULN-3]: extrai userId do token, nunca do input — previne IDOR (CWE-639)
+  ```
+- Se a correção exige mudança arquitetural (novo middleware, schema migration, env var), descreva a mudança antes do código.
+- Mantenha a **stack e convenções** do projeto original.
+- Se houver múltiplas vulnerabilidades no mesmo arquivo, apresente o arquivo corrigido inteiro uma única vez, não diff fragmentados.
+
+---
+
+#### FASE 3: TESTES DE SEGURANÇA (Security TDD)
+
+Gere testes automatizados para cada vulnerabilidade da Fase 1, usando o framework de teste do projeto (Vitest, Jest, pytest, Go test, etc.). Se não houver framework de teste configurado, use o mais adequado para a stack.
+
+Nomeie descritivamente:
+
+```
+test("VULN-1: deve rejeitar acesso a recurso de outro usuário (IDOR)")
+test("VULN-2: deve prevenir race condition em checkout simultâneo")
+test("VULN-3: deve bloquear SSRF via proxy para IP interno")
+test("VULN-4: deve negar acesso sem token de autenticação")
+test("VULN-5: deve rejeitar payload com campos não permitidos (mass assignment)")
+test("VULN-6: deve impedir dump completo via paginação sem limite")
+```
+
+---
+
+#### BÔNUS: SCORECARD DE SEGURANÇA
+
+Ao final, produza um resumo executivo:
+
+```
+📊 SCORECARD DE SEGURANÇA
+├─ Vulnerabilidades CRÍTICAS: X
+├─ Vulnerabilidades ALTAS:    X
+├─ Vulnerabilidades MÉDIAS:   X
+├─ Vulnerabilidades BAIXAS:   X
+├─ Anti-Padrões de Vibe Coding detectados: [lista A1-A10]
+├─ Nota geral: [A-F] (A = pronto para produção, F = risco crítico imediato)
+└─ Top 3 ações prioritárias: [lista numerada]
+```
+
+---
+
+## COMECE AGORA
+
+Leia a estrutura do projeto e os arquivos críticos. Inicie a análise seguindo os Passos 1 → 2 → 3. Não peça confirmação — comece imediatamente.

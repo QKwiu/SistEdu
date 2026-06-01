@@ -153,7 +153,7 @@ router.get("/school/rbac/roles", schoolAuth, async (req: any, res) => {
 
     res.json(result);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -186,7 +186,7 @@ router.post("/school/rbac/roles", schoolAuth, async (req: any, res) => {
     await logAudit(sid, req.actorEmail, "criar_role", nome, { role_id: role.id }, req.ip);
     res.status(201).json(role);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -218,7 +218,7 @@ router.put("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
     await logAudit(sid, req.actorEmail, "editar_role", nome, { role_id: roleId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -240,7 +240,7 @@ router.delete("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
     await logAudit(sid, req.actorEmail, "eliminar_role", (check.rows[0] as any).nome, { role_id: roleId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -269,7 +269,7 @@ router.get("/school/rbac/staff", schoolAuth, async (req: any, res) => {
 
     res.json(users.rows);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -295,7 +295,7 @@ router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
     res.status(201).json({ ...user, temp_password: tempPass });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -319,7 +319,7 @@ router.put("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
     await logAudit(sid, req.actorEmail, "editar_staff", email, { staff_id: userId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -345,7 +345,7 @@ router.post("/school/rbac/staff/:id/toggle-status", schoolAuth, async (req: any,
     await logAudit(sid, req.actorEmail, acao, (check.rows[0] as any).email, { staff_id: userId, novo_status: status }, req.ip);
     res.json({ ok: true, novo_status: status });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -368,7 +368,7 @@ router.post("/school/rbac/staff/:id/reset-password", schoolAuth, async (req: any
     await logAudit(sid, req.actorEmail, "reset_password", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
     res.json({ ok: true, temp_password: tempPass });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -385,7 +385,7 @@ router.delete("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
     await logAudit(sid, req.actorEmail, "eliminar_staff", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -419,7 +419,7 @@ router.get("/school/rbac/audit-log", schoolAuth, async (req: any, res) => {
 
     res.json({ rows: rows.rows, total: (total.rows[0] as any).n });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -449,7 +449,7 @@ router.get("/school/rbac/summary", schoolAuth, async (req: any, res) => {
       actividade_recente: audit.rows,
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -489,7 +489,7 @@ router.get("/admin/rbac/:schoolId/summary", adminAuthMiddleware, async (req: any
       `),
     ]);
     res.json({ utilizadores: users.rows[0], total_roles: (roles.rows[0] as any).total, actividade_recente: audit.rows });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* GET /admin/rbac/:schoolId/roles */
@@ -512,7 +512,7 @@ router.get("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: any, 
       permsByRole[p.role_id].push(p);
     }
     res.json((roles.rows as any[]).map(r => ({ ...r, permissions: permsByRole[r.id] ?? [] })));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* POST /admin/rbac/:schoolId/roles */
@@ -539,7 +539,7 @@ router.post("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: any,
     }
     await logAudit(sid, "superadmin", "criar_role", nome, { role_id: role.id }, req.ip);
     res.status(201).json(role);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* PUT /admin/rbac/:schoolId/roles/:roleId */
@@ -563,7 +563,7 @@ router.put("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async (re
     }
     await logAudit(sid, "superadmin", "editar_role", nome, { role_id: roleId }, req.ip);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* DELETE /admin/rbac/:schoolId/roles/:roleId */
@@ -579,7 +579,7 @@ router.delete("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async 
     await db.execute(sql`DELETE FROM staff_roles WHERE id=${roleId} AND school_id=${sid}`);
     await logAudit(sid, "superadmin", "eliminar_role", (check.rows[0] as any).nome, { role_id: roleId }, req.ip);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* GET /admin/rbac/:schoolId/staff */
@@ -599,7 +599,7 @@ router.get("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any, 
       ORDER BY su.created_at DESC
     `);
     res.json(users.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* POST /admin/rbac/:schoolId/staff */
@@ -621,7 +621,7 @@ router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any,
     res.status(201).json({ ...user, temp_password: tempPass });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
-    res.status(500).json({ error: e.message });
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -638,7 +638,7 @@ router.put("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (re
     `);
     await logAudit(sid, "superadmin", "editar_staff", email, { staff_id: userId }, req.ip);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* POST /admin/rbac/:schoolId/staff/:userId/toggle-status */
@@ -655,7 +655,7 @@ router.post("/admin/rbac/:schoolId/staff/:userId/toggle-status", adminAuthMiddle
     const acao = status === "bloqueado" ? "bloquear_staff" : status === "inactivo" ? "desactivar_staff" : "activar_staff";
     await logAudit(sid, "superadmin", acao, (check.rows[0] as any).email, { staff_id: userId, novo_status: status }, req.ip);
     res.json({ ok: true, novo_status: status });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* POST /admin/rbac/:schoolId/staff/:userId/reset-password */
@@ -669,7 +669,7 @@ router.post("/admin/rbac/:schoolId/staff/:userId/reset-password", adminAuthMiddl
     await db.execute(sql`UPDATE staff_users SET password_hash=${hashPassword(tempPass)}, updated_at=now() WHERE id=${userId} AND school_id=${sid}`);
     await logAudit(sid, "superadmin", "reset_password", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
     res.json({ ok: true, temp_password: tempPass });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* DELETE /admin/rbac/:schoolId/staff/:userId */
@@ -682,7 +682,7 @@ router.delete("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async 
     await db.execute(sql`DELETE FROM staff_users WHERE id=${userId} AND school_id=${sid}`);
     await logAudit(sid, "superadmin", "eliminar_staff", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 /* GET /admin/rbac/:schoolId/audit-log */
@@ -705,7 +705,7 @@ router.get("/admin/rbac/:schoolId/audit-log", adminAuthMiddleware, async (req: a
       `),
     ]);
     res.json({ rows: rows.rows, total: (total.rows[0] as any).n });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
 
 export default router;
