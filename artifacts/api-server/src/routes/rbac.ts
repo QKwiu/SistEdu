@@ -286,11 +286,12 @@ router.get("/school/rbac/staff", schoolAuth, async (req: any, res) => {
 router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
   try {
     const sid = req.schoolId;
-    const { nome, email, telefone, role_id } = req.body;
+    const { nome, email, telefone, role_id, password } = req.body;
     if (!nome?.trim() || !email?.trim()) return res.status(400).json({ error: "Nome e email são obrigatórios" });
 
-    const tempPass = generateTempPassword();
-    const hash = hashPassword(tempPass);
+    const customPass = password?.trim();
+    const chosenPass = customPass || generateTempPassword();
+    const hash = hashPassword(chosenPass);
 
     const userRes = await db.execute(sql`
       INSERT INTO staff_users (school_id, role_id, nome, email, telefone, password_hash, status)
@@ -301,7 +302,8 @@ router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
 
     const user = userRes.rows[0] as any;
     await logAudit(sid, req.actorEmail, "criar_staff", email, { staff_id: user.id, role_id }, req.ip);
-    res.status(201).json({ ...user, temp_password: tempPass });
+    // Only return temp_password if the admin did not set a custom one
+    res.status(201).json({ ...user, ...(customPass ? {} : { temp_password: chosenPass }) });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -313,7 +315,7 @@ router.put("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
   try {
     const sid = req.schoolId;
     const userId = Number(req.params.id);
-    const { nome, email, telefone, role_id } = req.body;
+    const { nome, email, telefone, role_id, password } = req.body;
 
     const check = await db.execute(sql`SELECT id, email FROM staff_users WHERE id=${userId} AND school_id=${sid}`);
     if (!check.rows.length) return res.status(404).json({ error: "Utilizador não encontrado" });
@@ -325,7 +327,12 @@ router.put("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
       WHERE id=${userId} AND school_id=${sid}
     `);
 
-    await logAudit(sid, req.actorEmail, "editar_staff", email, { staff_id: userId }, req.ip);
+    if (password?.trim()) {
+      const newHash = hashPassword(password.trim());
+      await db.execute(sql`UPDATE staff_users SET password_hash=${newHash}, updated_at=now() WHERE id=${userId} AND school_id=${sid}`);
+    }
+
+    await logAudit(sid, req.actorEmail, "editar_staff", email, { staff_id: userId, password_changed: !!password?.trim() }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });

@@ -6514,9 +6514,10 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
   const [filterStatus, setFilterStatus] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
-  const [form, setForm] = useState({ nome: "", email: "", telefone: "", role_id: "" });
+  const [form, setForm] = useState({ nome: "", email: "", telefone: "", role_id: "", password: "" });
   const [saving, setSaving] = useState(false);
   const [tempPass, setTempPass] = useState<string | null>(null);
+  const [showPassField, setShowPassField] = useState(false);
   const [actionTarget, setActionTarget] = useState<any>(null);
   const [actionType, setActionType] = useState<"reset"|"delete"|null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
@@ -6540,13 +6541,13 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
   useEffect(() => { load(); }, [load]);
 
   const openCreate = () => {
-    setEditing(null); setForm({ nome: "", email: "", telefone: "", role_id: "" });
-    setTempPass(null); setShowModal(true);
+    setEditing(null); setForm({ nome: "", email: "", telefone: "", role_id: "", password: "" });
+    setTempPass(null); setShowPassField(false); setShowModal(true);
   };
   const openEdit = (u: any) => {
     setEditing(u);
-    setForm({ nome: u.nome, email: u.email, telefone: u.telefone ?? "", role_id: u.role_id ? String(u.role_id) : "" });
-    setTempPass(null); setShowModal(true);
+    setForm({ nome: u.nome, email: u.email, telefone: u.telefone ?? "", role_id: u.role_id ? String(u.role_id) : "", password: "" });
+    setTempPass(null); setShowPassField(false); setShowModal(true);
   };
 
   const handleSave = async () => {
@@ -6745,6 +6746,24 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
                     </div>
                   ))}
                   <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Palavra-passe {editing ? <span className="font-normal text-slate-400">(deixar em branco para manter)</span> : <span className="text-red-500">*</span>}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassField ? "text" : "password"}
+                        value={form.password}
+                        onChange={e => setForm(s => ({ ...s, password: e.target.value }))}
+                        placeholder={editing ? "Nova palavra-passe..." : "Definir palavra-passe"}
+                        className="w-full px-3 py-2 pr-10 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                      <button type="button" onClick={() => setShowPassField(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        {showPassField ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Perfil de Acesso</label>
                     <select value={form.role_id} onChange={e => setForm(s => ({ ...s, role_id: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none">
@@ -6760,7 +6779,7 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
                   <div className="flex gap-2 pt-1">
                     <button onClick={() => setShowModal(false)}
                       className="flex-1 py-2.5 border border-slate-200 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 text-sm">Cancelar</button>
-                    <button onClick={handleSave} disabled={saving || !form.nome.trim() || !form.email.trim()}
+                    <button onClick={handleSave} disabled={saving || !form.nome.trim() || !form.email.trim() || (!editing && !form.password.trim())}
                       className="flex-1 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2">
                       {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
                       {editing ? "Guardar" : "Criar"}
