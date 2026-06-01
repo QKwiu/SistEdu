@@ -622,10 +622,11 @@ router.get("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any, 
 router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any, res) => {
   try {
     const sid = Number(req.params.schoolId);
-    const { nome, email, telefone, role_id } = req.body;
+    const { nome, email, telefone, role_id, password } = req.body;
     if (!nome?.trim() || !email?.trim()) return res.status(400).json({ error: "Nome e email obrigatórios" });
-    const tempPass = generateTempPassword();
-    const hash = hashPassword(tempPass);
+    const customPass = password?.trim();
+    const chosenPass = customPass || generateTempPassword();
+    const hash = hashPassword(chosenPass);
     const userRes = await db.execute(sql`
       INSERT INTO staff_users (school_id, role_id, nome, email, telefone, password_hash, status)
       VALUES (${sid}, ${role_id ? Number(role_id) : null}, ${nome.trim()}, ${email.trim().toLowerCase()},
@@ -634,7 +635,7 @@ router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any,
     `);
     const user = userRes.rows[0] as any;
     await logAudit(sid, "superadmin", "criar_staff", email, { staff_id: user.id }, req.ip);
-    res.status(201).json({ ...user, temp_password: tempPass });
+    res.status(201).json({ ...user, ...(customPass ? {} : { temp_password: chosenPass }) });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -646,13 +647,17 @@ router.put("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (re
   try {
     const sid = Number(req.params.schoolId);
     const userId = Number(req.params.userId);
-    const { nome, email, telefone, role_id } = req.body;
+    const { nome, email, telefone, role_id, password } = req.body;
     await db.execute(sql`
       UPDATE staff_users SET nome=${nome}, email=${email?.toLowerCase()}, telefone=${telefone ?? ""},
         role_id=${role_id ? Number(role_id) : null}, updated_at=now()
       WHERE id=${userId} AND school_id=${sid}
     `);
-    await logAudit(sid, "superadmin", "editar_staff", email, { staff_id: userId }, req.ip);
+    if (password?.trim()) {
+      const newHash = hashPassword(password.trim());
+      await db.execute(sql`UPDATE staff_users SET password_hash=${newHash}, updated_at=now() WHERE id=${userId} AND school_id=${sid}`);
+    }
+    await logAudit(sid, "superadmin", "editar_staff", email, { staff_id: userId, password_changed: !!password?.trim() }, req.ip);
     res.json({ ok: true });
   } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
 });
