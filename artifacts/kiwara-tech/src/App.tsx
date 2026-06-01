@@ -15,6 +15,7 @@ import Encarregado from "./pages/encarregado";
 import AdminLogin from "./pages/admin-login";
 import AdminDashboard from "./pages/admin-dashboard";
 import StaffPortal from "./pages/StaffPortal";
+import PortalPublico from "./pages/PortalPublico";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/staff" component={StaffPortal} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
+      <Route path="/portal/:slug" component={PortalPublico} />
       <Route component={NotFound} />
     </Switch>
   );

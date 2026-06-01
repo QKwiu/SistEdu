@@ -59,7 +59,7 @@ interface Propina {
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
 interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil" | "caixa";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil" | "caixa" | "partilhar_portal";
 
 /* ─── Store Interfaces ─── */
 interface StoreItemDB { id: number; school_id: number; nome: string; descricao?: string; preco: number; stock: number | null; visivel_portal: boolean; ativo: boolean; categoria?: string; }
@@ -10013,6 +10013,100 @@ function InfantilView({ token, embedded }: { token: string; embedded?: boolean }
   );
 }
 
+function PartilharPortalView({ token }: { token: string }) {
+  const [info, setInfo] = useState<{ slug: string; name: string; logo_url: string | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/school/portal-info`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (!d.error) setInfo(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const portalUrl = info ? `${window.location.origin}/portal/${info.slug}` : "";
+  const qrUrl = info
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=280x280&bgcolor=ffffff&color=1e3a5f&data=${encodeURIComponent(portalUrl)}`
+    : "";
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(portalUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const whatsappText = info
+    ? `Olá! Para acompanhar as rotinas, consultar o calendário escolar e gerir os pagamentos de forma 100% digital, aceda ao Portal Oficial da ${info.name}.\n\n🔗 Clique no link permanente para entrar: ${portalUrl}\n\nNota: O seu acesso está condicionado ao número de telemóvel registado no ato da matrícula.`
+    : "";
+
+  const handleDownloadQR = () => {
+    const link = document.createElement("a");
+    link.href = qrUrl;
+    link.download = `qr-portal-${info?.slug ?? "escola"}.png`;
+    link.click();
+  };
+
+  if (loading) return (
+    <div className="flex-1 flex items-center justify-center">
+      <RefreshCw className="w-6 h-6 animate-spin text-indigo-500"/>
+    </div>
+  );
+
+  return (
+    <motion.div key="partilhar_portal" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+      className="flex-1 p-4 md:p-6 max-w-2xl mx-auto w-full">
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-slate-900">Partilhar Portal de Acesso</h2>
+        <p className="text-sm text-slate-500 mt-1">Link e QR Code permanentes para os encarregados acederem ao portal da instituição.</p>
+      </div>
+
+      {/* URL */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-4">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Link Permanente</p>
+        <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2.5 border border-slate-200">
+          <Globe className="w-4 h-4 text-slate-400 flex-shrink-0"/>
+          <span className="text-sm text-slate-700 flex-1 truncate font-mono">{portalUrl}</span>
+          <button onClick={handleCopy}
+            className="flex-shrink-0 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 transition-colors">
+            {copied ? <><CheckCircle2 className="w-3.5 h-3.5"/> Copiado</> : <><Copy className="w-3.5 h-3.5"/> Copiar</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <a href={`https://wa.me/?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white font-semibold text-sm rounded-xl py-3 transition-colors">
+          <MessageCircle className="w-4 h-4"/> Partilhar via WhatsApp
+        </a>
+        <button onClick={handleDownloadQR}
+          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-sm rounded-xl py-3 transition-colors">
+          <Download className="w-4 h-4"/> Descarregar QR Code
+        </button>
+      </div>
+
+      {/* QR Code */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 flex flex-col items-center mb-4">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-5">QR Code Institucional</p>
+        {info && <img src={qrUrl} alt="QR Code Portal" className="w-56 h-56 rounded-xl"/>}
+        <p className="mt-4 text-xs text-slate-400 text-center">Imprima e coloque na secretaria para acesso imediato dos encarregados.</p>
+        <div className="mt-3 bg-slate-50 rounded-xl px-4 py-2.5 border border-slate-100 text-center">
+          <p className="text-xs font-semibold text-slate-600">{info?.name}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Portal Oficial</p>
+        </div>
+      </div>
+
+      {/* Message preview */}
+      <div className="bg-green-50 border border-green-200 rounded-2xl p-5">
+        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Mensagem de Partilha (WhatsApp)</p>
+        <p className="text-sm text-green-800 whitespace-pre-line leading-relaxed">{whatsappText}</p>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const { session, token, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -10124,6 +10218,7 @@ export default function Dashboard() {
     },
     { type: "item",  key: "gestao_acessos", icon: <Lock className="w-5 h-5"/>,          label: "Gestão de Acessos" },
     { type: "item",  key: "avaliacoes",     icon: <CalendarDays className="w-5 h-5"/>,  label: "Calendário Escolar" },
+    { type: "item",  key: "partilhar_portal", icon: <Share2 className="w-5 h-5"/>,       label: "Partilhar Portal" },
   ];
 
   /* ── Accordion state: which groups are manually expanded ── */
@@ -10387,6 +10482,9 @@ export default function Dashboard() {
               <motion.div key="avaliacoes" initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="flex-1">
                 <CalendarioView token={token} turmas={turmas} moduloInfantil={schoolModuloInfantil}/>
               </motion.div>
+            )}
+            {view === "partilhar_portal" && token && (
+              <PartilharPortalView key="partilhar_portal" token={token}/>
             )}
           </AnimatePresence>
         )}

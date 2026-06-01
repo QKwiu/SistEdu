@@ -1,0 +1,36 @@
+Motor de Partilha Permanente e Onboarding de Acesso aos Portais
+Objetivo: Criar uma funcionalidade no perfil de administração do colégio/creche que disponibilize um link duradouro e um QR Code institucional para partilha via WhatsApp ou SMS. Este URL direciona os utilizadores para o portal geral, onde o acesso é condicionado e validado de forma segura, sem expiração de credenciais.
+
+1. URL Institucional Permanente (Sem Vínculo Direto ao Aluno)
+Ação: O sistema deve gerar um URL único e estático por instituição (ex: kiwara.tech/portal/colegio-xyz), em vez de um link individual por aluno.
+
+Persistência: Este link e o respetivo token de segurança da instituição nunca expiram. Uma vez gerado, o link é definitivo e serve para todos os encarregados e alunos daquela escola.
+
+2. Fluxo de Acesso Condicionado e Segurança
+Validação de Entrada: Ao aceder ao URL institucional pela primeira vez, o sistema condiciona o acesso com base nos dados previamente registados na secretaria:
+
+O utilizador insere o seu número de telemóvel ou e-mail.
+
+O sistema valida se esse contacto está associado a algum encarregado ou aluno na base de dados daquela instituição.
+
+Se o contacto existir, o sistema envia um código de verificação rápido (OTP via SMS/WhatsApp) ou permite a definição da palavra-passe, dando acesso imediato ao painel com todos os educandos vinculados àquele número.
+
+3. Interface de Partilha no Backoffice (UI/UX)
+Central de Acesso: No menu lateral da administração da escola, deve existir uma secção chamada "Partilhar Portal".
+
+Opções de Difusão:
+
+[Copiar Link Permanente]: Copia o URL geral da escola para a área de transferência.
+
+[Partilhar via WhatsApp]: Abre a API do WhatsApp com uma mensagem padrão estruturada para envio em massa ou individual.
+
+[Descarregar QR Code]: Gera um código QR permanente que a escola pode imprimir e colar na secretaria para que qualquer encarregado o possa escanear a qualquer momento.
+
+4. Mensagem de Boas-Vindas Estruturada (WhatsApp)
+Ao partilhar o link, o sistema gera o seguinte texto com pré-visualização (Rich Preview) do logótipo da instituição:
+
+"Olá! Para acompanhar as rotinas, consultar o calendário escolar e gerir os pagamentos de forma 100% digital, aceda ao Portal Oficial da [Nome da Instituição].
+
+🔗 Clique no link permanente para entrar: [URL_Institucional_Aqui]
+
+Nota: O seu acesso está condicionado ao número de telemóvel registado no ato da matrícula."
