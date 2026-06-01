@@ -126,7 +126,6 @@ function UtilizadoresTab({ token, roles }: { token: string; roles: any[] }) {
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({ nome: "", email: "", telefone: "", role_id: "", password: "" });
   const [saving, setSaving] = useState(false);
-  const [tempPass, setTempPass] = useState<string | null>(null);
   const [showPassField, setShowPassField] = useState(false);
   const [actionTarget, setActionTarget] = useState<any>(null);
   const [actionType, setActionType] = useState<"block"|"reset"|"delete"|null>(null);
@@ -153,7 +152,6 @@ function UtilizadoresTab({ token, roles }: { token: string; roles: any[] }) {
   const openCreate = () => {
     setEditing(null);
     setForm({ nome: "", email: "", telefone: "", role_id: "", password: "" });
-    setTempPass(null);
     setShowPassField(false);
     setShowModal(true);
   };
@@ -161,7 +159,6 @@ function UtilizadoresTab({ token, roles }: { token: string; roles: any[] }) {
   const openEdit = (u: any) => {
     setEditing(u);
     setForm({ nome: u.nome, email: u.email, telefone: u.telefone ?? "", role_id: u.role_id ? String(u.role_id) : "", password: "" });
-    setTempPass(null);
     setShowPassField(false);
     setShowModal(true);
   };
@@ -177,11 +174,10 @@ function UtilizadoresTab({ token, roles }: { token: string; roles: any[] }) {
         res = await fetch(`${API}/school/rbac/staff`, { method: "POST", headers, body: JSON.stringify(body) });
       }
       const data = await res.json();
-      if (data.temp_password) setTempPass(data.temp_password);
-      else { setShowModal(false); await load(); }
+      if (!res.ok) { alert(data.error ?? "Erro"); setSaving(false); return; }
+      setShowModal(false); await load();
     } catch {}
     setSaving(false);
-    if (editing) { setShowModal(false); await load(); }
   };
 
   const handleToggleStatus = async (user: any, newStatus: string) => {
@@ -342,30 +338,12 @@ function UtilizadoresTab({ token, roles }: { token: string; roles: any[] }) {
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
               <div className="flex items-center justify-between mb-5">
                 <h3 className="font-bold text-slate-900 text-base">{editing ? "Editar Utilizador" : "Novo Utilizador"}</h3>
-                <button onClick={() => { setShowModal(false); setTempPass(null); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
                   <X className="w-4 h-4"/>
                 </button>
               </div>
 
-              {tempPass ? (
-                <div className="space-y-4">
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2"/>
-                    <p className="font-semibold text-emerald-800">Utilizador criado com sucesso!</p>
-                    <p className="text-xs text-emerald-600 mt-1">Partilhe as seguintes credenciais de forma segura:</p>
-                  </div>
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Password Temporária</p>
-                    <p className="font-mono text-lg font-bold text-indigo-700 tracking-widest">{tempPass}</p>
-                    <p className="text-xs text-slate-400">O utilizador deverá alterar a password no primeiro acesso.</p>
-                  </div>
-                  <button onClick={() => { setShowModal(false); setTempPass(null); load(); }}
-                    className="w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors text-sm">
-                    Concluir
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
+              <div className="space-y-3">
                   {[
                     { label: "Nome completo *", key: "nome", type: "text", placeholder: "Ex: Maria Santos" },
                     { label: "Email *", key: "email", type: "email", placeholder: "maria@escola.ao" },
@@ -420,7 +398,6 @@ function UtilizadoresTab({ token, roles }: { token: string; roles: any[] }) {
                     </button>
                   </div>
                 </div>
-              )}
             </motion.div>
           </div>
         )}

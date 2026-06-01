@@ -288,10 +288,9 @@ router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
     const sid = req.schoolId;
     const { nome, email, telefone, role_id, password } = req.body;
     if (!nome?.trim() || !email?.trim()) return res.status(400).json({ error: "Nome e email são obrigatórios" });
+    if (!password?.trim()) return res.status(400).json({ error: "Palavra-passe obrigatória" });
 
-    const customPass = password?.trim();
-    const chosenPass = customPass || generateTempPassword();
-    const hash = hashPassword(chosenPass);
+    const hash = hashPassword(password.trim());
 
     const userRes = await db.execute(sql`
       INSERT INTO staff_users (school_id, role_id, nome, email, telefone, password_hash, status)
@@ -302,8 +301,7 @@ router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
 
     const user = userRes.rows[0] as any;
     await logAudit(sid, req.actorEmail, "criar_staff", email, { staff_id: user.id, role_id }, req.ip);
-    // Only return temp_password if the admin did not set a custom one
-    res.status(201).json({ ...user, ...(customPass ? {} : { temp_password: chosenPass }) });
+    res.status(201).json({ ...user });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -624,9 +622,8 @@ router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any,
     const sid = Number(req.params.schoolId);
     const { nome, email, telefone, role_id, password } = req.body;
     if (!nome?.trim() || !email?.trim()) return res.status(400).json({ error: "Nome e email obrigatórios" });
-    const customPass = password?.trim();
-    const chosenPass = customPass || generateTempPassword();
-    const hash = hashPassword(chosenPass);
+    if (!password?.trim()) return res.status(400).json({ error: "Palavra-passe obrigatória" });
+    const hash = hashPassword(password.trim());
     const userRes = await db.execute(sql`
       INSERT INTO staff_users (school_id, role_id, nome, email, telefone, password_hash, status)
       VALUES (${sid}, ${role_id ? Number(role_id) : null}, ${nome.trim()}, ${email.trim().toLowerCase()},
@@ -635,7 +632,7 @@ router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any,
     `);
     const user = userRes.rows[0] as any;
     await logAudit(sid, "superadmin", "criar_staff", email, { staff_id: user.id }, req.ip);
-    res.status(201).json({ ...user, ...(customPass ? {} : { temp_password: chosenPass }) });
+    res.status(201).json({ ...user });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -857,6 +854,35 @@ router.post("/school/rbac/staff/logout", async (req: any, res) => {
     }
     res.json({ ok: true });
   } catch { res.json({ ok: true }); }
+});
+
+/* POST /school/rbac/staff/change-password */
+router.post("/school/rbac/staff/change-password", staffAuth, async (req: any, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password?.trim()) {
+      return res.status(400).json({ error: "Preencha a password actual e a nova password." });
+    }
+    if (new_password.trim().length < 6) {
+      return res.status(400).json({ error: "A nova password deve ter pelo menos 6 caracteres." });
+    }
+
+    const rows = await db.execute(sql`SELECT password_hash FROM staff_users WHERE id = ${req.staffId}`);
+    const user = rows.rows[0] as any;
+    if (!user) return res.status(404).json({ error: "Utilizador não encontrado." });
+
+    if (!verifyPassword(current_password, user.password_hash)) {
+      return res.status(401).json({ error: "Password actual incorrecta." });
+    }
+
+    const newHash = hashPassword(new_password.trim());
+    await db.execute(sql`UPDATE staff_users SET password_hash = ${newHash}, updated_at = now() WHERE id = ${req.staffId}`);
+    await db.execute(sql`DELETE FROM staff_sessions WHERE staff_id = ${req.staffId}`);
+
+    res.json({ ok: true });
+  } catch (e: any) {
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
+  }
 });
 
 export default router;

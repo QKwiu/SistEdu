@@ -6516,7 +6516,6 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({ nome: "", email: "", telefone: "", role_id: "", password: "" });
   const [saving, setSaving] = useState(false);
-  const [tempPass, setTempPass] = useState<string | null>(null);
   const [showPassField, setShowPassField] = useState(false);
   const [actionTarget, setActionTarget] = useState<any>(null);
   const [actionType, setActionType] = useState<"reset"|"delete"|null>(null);
@@ -6542,12 +6541,12 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
 
   const openCreate = () => {
     setEditing(null); setForm({ nome: "", email: "", telefone: "", role_id: "", password: "" });
-    setTempPass(null); setShowPassField(false); setShowModal(true);
+    setShowPassField(false); setShowModal(true);
   };
   const openEdit = (u: any) => {
     setEditing(u);
     setForm({ nome: u.nome, email: u.email, telefone: u.telefone ?? "", role_id: u.role_id ? String(u.role_id) : "", password: "" });
-    setTempPass(null); setShowPassField(false); setShowModal(true);
+    setShowPassField(false); setShowModal(true);
   };
 
   const handleSave = async () => {
@@ -6562,11 +6561,9 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
       }
       const data = await res.json();
       if (!res.ok) { alert(data.error ?? "Erro"); setSaving(false); return; }
-      if (data.temp_password) { setTempPass(data.temp_password); setSaving(false); return; }
       setShowModal(false); await load();
     } catch {}
     setSaving(false);
-    if (editing) { setShowModal(false); await load(); }
   };
 
   const handleToggle = async (u: any, status: string) => {
@@ -6711,28 +6708,11 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-slate-900">{editing ? "Editar Utilizador" : "Novo Utilizador"}</h3>
-                <button onClick={() => { setShowModal(false); setTempPass(null); }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
                   <X className="w-4 h-4"/>
                 </button>
               </div>
-              {tempPass ? (
-                <div className="space-y-4">
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2"/>
-                    <p className="font-semibold text-emerald-800">Utilizador criado com sucesso!</p>
-                  </div>
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
-                    <p className="text-xs text-slate-500 mb-1">Password Temporária</p>
-                    <p className="font-mono text-lg font-bold text-indigo-700 tracking-widest">{tempPass}</p>
-                    <p className="text-xs text-slate-400 mt-1">Partilhar de forma segura com o utilizador.</p>
-                  </div>
-                  <button onClick={() => { setShowModal(false); setTempPass(null); load(); }}
-                    className="w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 text-sm">
-                    Concluir
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
+              <div className="space-y-3">
                   {[
                     { label: "Nome completo *", key: "nome", type: "text", ph: "Ex: Ana Fernandes" },
                     { label: "Email *", key: "email", type: "email", ph: "ana@escola.ao" },
@@ -6786,7 +6766,6 @@ function AdminRBACUtilizadores({ token, schoolId, roles }: { token: string; scho
                     </button>
                   </div>
                 </div>
-              )}
             </motion.div>
           </div>
         )}

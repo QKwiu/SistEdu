@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LogOut, Search, X, CheckCircle2, Printer, Eye, EyeOff,
   RefreshCw, Clock, AlertCircle, Upload, FileCheck, Building2,
-  User, Shield, ChevronDown, Filter,
+  User, Shield, ChevronDown, Filter, KeyRound,
 } from "lucide-react";
 
 const API = "/api";
@@ -360,6 +360,36 @@ function DashboardView({
   const [filterStatus, setFilterStatus] = useState("pendente");
   const [showFilter, setShowFilter] = useState(false);
 
+  /* Change Password state */
+  const [showCP, setShowCP] = useState(false);
+  const [cpCurrent, setCpCurrent] = useState("");
+  const [cpNew, setCpNew] = useState("");
+  const [cpConfirm, setCpConfirm] = useState("");
+  const [cpSaving, setCpSaving] = useState(false);
+  const [cpError, setCpError] = useState("");
+  const [cpSuccess, setCpSuccess] = useState(false);
+  const [cpShowCurrent, setCpShowCurrent] = useState(false);
+  const [cpShowNew, setCpShowNew] = useState(false);
+
+  const handleChangePassword = async () => {
+    if (!cpCurrent || !cpNew || !cpConfirm) { setCpError("Preencha todos os campos."); return; }
+    if (cpNew.length < 6) { setCpError("A nova password deve ter pelo menos 6 caracteres."); return; }
+    if (cpNew !== cpConfirm) { setCpError("As passwords não coincidem."); return; }
+    setCpSaving(true); setCpError("");
+    try {
+      const r = await fetch(`${API}/school/rbac/staff/change-password`, {
+        method: "POST",
+        headers: { ...authH, "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: cpCurrent, new_password: cpNew }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setCpError(d.error ?? "Erro ao alterar password."); return; }
+      setCpSuccess(true);
+      setTimeout(() => { onLogout(); }, 2000);
+    } catch { setCpError("Erro de ligação. Tente novamente."); }
+    finally { setCpSaving(false); }
+  };
+
   /* Baixa Manual state */
   const [bmPropina, setBmPropina] = useState<Propina | null>(null);
   const [bmValor, setBmValor] = useState("");
@@ -470,6 +500,10 @@ function DashboardView({
               )}
             </p>
           </div>
+          <button onClick={() => { setShowCP(true); setCpCurrent(""); setCpNew(""); setCpConfirm(""); setCpError(""); setCpSuccess(false); }}
+            className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors" title="Alterar Palavra-passe">
+            <KeyRound className="w-4 h-4"/>
+          </button>
           <button onClick={onLogout} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors" title="Sair">
             <LogOut className="w-4 h-4"/>
           </button>
@@ -866,6 +900,89 @@ function DashboardView({
                   </>
                 )}
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Change Password Modal */}
+      <AnimatePresence>
+        {showCP && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-indigo-600"/>
+                  <h3 className="font-bold text-slate-900">Alterar Palavra-passe</h3>
+                </div>
+                <button onClick={() => setShowCP(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                  <X className="w-4 h-4"/>
+                </button>
+              </div>
+
+              {cpSuccess ? (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 text-center">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2"/>
+                    <p className="font-semibold text-emerald-800">Password alterada com sucesso!</p>
+                    <p className="text-xs text-emerald-600 mt-1">A iniciar sessão novamente...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Password actual *</label>
+                    <div className="relative">
+                      <input type={cpShowCurrent ? "text" : "password"} value={cpCurrent}
+                        onChange={e => setCpCurrent(e.target.value)}
+                        placeholder="A sua password actual"
+                        className="w-full px-3 py-2 pr-10 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                      <button type="button" onClick={() => setCpShowCurrent(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        {cpShowCurrent ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nova password *</label>
+                    <div className="relative">
+                      <input type={cpShowNew ? "text" : "password"} value={cpNew}
+                        onChange={e => setCpNew(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full px-3 py-2 pr-10 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                      <button type="button" onClick={() => setCpShowNew(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        {cpShowNew ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Confirmar nova password *</label>
+                    <input type="password" value={cpConfirm}
+                      onChange={e => setCpConfirm(e.target.value)}
+                      placeholder="Repetir nova password"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  </div>
+                  {cpError && (
+                    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-700">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0"/>
+                      {cpError}
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => setShowCP(false)}
+                      className="flex-1 py-2.5 border border-slate-200 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 text-sm">
+                      Cancelar
+                    </button>
+                    <button onClick={handleChangePassword} disabled={cpSaving}
+                      className="flex-1 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2">
+                      {cpSaving ? <RefreshCw className="w-4 h-4 animate-spin"/> : <KeyRound className="w-4 h-4"/>}
+                      Alterar
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
