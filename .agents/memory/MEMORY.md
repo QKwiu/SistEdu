@@ -2,3 +2,4 @@
 - [Propinas schema](propinas-schema.md) — usa school_id (não escola_id); colunas baixa_manual, metodo_pagamento, pagamento_origem existem.
 - [Caixa POS feature](caixa-pos-feature.md) — pg_advisory_xact_lock para numeração sequencial; popups para impressão; print format thermal/A4.
 - [Security hardening](security-hardening.md) — bcrypt staff passwords, HMAC webhook, rate limiters, helmet, env-var-enforced admin creds. express-rate-limit v8 must not use custom keyGenerator with IP.
+- [Staff Portal](staff-portal.md) — portal separado /staff para atendentes/tesoureiros; staff_sessions table; staffAuth exported from rbac.ts; staff-portal.ts para propinas+baixa-manual.

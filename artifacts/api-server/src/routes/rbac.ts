@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as crypto from "crypto";
 import bcrypt from "bcryptjs";
+import { loginRateLimiter } from "../lib/rate-limiters";
 
 const router = Router();
 
@@ -55,6 +56,14 @@ export async function runRBACMigration() {
       alvo TEXT,
       detalhe JSONB DEFAULT '{}',
       ip TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS staff_sessions (
+      id         SERIAL PRIMARY KEY,
+      staff_id   INTEGER NOT NULL REFERENCES staff_users(id) ON DELETE CASCADE,
+      token      TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
@@ -706,6 +715,136 @@ router.get("/admin/rbac/:schoolId/audit-log", adminAuthMiddleware, async (req: a
     ]);
     res.json({ rows: rows.rows, total: (total.rows[0] as any).n });
   } catch (e: any) { req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." }); }
+});
+
+/* ══════════════════════════════════════════
+   STAFF PORTAL AUTH & SESSION
+══════════════════════════════════════════ */
+
+/* Exported middleware — used by staff-portal.ts routes */
+export async function staffAuth(req: any, res: any, next: any) {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autorizado" });
+    const token = auth.slice(7);
+
+    const rows = await db.execute(sql`
+      SELECT ss.staff_id, su.email, su.nome, su.school_id, su.status,
+             sr.nome AS role_nome
+      FROM staff_sessions ss
+      JOIN staff_users su ON su.id = ss.staff_id
+      LEFT JOIN staff_roles sr ON sr.id = su.role_id
+      WHERE ss.token = ${token} AND ss.expires_at > now()
+      LIMIT 1
+    `);
+
+    if (!rows.rows.length) return res.status(401).json({ error: "Sessão inválida" });
+
+    const s = rows.rows[0] as any;
+    if (s.status !== "activo") return res.status(403).json({ error: "Conta inactiva ou bloqueada. Contacte o administrador." });
+
+    req.schoolId   = s.school_id;
+    req.staffId    = s.staff_id;
+    req.staffEmail = s.email;
+    req.staffNome  = s.nome;
+    req.actorEmail = s.email;
+    req.staffRoleNome = s.role_nome;
+
+    await db.execute(sql`UPDATE staff_users SET ultimo_acesso = now() WHERE id = ${s.staff_id}`);
+    next();
+  } catch (e: any) {
+    if (e.message?.includes("staff_sessions") || e.message?.includes("does not exist")) {
+      return res.status(503).json({ error: "Serviço temporariamente indisponível." });
+    }
+    res.status(500).json({ error: "Erro interno do servidor." });
+  }
+}
+
+/* POST /school/rbac/staff/login */
+router.post("/school/rbac/staff/login", loginRateLimiter, async (req: any, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email?.trim() || !password) return res.status(400).json({ error: "Email e password obrigatórios" });
+
+    const rows = await db.execute(sql`
+      SELECT su.id, su.nome, su.email, su.password_hash, su.status, su.school_id,
+             sr.nome AS role_nome,
+             sc.name AS school_name, sc.nif AS school_nif, sc.phone AS school_phone
+      FROM staff_users su
+      JOIN schools sc ON sc.id = su.school_id
+      LEFT JOIN staff_roles sr ON sr.id = su.role_id
+      WHERE su.email = ${email.toLowerCase().trim()}
+      LIMIT 1
+    `);
+
+    const user = rows.rows[0] as any;
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: "Credenciais inválidas." });
+    }
+    if (user.status !== "activo") {
+      return res.status(403).json({ error: "Conta inactiva ou bloqueada. Contacte o administrador." });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
+
+    await db.execute(sql`
+      INSERT INTO staff_sessions (staff_id, token, expires_at)
+      VALUES (${user.id}, ${token}, ${expiresAt})
+    `);
+    await db.execute(sql`UPDATE staff_users SET ultimo_acesso = now() WHERE id = ${user.id}`);
+    await logAudit(user.school_id, user.email, "staff_login", user.email, { staff_id: user.id }, req.ip);
+
+    res.json({
+      ok: true,
+      token,
+      staff: {
+        id: user.id,
+        nome: user.nome,
+        email: user.email,
+        school_id: user.school_id,
+        school_name: user.school_name,
+        school_nif: user.school_nif ?? null,
+        school_phone: user.school_phone ?? null,
+        role_nome: user.role_nome ?? null,
+        status: user.status,
+      },
+    });
+  } catch (e: any) {
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+/* GET /school/rbac/staff/me */
+router.get("/school/rbac/staff/me", staffAuth, async (req: any, res) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT su.id, su.nome, su.email, su.telefone, su.status,
+             sr.nome AS role_nome, sr.cor AS role_cor,
+             sc.name AS school_name, sc.nif AS school_nif, sc.phone AS school_phone
+      FROM staff_users su
+      JOIN schools sc ON sc.id = su.school_id
+      LEFT JOIN staff_roles sr ON sr.id = su.role_id
+      WHERE su.id = ${req.staffId}
+      LIMIT 1
+    `);
+    if (!rows.rows.length) return res.status(404).json({ error: "Utilizador não encontrado" });
+    res.json(rows.rows[0]);
+  } catch (e: any) {
+    req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
+  }
+});
+
+/* POST /school/rbac/staff/logout */
+router.post("/school/rbac/staff/logout", async (req: any, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (auth?.startsWith("Bearer ")) {
+      const token = auth.slice(7);
+      await db.execute(sql`DELETE FROM staff_sessions WHERE token = ${token}`);
+    }
+    res.json({ ok: true });
+  } catch { res.json({ ok: true }); }
 });
 
 export default router;

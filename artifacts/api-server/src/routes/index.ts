@@ -10,6 +10,7 @@ import paymentsRouter from "./payments";
 import smsRouter, { runSMSMigration } from "./sms";
 import reportsRouter, { runReportsMigration } from "./reports";
 import rbacRouter, { runRBACMigration } from "./rbac";
+import staffPortalRouter from "./staff-portal";
 import infantRouter, { runInfantMigration } from "./infant";
 
 const router: IRouter = Router();
@@ -25,6 +26,7 @@ router.use(paymentsRouter);
 router.use(smsRouter);
 router.use(reportsRouter);
 router.use(rbacRouter);
+router.use(staffPortalRouter);
 router.use(infantRouter);
 
 /* Run DB migrations (idempotent) */
