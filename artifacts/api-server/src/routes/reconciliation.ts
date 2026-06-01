@@ -440,8 +440,12 @@ router.post(
     if (rule?.requer_referencia_doc && !referencia_doc) return res.status(400).json({ error: earlyChannel === "POS_TPA" ? "Nº do talão / ID de transação TPA obrigatório." : "Referência da transferência obrigatória." });
 
     const pRow = await pool.query(
-      `SELECT p.*, sc.commission_rate, sc.id AS school_db_id
-       FROM propinas p JOIN schools sc ON sc.id = p.school_id
+      `SELECT p.*, sc.commission_rate, sc.id AS school_db_id,
+              sc.name AS escola_nome, sc.nif AS escola_nif, sc.phone AS escola_phone,
+              s.nome AS aluno_nome_db, s.numero_processo AS aluno_processo
+       FROM propinas p
+       JOIN schools sc ON sc.id = p.school_id
+       LEFT JOIN students s ON s.id = p.student_id
        WHERE p.id = $1 AND p.school_id = $2`,
       [propina_id, school.school_id]
     );
@@ -512,6 +516,8 @@ router.post(
       comprovante_url: comprovanteUrl,
       baixa_manual_por: school.admin_email,
       split: { escola: valorEscola, plataforma: comissaoPlataforma, comissao_rate: commissionRate },
+      escola: { nome: p.escola_nome ?? null, nif: p.escola_nif ?? null, phone: p.escola_phone ?? null },
+      propina: { aluno_nome: p.aluno_nome_db ?? null, aluno_processo: p.aluno_processo ?? null, mes: p.mes, ano: p.ano },
     });
   }
 );

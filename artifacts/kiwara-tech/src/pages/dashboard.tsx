@@ -2856,6 +2856,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [bmSaving, setBmSaving] = useState(false);
   const [bmResult, setBmResult] = useState<any>(null);
   const [bmError, setBmError] = useState("");
+  const [bmPrintMode, setBmPrintMode] = useState<"thermal" | "a4">("thermal");
 
   const openBaixa = (p: Propina) => {
     setBmPropina(p);
@@ -3324,14 +3325,41 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               {bmResult ? (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
-                  <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto mb-2"/>
-                  <p className="font-semibold text-emerald-800">Pagamento registado com sucesso!</p>
-                  <p className="text-sm text-emerald-600 mt-1">Estado actualizado para <strong>{bmResult.status}</strong></p>
-                  <button onClick={() => setBmPropina(null)}
-                    className="mt-4 px-5 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
-                    Fechar
-                  </button>
+                <div className="space-y-5">
+                  <div className="text-center pt-2">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+                      <CheckCircle2 className="w-9 h-9 text-emerald-600"/>
+                    </div>
+                    <p className="text-lg font-bold text-slate-900">Pagamento Registado com Sucesso!</p>
+                    <p className="text-sm text-slate-500 mt-1">Ref.: <span className="font-mono font-semibold text-slate-700">{bmResult.payment_ref}</span></p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-slate-500">Aluno</span><span className="font-semibold truncate max-w-[60%]">{bmPropina?.aluno_nome}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Período</span><span className="font-semibold">{bmPropina?.mes} {bmPropina?.ano}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Valor Pago</span><span className="font-bold text-emerald-700">{fmt(bmResult.valor_pago ?? 0)} Kz</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Método</span><span className="font-semibold">{bmMetodo}</span></div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Formato de Impressão</p>
+                    <div className="flex gap-2">
+                      {(["thermal","a4"] as const).map(m => (
+                        <button key={m} onClick={() => setBmPrintMode(m)}
+                          className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold border-2 transition-all ${bmPrintMode === m ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                          {m === "thermal" ? "🧾 Talão 80mm" : "📄 Folha A4"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => setBmPropina(null)}
+                      className="flex-1 px-5 py-2.5 border border-slate-200 bg-white text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors">
+                      Fechar
+                    </button>
+                    <button onClick={() => bmPropina && printBaixaManualReceipt(bmResult, bmPropina, bmMetodo, bmResult.baixa_manual_por ?? "", bmPrintMode)}
+                      className="flex-1 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+                      <Printer className="w-4 h-4"/> Imprimir Comprovativo
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -3413,6 +3441,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [bmFile, setBmFile] = useState<File | null>(null);
   const [bmResult, setBmResult] = useState<any>(null);
   const [bmError, setBmError] = useState("");
+  const [bmPrintMode, setBmPrintMode] = useState<"thermal" | "a4">("thermal");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
 
@@ -3992,11 +4021,18 @@ function ReconciliacaoView({ token }: { token: string | null }) {
 
               {bmResult ? (
                 <div className="space-y-4">
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <p className="text-emerald-800 font-semibold flex items-center gap-2 mb-1">
-                      <CheckCircle2 className="w-4 h-4"/> Baixa manual registada com sucesso
-                    </p>
-                    <p className="text-xs text-emerald-700">Ref. pagamento: <span className="font-mono font-bold">{bmResult.payment_ref}</span></p>
+                  <div className="text-center py-2">
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-600"/>
+                    </div>
+                    <p className="text-base font-bold text-slate-900">Pagamento Registado com Sucesso!</p>
+                    <p className="text-xs text-slate-500 mt-1">Ref.: <span className="font-mono font-semibold text-slate-700">{bmResult.payment_ref}</span></p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3 space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-slate-500">Aluno</span><span className="font-semibold truncate max-w-[60%]">{baixaModal?.aluno_nome}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Período</span><span className="font-semibold">{baixaModal?.mes}/{baixaModal?.ano}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Valor Pago</span><span className="font-bold text-emerald-700">{fmt(bmResult.valor_pago ?? 0)} Kz</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Método</span><span className="font-semibold">{bmMetodo}</span></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
@@ -4015,7 +4051,24 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                       <ExternalLink className="w-3.5 h-3.5 ml-auto"/>
                     </a>
                   )}
-                  <Button onClick={() => { setBaixaModal(null); setBmResult(null); }} className="w-full">Fechar</Button>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Formato de Impressão</p>
+                    <div className="flex gap-2">
+                      {(["thermal","a4"] as const).map(m => (
+                        <button key={m} onClick={() => setBmPrintMode(m)}
+                          className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold border-2 transition-all ${bmPrintMode === m ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                          {m === "thermal" ? "🧾 Talão 80mm" : "📄 Folha A4"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={() => { setBaixaModal(null); setBmResult(null); }} className="flex-1">Fechar</Button>
+                    <Button onClick={() => baixaModal && printBaixaManualReceipt(bmResult, baixaModal, bmMetodo, bmResult.baixa_manual_por ?? "", bmPrintMode)}
+                      className="flex-1 gap-2 bg-primary hover:bg-primary/90 text-white">
+                      <Printer className="w-4 h-4"/> Imprimir Comprovativo
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -4282,6 +4335,32 @@ ${fatura.aluno_turma ? `<div>Turma: ${fatura.aluno_turma}</div>` : ""}
   w.document.write(html);
   w.document.close();
   w.focus();
+}
+
+function printBaixaManualReceipt(
+  result: any,
+  propina: { aluno_nome: string; mes: string; ano: number | string; turma?: string; student_id?: number },
+  metodo: string,
+  operador: string,
+  mode: "thermal" | "a4"
+) {
+  const escola = result.escola ?? {};
+  const alunoNome = result.propina?.aluno_nome ?? propina.aluno_nome ?? "";
+  const alunoProcesso = result.propina?.aluno_processo ?? "";
+  const mes = result.propina?.mes ?? propina.mes ?? "";
+  const ano = result.propina?.ano ?? propina.ano ?? "";
+  const fatura = {
+    numero_fatura: result.payment_ref ?? "MAN-?",
+    created_at: new Date().toISOString(),
+    aluno_nome: alunoNome,
+    aluno_numero_processo: alunoProcesso,
+    aluno_turma: (propina as any).turma ?? "",
+    descricao: `Propina de ${mes}/${ano}`,
+    montante: result.valor_pago ?? 0,
+    metodo_pagamento: (metodo === "Numerário" || metodo === "Cash") ? "CASH" : "POS_TPA",
+    operador_nome: operador || result.baixa_manual_por || "Operador",
+  };
+  printCaixaFatura(fatura, escola, null, mode);
 }
 
 function CaixaView({ token }: { token: string }) {
