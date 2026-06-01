@@ -31,6 +31,6 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-ADMIN_USERNAME = "KiwaraAdmin"
-ADMIN_PASSWORD = "jrCTSvS7aT08_m7crIeDZA"
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin2026"
 WEBHOOK_SECRET = "5ae311d32dbc8a93da0fd6ce22c0c65759daf9c549b9944670216d87e04a5f54"
