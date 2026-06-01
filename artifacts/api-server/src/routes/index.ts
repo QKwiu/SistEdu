@@ -13,6 +13,7 @@ import rbacRouter, { runRBACMigration } from "./rbac";
 import staffPortalRouter from "./staff-portal";
 import infantRouter, { runInfantMigration } from "./infant";
 import portalRouter from "./portal";
+import fcmRouter from "./fcm";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,7 @@ router.use(rbacRouter);
 router.use(staffPortalRouter);
 router.use(infantRouter);
 router.use(portalRouter);
+router.use(fcmRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>

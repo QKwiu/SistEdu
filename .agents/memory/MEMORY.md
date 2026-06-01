@@ -3,3 +3,4 @@
 - [Caixa POS feature](caixa-pos-feature.md) — pg_advisory_xact_lock para numeração sequencial; popups para impressão; print format thermal/A4.
 - [Security hardening](security-hardening.md) — bcrypt staff passwords, HMAC webhook, rate limiters, helmet, env-var-enforced admin creds. express-rate-limit v8 must not use custom keyGenerator with IP.
 - [Staff Portal](staff-portal.md) — portal separado /staff para atendentes/tesoureiros; staff_sessions table; staffAuth exported from rbac.ts; staff-portal.ts para propinas+baixa-manual.
+- [FCM native implementation](fcm-native.md) — firebase-admin bloqueado pelo package firewall (502); implementar FCM via crypto+fetch Node.js nativamente: JWT RS256 → Google OAuth2 token → FCM HTTP v1 API.

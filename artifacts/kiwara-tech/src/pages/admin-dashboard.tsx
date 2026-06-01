@@ -8791,7 +8791,188 @@ function AdminFinanceReconciliationView() {
 }
 
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "relatorios_financeiros" | "admin_students" | "admin_classes" | "admin_finance_overdue" | "admin_finance_receipts" | "admin_finance_reconciliation";
+type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "fcm_config" | "relatorios_financeiros" | "admin_students" | "admin_classes" | "admin_finance_overdue" | "admin_finance_receipts" | "admin_finance_reconciliation";
+
+/* ═══════════════════════════════════════════════════════════════════
+   FCM CONFIG VIEW — Push Notifications (Firebase Cloud Messaging)
+═══════════════════════════════════════════════════════════════════ */
+function FcmConfigAdminView() {
+  type FcmEnv = "test" | "production";
+  const [activeTab, setActiveTab] = useState<FcmEnv>("test");
+  const [globalActiveEnv, setGlobalActiveEnv] = useState<FcmEnv>("test");
+  const [config, setConfig] = useState<Record<FcmEnv, { project_id: string; client_email: string; private_key: string }>>({
+    test:       { project_id: "", client_email: "", private_key: "" },
+    production: { project_id: "", client_email: "", private_key: "" },
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [testToken, setTestToken] = useState("");
+  const [testEnv, setTestEnv] = useState<FcmEnv>("test");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; sent?: number; error?: string; errors?: string[] } | null>(null);
+  const [showKey, setShowKey] = useState<Record<FcmEnv, boolean>>({ test: false, production: false });
+
+  useEffect(() => {
+    api("/admin/fcm-config").then(r => r.json()).then((d: any) => {
+      if (d.active_env) setGlobalActiveEnv(d.active_env as FcmEnv);
+      if (d.test) setConfig(prev => ({ ...prev, test: { project_id: d.test.project_id ?? "", client_email: d.test.client_email ?? "", private_key: d.test.private_key ?? "" } }));
+      if (d.production) setConfig(prev => ({ ...prev, production: { project_id: d.production.project_id ?? "", client_email: d.production.client_email ?? "", private_key: d.production.private_key ?? "" } }));
+    }).catch(() => {});
+  }, []);
+
+  const update = (env: FcmEnv, key: string, val: string) =>
+    setConfig(prev => ({ ...prev, [env]: { ...prev[env], [key]: val } }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    await api("/admin/fcm-config", {
+      method: "PUT",
+      body: JSON.stringify({ active_env: globalActiveEnv, test: config.test, production: config.production }),
+    });
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleTest = async () => {
+    if (!testToken.trim()) return;
+    setTesting(true); setTestResult(null);
+    const r = await api("/admin/fcm-config/test", {
+      method: "POST",
+      body: JSON.stringify({ fcm_token: testToken.trim(), env: testEnv }),
+    }).then((x: Response) => x.json()).catch(() => ({ ok: false, error: "Erro de rede." }));
+    setTestResult(r);
+    setTesting(false);
+  };
+
+  const envColors = (env: FcmEnv, active: boolean) => active
+    ? env === "production" ? "bg-emerald-500 border-emerald-500 text-white" : "bg-amber-400 border-amber-400 text-white"
+    : "border-slate-200 text-slate-500 hover:border-slate-300";
+  const envLabel = (env: FcmEnv) => env === "production" ? "Produção" : "Testes";
+
+  return (
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+          <Zap className="w-5 h-5 text-amber-500"/> Push Notifications — Firebase Cloud Messaging
+        </h2>
+        <p className="text-sm text-slate-500 mt-1">Configure as credenciais FCM para envio de push notifications aos utilizadores da plataforma.</p>
+      </div>
+
+      {/* Ambiente activo global */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Ambiente Activo</p>
+        <div className="flex items-center gap-3 flex-wrap">
+          {(["test", "production"] as FcmEnv[]).map(env => (
+            <button key={env} onClick={() => setGlobalActiveEnv(env)}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${envColors(env, globalActiveEnv === env)}`}>
+              {envLabel(env)}
+            </button>
+          ))}
+          <p className="text-xs text-slate-400">Todos os envios das escolas usarão as credenciais do ambiente seleccionado.</p>
+        </div>
+      </div>
+
+      {/* Credenciais por ambiente */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="flex border-b border-slate-100">
+          {(["test", "production"] as FcmEnv[]).map(env => (
+            <button key={env} onClick={() => setActiveTab(env)}
+              className={`flex-1 px-4 py-3 text-sm font-semibold transition-colors ${activeTab === env ? "bg-slate-50 text-slate-900 border-b-2 border-primary" : "text-slate-400 hover:text-slate-600"}`}>
+              {envLabel(env)}
+              {globalActiveEnv === env && <span className="ml-1.5 text-[10px] text-emerald-500 font-medium">(activo)</span>}
+            </button>
+          ))}
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Firebase Project ID</label>
+            <input type="text" value={config[activeTab].project_id} onChange={e => update(activeTab, "project_id", e.target.value)}
+              placeholder="my-firebase-project-id"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Client Email (Service Account)</label>
+            <input type="email" value={config[activeTab].client_email} onChange={e => update(activeTab, "client_email", e.target.value)}
+              placeholder="firebase-adminsdk-xxxx@my-project.iam.gserviceaccount.com"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1.5">
+              Private Key (Service Account)
+              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium border border-amber-200">Sensível</span>
+            </label>
+            <div className="relative">
+              <textarea value={config[activeTab].private_key} onChange={e => update(activeTab, "private_key", e.target.value)} rows={5}
+                placeholder={"-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----"}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none pr-10"/>
+              <button type="button" onClick={() => setShowKey(p => ({ ...p, [activeTab]: !p[activeTab] }))}
+                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
+                {showKey[activeTab] ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Valor do campo <code className="bg-slate-100 px-1 rounded">private_key</code> do ficheiro <code className="bg-slate-100 px-1 rounded">serviceAccountKey.json</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Save */}
+      <div className="flex justify-end">
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+          {saving ? "A guardar…" : saved ? "Guardado!" : "Guardar Configuração"}
+        </button>
+      </div>
+
+      {/* Test */}
+      <div className="bg-violet-50 border border-violet-200 rounded-2xl p-5 space-y-4">
+        <h3 className="font-semibold text-slate-800 flex items-center gap-2"><FlaskConical className="w-4 h-4 text-violet-500"/> Teste de Integração</h3>
+        <p className="text-xs text-slate-500">Insira o token FCM do seu dispositivo para validar as credenciais antes de activar em produção.</p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">Testar com:</span>
+          {(["test", "production"] as FcmEnv[]).map(env => (
+            <button key={env} onClick={() => setTestEnv(env)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${envColors(env, testEnv === env)}`}>
+              {envLabel(env)}
+            </button>
+          ))}
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Token FCM do Dispositivo de Teste</label>
+          <input type="text" value={testToken} onChange={e => setTestToken(e.target.value)}
+            placeholder="eHxMz6Qr2kP…"
+            className="w-full border border-violet-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"/>
+        </div>
+        {testResult && (
+          <div className={`rounded-xl p-3 flex items-start gap-2.5 text-sm ${testResult.ok ? "bg-emerald-50 border border-emerald-200 text-emerald-800" : "bg-red-50 border border-red-200 text-red-800"}`}>
+            {testResult.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5"/> : <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>}
+            <div>
+              <p className="font-medium">{testResult.ok ? "Push enviada com sucesso! Verifique o dispositivo." : (testResult.error ?? "Falhou. Verifique as credenciais e o token FCM.")}</p>
+              {testResult.errors?.length ? <p className="text-xs mt-1 opacity-70">{testResult.errors.join("; ")}</p> : null}
+            </div>
+          </div>
+        )}
+        <button onClick={handleTest} disabled={testing || !testToken.trim()}
+          className="flex items-center gap-2 bg-violet-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 transition-colors">
+          {testing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4"/>}
+          {testing ? "A enviar…" : "Enviar Push de Teste"}
+        </button>
+      </div>
+
+      {/* Instructions */}
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+        <h4 className="font-semibold text-slate-700 text-sm mb-3 flex items-center gap-2"><Terminal className="w-4 h-4"/> Como obter as credenciais Firebase</h4>
+        <ol className="space-y-2 text-xs text-slate-600 list-decimal pl-4">
+          <li>Aceda à <strong>Consola Firebase</strong> → Selecione o seu projeto.</li>
+          <li>Vá a <strong>Definições do Projeto</strong> → <strong>Contas de serviço</strong>.</li>
+          <li>Clique em <strong>"Gerar nova chave privada"</strong> e guarde o ficheiro JSON.</li>
+          <li>Extraia: <code className="bg-white border border-slate-200 px-1 rounded">project_id</code>, <code className="bg-white border border-slate-200 px-1 rounded">client_email</code> e <code className="bg-white border border-slate-200 px-1 rounded">private_key</code>.</li>
+          <li>Cole os valores nos campos acima, selecione o ambiente activo e guarde.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -8834,6 +9015,7 @@ export default function AdminDashboard() {
     { id: "gestao_acessos"         as const, label: "Gestão de Acessos",       icon: <Lock className="w-5 h-5" /> },
     { id: "config_tecnicas"        as const, label: "Configurações Técnicas",  icon: <Settings2 className="w-5 h-5" /> },
     { id: "parametrizacao"         as const, label: "Parametrização",          icon: <Network className="w-5 h-5" /> },
+    { id: "fcm_config"             as const, label: "Push Notifications",      icon: <Zap className="w-5 h-5" /> },
   ];
 
   const navigate = (id: AdminView) => {
@@ -9038,6 +9220,7 @@ export default function AdminDashboard() {
             {view === "gestao_acessos" && <AdminRBACView />}
             {view === "config_tecnicas" && <ConfiguracoesTecnicasView />}
             {view === "parametrizacao" && <ParametrizacaoView />}
+            {view === "fcm_config" && <FcmConfigAdminView />}
             {view === "relatorios_financeiros"        && <RelatoriosFinanceirosView />}
             {view === "admin_students"                && <AdminStudentsView />}
             {view === "admin_classes"                 && <AdminClassesView />}

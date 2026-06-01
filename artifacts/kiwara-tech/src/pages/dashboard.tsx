@@ -4905,7 +4905,7 @@ function CaixaView({ token }: { token: string }) {
 function ComunicarView({ token, moduloInfantil = false }: { token: string; moduloInfantil?: boolean }) {
   const authH = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
-  type ComunicarTab = "compor" | "publicados" | "historico" | "aniversario";
+  type ComunicarTab = "compor" | "publicados" | "historico" | "aniversario" | "push";
   const [tab, setTab] = useState<ComunicarTab>("compor");
 
   // ── Compor ──
@@ -4940,6 +4940,15 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   const [logsLoading, setLogsLoading] = useState(false);
   const [stats, setStats] = useState<{ sent: number; failed: number } | null>(null);
 
+  // ── Push Notifications ──
+  const [pushTitulo, setPushTitulo] = useState("");
+  const [pushMensagem, setPushMensagem] = useState("");
+  const [pushAudiencia, setPushAudiencia] = useState<"todos" | "encarregados" | "professores" | "turma">("todos");
+  const [pushTurmaId, setPushTurmaId] = useState<number | null>(null);
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{ ok: boolean; sent?: number; failed?: number; total_devices?: number; environment?: string; message?: string; error?: string } | null>(null);
+  const [pushStats, setPushStats] = useState<{ total: number; guardians: number; staff: number } | null>(null);
+
   // ── Aniversário ──
   const [aniversariantesHoje, setAniversariantesHoje] = useState<any[]>([]);
   const [loadingAniv, setLoadingAniv] = useState(false);
@@ -4966,6 +4975,30 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
 
   useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
   useEffect(() => { if (tab === "historico") fetchLogs(1); }, [tab]);
+  useEffect(() => {
+    if (tab === "push") {
+      fetch(`${API}/school/comunicar/fcm-stats`, { headers: authH })
+        .then(r => r.ok ? r.json() : null).then(d => d && setPushStats(d)).catch(() => {});
+    }
+  }, [tab]);
+
+  const handlePush = async () => {
+    if (!pushTitulo.trim() || !pushMensagem.trim()) return;
+    setPushing(true); setPushResult(null);
+    try {
+      const r = await fetch(`${API}/school/comunicar/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authH },
+        body: JSON.stringify({ titulo: pushTitulo.trim(), mensagem: pushMensagem.trim(), audiencia: pushAudiencia, turma_id: pushTurmaId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setPushResult(d);
+      if (d.ok && d.sent > 0) { setPushTitulo(""); setPushMensagem(""); }
+    } catch (e: any) { setPushResult({ ok: false, error: e.message ?? "Erro ao enviar." }); }
+    finally { setPushing(false); }
+  };
+
   useEffect(() => {
     if (tab === "aniversario" && moduloInfantil) {
       setLoadingAniv(true);
@@ -5151,6 +5184,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
           { k: "publicados" as ComunicarTab, label: `Publicados${comunicados.length ? ` (${comunicados.length})` : ""}` },
           { k: "historico" as ComunicarTab, label: "Histórico" },
           ...(moduloInfantil ? [{ k: "aniversario" as ComunicarTab, label: "🎂 Aniversário" }] : []),
+          { k: "push" as ComunicarTab, label: "🔔 Push" },
         ]).map(({ k, label }) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
@@ -5575,6 +5609,103 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
               className="flex items-center gap-2 bg-pink-500 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-pink-600 disabled:opacity-50 transition-colors">
               {anivPublishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
               {anivPublishing ? "A publicar…" : "Publicar Aniversário 🎂"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PUSH NOTIFICATIONS ── */}
+      {tab === "push" && (
+        <div className="space-y-5">
+          {/* Stats */}
+          {pushStats && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-center gap-6">
+              <div className="text-center">
+                <p className="text-xl font-bold text-indigo-700">{pushStats.total}</p>
+                <p className="text-xs text-indigo-500">Dispositivos</p>
+              </div>
+              <div className="w-px h-10 bg-indigo-200"/>
+              <div className="text-center">
+                <p className="text-lg font-bold text-indigo-700">{pushStats.guardians}</p>
+                <p className="text-xs text-indigo-500">Encarregados</p>
+              </div>
+              <div className="w-px h-10 bg-indigo-200"/>
+              <div className="text-center">
+                <p className="text-lg font-bold text-indigo-700">{pushStats.staff}</p>
+                <p className="text-xs text-indigo-500">Funcionários</p>
+              </div>
+              {pushStats.total === 0 && (
+                <p className="text-xs text-indigo-600 ml-2">Nenhum dispositivo registado. Os utilizadores precisam de activar notificações na aplicação móvel.</p>
+              )}
+            </div>
+          )}
+
+          {/* Composer */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500"/> Compor Push Notification</h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+              <input value={pushTitulo} onChange={e => setPushTitulo(e.target.value)}
+                placeholder="Ex: Reunião de Encarregados — Amanhã às 15h"
+                maxLength={65}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+              <p className="text-xs text-slate-400 mt-1 text-right">{pushTitulo.length}/65</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem *</label>
+              <textarea value={pushMensagem} onChange={e => setPushMensagem(e.target.value)} rows={4}
+                placeholder="Escreva o corpo da notificação push…"
+                maxLength={200}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+              <p className="text-xs text-slate-400 mt-1 text-right">{pushMensagem.length}/200</p>
+            </div>
+          </div>
+
+          {/* Audience */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filtro de Audiência</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {([
+                { k: "todos" as const, label: "Toda a Escola" },
+                { k: "encarregados" as const, label: "Encarregados" },
+                { k: "professores" as const, label: "Funcionários" },
+                { k: "turma" as const, label: "Por Turma" },
+              ]).map(({ k, label }) => (
+                <button key={k} onClick={() => { setPushAudiencia(k); setPushTurmaId(null); }}
+                  className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${pushAudiencia === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {pushAudiencia === "turma" && (
+              <select value={pushTurmaId ?? ""} onChange={e => setPushTurmaId(Number(e.target.value) || null)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <option value="">Selecionar turma…</option>
+                {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* Result */}
+          {pushResult && (
+            <div className={`rounded-2xl p-4 flex items-start gap-3 ${pushResult.ok && (pushResult.sent ?? 0) > 0 ? "bg-emerald-50 border border-emerald-200" : pushResult.ok ? "bg-amber-50 border border-amber-200" : "bg-red-50 border border-red-200"}`}>
+              {pushResult.ok && (pushResult.sent ?? 0) > 0
+                ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5"/>
+                : <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"/>}
+              <div>
+                {pushResult.ok
+                  ? <p className="text-sm font-medium text-slate-800">{pushResult.message ?? `Push enviada: ${pushResult.sent} entregues, ${pushResult.failed ?? 0} falharam (de ${pushResult.total_devices} dispositivos). Ambiente: ${pushResult.environment}.`}</p>
+                  : <p className="text-sm font-medium text-red-800">{pushResult.error ?? "Erro ao enviar notificações."}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Send button */}
+          <div className="flex justify-end">
+            <button onClick={handlePush} disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushAudiencia === "turma" && !pushTurmaId)}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+              {pushing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>}
+              {pushing ? "A disparar…" : "Disparar Comunicado Push"}
             </button>
           </div>
         </div>

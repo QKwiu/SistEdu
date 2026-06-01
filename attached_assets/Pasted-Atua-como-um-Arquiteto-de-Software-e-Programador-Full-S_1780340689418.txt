@@ -1,0 +1,27 @@
+Atua como um Arquiteto de Software e Programador Full-Stack Sénior. Preciso de implementar o ecossistema de Push Notifications utilizando o Google Firebase Cloud Messaging (FCM). O sistema deve ser dividido em duas partes: Configuração (Administrador) e Envio (Gestor), suportando ambientes de Teste e Produção.
+
+Gera a especificação e o código para os seguintes módulos:
+
+1. CONFIGURAÇÃO DE INTEGRAÇÃO (Perfil Administrador - Backoffice)
+Cria um ecrã de configurações técnicas com os seguintes campos:
+- Selector de Ambiente: Toggle/Radio para alternar entre [Ambiente de Testes] e [Ambiente de Produção].
+- Campos de Credenciais (Duplicados por ambiente ou dinâmicos):
+  * Firebase Project ID (Input)
+  * Firebase Private Key / Service Account JSON (Textarea ou upload de ficheiro .json de forma segura).
+  * Firebase Client Email (Input)
+- Secção de Teste de Integração:
+  * Campo "Token FCM de Teste" (Input para o Administrador colocar o token do seu próprio telemóvel).
+  * Botão "Enviar Push de Teste" (Para validar se as credenciais inseridas estão a comunicar bem com o Firebase antes de salvar).
+
+2. MENU "COMUNICAR" (Perfil Gestor do Colégio - UI/UX de Envio)
+Este menu consome a configuração ativa do Administrador. Cria o formulário de envio:
+- Título do Comunicado (Input)
+- Mensagem / Corpo (Textarea com limite de caracteres)
+- Filtro de Audiência (Dropdown/Checkboxes: Toda a Escola, Professores, Encarregados, Alunos ou por Turma).
+- Botão "Disparar Comunicado".
+
+3. LÓGICA DE BACK-END E BANCO DE DADOS
+- Estrutura para salvar as credenciais de Teste e Produção com segurança no Banco de Dados (de preferência encriptadas).
+- Endpoint que, ao ser chamado pelo menu "Comunicar", verifica qual o Ambiente Ativo (Teste ou Produção), carrega as credenciais corretas do Firebase, procura os tokens dos utilizadores da audiência selecionada e faz o disparo em massa.
+
+Gera um código limpo, modular, ideal para o ambiente Replit, e garante que as chaves sensíveis do Firebase fiquem protegidas contra acessos indevidos.

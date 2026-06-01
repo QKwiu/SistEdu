@@ -1678,7 +1678,7 @@ router.get("/admin/relatorios-financeiros", adminAuth, async (req, res) => {
 })();
 
 /* ── Helper: mask sensitive fields for read responses ─────── */
-const SENSITIVE = ["secret_key", "api_key", "ws_password", "basic_pass", "bearer_token"];
+const SENSITIVE = ["secret_key", "api_key", "ws_password", "basic_pass", "bearer_token", "private_key"];
 function maskSecrets(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -2087,6 +2087,56 @@ router.get("/admin/finance/reconciliation", adminAuth, async (req, res) => {
     };
     res.json({ totais, por_escola: sumR.rows, detalhe: detailR.rows });
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* ─── GET /admin/fcm-config ─── */
+router.get("/admin/fcm-config", adminAuth, async (_req, res) => {
+  const r = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
+  const raw = (r.rows[0]?.value ?? {}) as Record<string, unknown>;
+  res.json(maskSecrets(raw));
+});
+
+/* ─── PUT /admin/fcm-config ─── */
+router.put("/admin/fcm-config", adminAuth, async (req, res) => {
+  const incoming = req.body ?? {};
+  const existing = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
+  const current = (existing.rows[0]?.value ?? {}) as Record<string, unknown>;
+  const merged = mergePreserveSecrets(current, incoming);
+  await pool.query(
+    `INSERT INTO platform_config (key, value, updated_at, updated_by)
+     VALUES ('fcm_config', $1::jsonb, NOW(), 'admin')
+     ON CONFLICT (key) DO UPDATE SET value=$1::jsonb, updated_at=NOW(), updated_by='admin'`,
+    [JSON.stringify(merged)]
+  );
+  res.json({ ok: true, config: maskSecrets(merged) });
+});
+
+/* ─── POST /admin/fcm-config/test ─── */
+router.post("/admin/fcm-config/test", adminAuth, async (req, res) => {
+  const { fcm_token, env } = req.body;
+  if (!fcm_token?.trim()) return res.status(400).json({ error: "fcm_token é obrigatório para testar." });
+
+  const r = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
+  const config = (r.rows[0]?.value ?? {}) as any;
+  if (!config) return res.status(400).json({ error: "Configuração FCM não encontrada. Guarde as credenciais primeiro." });
+
+  const activeEnv = env ?? config.active_env ?? "test";
+  const creds = config[activeEnv];
+  if (!creds?.project_id || !creds?.client_email || !creds?.private_key || creds.private_key === "***")
+    return res.status(400).json({ error: `Credenciais FCM do ambiente '${activeEnv}' estão incompletas ou não foram guardadas.` });
+
+  try {
+    const { sendFcmBatch } = await import("./fcm.js");
+    const result = await sendFcmBatch(
+      creds, [fcm_token.trim()],
+      "🔔 Teste FCM — Kiwara Tech",
+      "Push notification de teste enviada com sucesso! As credenciais estão funcionais.",
+      { tipo: "teste" }
+    );
+    return res.json({ ok: result.sent > 0, ...result, environment: activeEnv });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e.message ?? "Erro ao enviar push de teste." });
+  }
 });
 
 export default router;
