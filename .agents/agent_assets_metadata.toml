@@ -1,3 +1,8 @@
 uploads = []
 generated = []
-outputs = []
+
+[[outputs]]
+id = "WlCYZydAM8s5jasOYxmTW"
+uri = "file://arquitectura-kiwara-tech.pdf"
+type = "pdf"
+title = "Arquitectura Aplicacional — Kiwara Tech MVP v1.0 (PDF)"
