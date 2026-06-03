@@ -6,3 +6,9 @@ id = "WlCYZydAM8s5jasOYxmTW"
 uri = "file://arquitectura-kiwara-tech.pdf"
 type = "pdf"
 title = "Arquitectura Aplicacional — Alto Nível · Kiwara Tech MVP v1.0"
+
+[[outputs]]
+id = "haJGblzWayVOieEFglnQS"
+uri = "file://fluxo-integracoes-kiwara-tech.pdf"
+type = "pdf"
+title = "Fluxo de Dados — Camada de Integração · Kiwara Tech MVP v1.0"
