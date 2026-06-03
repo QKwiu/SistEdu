@@ -18,3 +18,9 @@ id = "8e6g9j3gDtwELIFNrPFf_"
 uri = "file://fluxo-integracoes-kiwara-tech.docx"
 type = "word_document"
 title = "Fluxo de Dados — Camada de Integração · Kiwara Tech MVP v1.0 (Word)"
+
+[[outputs]]
+id = "7CjwsQy_2P9to09aK0ZDT"
+uri = "file://fluxo-camadas-comunicacao.pdf"
+type = "pdf"
+title = "Fluxo de Dados e Camadas de Comunicação — Kiwara Tech"
