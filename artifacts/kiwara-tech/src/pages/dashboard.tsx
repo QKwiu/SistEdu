@@ -7772,6 +7772,8 @@ function BolsasSchoolTab({ token }: { token: string }) {
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterEstado, setFilterEstado] = useState<"activa" | "revogada" | "">("activa");
+  const [filterTurma, setFilterTurma] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
 
   // Tipo form
   const [showTipoForm, setShowTipoForm] = useState(false);
@@ -7783,6 +7785,7 @@ function BolsasSchoolTab({ token }: { token: string }) {
   const [tipoAbrangencia, setTipoAbrangencia] = useState<'propina' | 'tudo'>('propina');
   const [tipoSaving, setTipoSaving] = useState(false);
   const [tipoError, setTipoError] = useState("");
+  const [togglingTipo, setTogglingTipo] = useState<number | null>(null);
 
   // Atribuicao form
   const [showAtribuirForm, setShowAtribuirForm] = useState(false);
@@ -7793,6 +7796,18 @@ function BolsasSchoolTab({ token }: { token: string }) {
   const [atribNotas, setAtribNotas] = useState("");
   const [atribSaving, setAtribSaving] = useState(false);
   const [atribError, setAtribError] = useState("");
+
+  // Edit atribuicao
+  const [editAtrib, setEditAtrib] = useState<BolsaAtribuicao | null>(null);
+  const [editAtribDataFim, setEditAtribDataFim] = useState("");
+  const [editAtribNotas, setEditAtribNotas] = useState("");
+  const [editAtribSaving, setEditAtribSaving] = useState(false);
+  const [editAtribError, setEditAtribError] = useState("");
+
+  // Revogar modal
+  const [revogarModal, setRevogarModal] = useState<BolsaAtribuicao | null>(null);
+  const [revogarMotivo, setRevogarMotivo] = useState("");
+  const [revogarSaving, setRevogarSaving] = useState(false);
 
   const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const iCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20";
@@ -7828,17 +7843,19 @@ function BolsasSchoolTab({ token }: { token: string }) {
     finally { setTipoSaving(false); }
   };
 
+  const toggleTipoActivo = async (t: BolsaTipo) => {
+    setTogglingTipo(t.id);
+    try {
+      await fetch(`${API}/school/bolsas/tipos/${t.id}`, { method: "PUT", headers: hdrs, body: JSON.stringify({ activo: !t.activo }) });
+      load();
+    } finally { setTogglingTipo(null); }
+  };
+
   const deleteTipo = async (id: number) => {
     if (!confirm("Eliminar este tipo de bolsa?")) return;
     const res = await fetch(`${API}/school/bolsas/tipos/${id}`, { method: "DELETE", headers: hdrs });
     const data = await res.json();
     if (!res.ok) { alert(data.error); return; }
-    load();
-  };
-
-  const revogarBolsa = async (id: number) => {
-    if (!confirm("Revogar esta bolsa?")) return;
-    await fetch(`${API}/school/bolsas/atribuicoes/${id}`, { method: "PUT", headers: hdrs, body: JSON.stringify({ estado: "revogada", motivo_revogacao: "Revogada manualmente" }) });
     load();
   };
 
@@ -7856,11 +7873,57 @@ function BolsasSchoolTab({ token }: { token: string }) {
     finally { setAtribSaving(false); }
   };
 
+  const saveEditAtrib = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editAtrib) return;
+    setEditAtribSaving(true); setEditAtribError("");
+    try {
+      const res = await fetch(`${API}/school/bolsas/atribuicoes/${editAtrib.id}`, {
+        method: "PUT", headers: hdrs,
+        body: JSON.stringify({ data_fim: editAtribDataFim || null, notas: editAtribNotas.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
+      setEditAtrib(null); load();
+    } catch (err: any) { setEditAtribError(err.message); }
+    finally { setEditAtribSaving(false); }
+  };
+
+  const confirmarRevogar = async () => {
+    if (!revogarModal) return;
+    setRevogarSaving(true);
+    await fetch(`${API}/school/bolsas/atribuicoes/${revogarModal.id}`, {
+      method: "PUT", headers: hdrs,
+      body: JSON.stringify({ estado: "revogada", motivo_revogacao: revogarMotivo.trim() || "Revogada pelo secretariado" }),
+    });
+    setRevogarModal(null); setRevogarMotivo(""); setRevogarSaving(false);
+    load();
+  };
+
   const openEditTipo = (t: BolsaTipo) => { setEditTipo(t); setTipoNome(t.nome); setTipoDescricao(t.descricao || ""); setTipoTipoDesconto(t.tipo_desconto); setTipoValor(String(t.valor)); setTipoAbrangencia(t.abrangencia); setShowTipoForm(true); };
+
+  const daysUntil = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+  };
+
+  const turmasUnicas = useMemo(() => {
+    const seen = new Set<string>();
+    return alunos.filter(a => a.turma && !seen.has(a.turma) && seen.add(a.turma)).map(a => a.turma);
+  }, [alunos]);
+
+  const atribuicoesFiltradas = useMemo(() => {
+    const q = filterSearch.toLowerCase();
+    return atribuicoes.filter(a => {
+      const matchTurma = !filterTurma || a.turma === filterTurma;
+      const matchSearch = !q || a.aluno_nome.toLowerCase().includes(q) || a.bolsa_nome.toLowerCase().includes(q);
+      return matchTurma && matchSearch;
+    });
+  }, [atribuicoes, filterTurma, filterSearch]);
 
   return (
     <div className="space-y-8">
-      {/* Stats */}
+      {/* ── Stats ── */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
@@ -7877,7 +7940,7 @@ function BolsasSchoolTab({ token }: { token: string }) {
         </div>
       )}
 
-      {/* Tipologias */}
+      {/* ── Tipologias ── */}
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -7944,12 +8007,13 @@ function BolsasSchoolTab({ token }: { token: string }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {tipos.map(t => (
-              <div key={t.id} className={`bg-white border rounded-2xl p-4 ${t.activo ? 'border-slate-200' : 'border-slate-100 opacity-60'}`}>
+              <div key={t.id} className={`bg-white border rounded-2xl p-4 transition-opacity ${t.activo ? 'border-slate-200' : 'border-slate-100 opacity-55'}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <GraduationCap className="w-4 h-4 text-primary shrink-0"/>
                       <p className="font-semibold text-slate-900 text-sm truncate">{t.nome}</p>
+                      {!t.activo && <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-400 rounded-full">Inactiva</span>}
                     </div>
                     {t.descricao && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{t.descricao}</p>}
                     <div className="flex flex-wrap gap-1.5 mt-1">
@@ -7965,6 +8029,12 @@ function BolsasSchoolTab({ token }: { token: string }) {
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
+                    {/* Toggle activo/inactivo */}
+                    <button onClick={() => toggleTipoActivo(t)} disabled={togglingTipo === t.id}
+                      title={t.activo ? "Desactivar tipologia" : "Reactivar tipologia"}
+                      className={`p-1.5 rounded-lg transition-colors ${t.activo ? 'hover:bg-amber-50 text-amber-500' : 'hover:bg-emerald-50 text-emerald-500'}`}>
+                      {togglingTipo === t.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : t.activo ? <XCircle className="w-3.5 h-3.5"/> : <CheckCircle2 className="w-3.5 h-3.5"/>}
+                    </button>
                     <button onClick={() => openEditTipo(t)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><Pencil className="w-3.5 h-3.5"/></button>
                     <button onClick={() => deleteTipo(t.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
                   </div>
@@ -7975,9 +8045,9 @@ function BolsasSchoolTab({ token }: { token: string }) {
         )}
       </div>
 
-      {/* Bolseiros */}
+      {/* ── Bolseiros ── */}
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-base font-bold text-slate-900">Alunos Bolseiros</h2>
             <p className="text-xs text-slate-500 mt-0.5">Gestão de atribuições e vigências</p>
@@ -7998,6 +8068,22 @@ function BolsasSchoolTab({ token }: { token: string }) {
               </button>
             )}
           </div>
+        </div>
+
+        {/* ── Filtros de pesquisa ── */}
+        <div className="flex gap-2 mb-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none"/>
+            <input className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white"
+              placeholder="Pesquisar aluno ou tipologia..." value={filterSearch} onChange={e => setFilterSearch(e.target.value)}/>
+          </div>
+          {turmasUnicas.length > 0 && (
+            <select className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+              value={filterTurma} onChange={e => setFilterTurma(e.target.value)}>
+              <option value="">Todas as turmas</option>
+              {turmasUnicas.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
         </div>
 
         {showAtribuirForm && (
@@ -8045,37 +8131,118 @@ function BolsasSchoolTab({ token }: { token: string }) {
 
         {loading ? (
           <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
-        ) : atribuicoes.length === 0 ? (
+        ) : atribuicoesFiltradas.length === 0 ? (
           <div className="text-center py-10 bg-white border border-slate-200 rounded-2xl text-slate-400">
             <Users className="w-8 h-8 mx-auto mb-2 opacity-40"/>
-            <p className="text-sm">Nenhum aluno bolseiro{filterEstado === 'activa' ? ' activo' : filterEstado === 'revogada' ? ' com bolsa revogada' : ''}.</p>
+            <p className="text-sm">Nenhum resultado{filterSearch || filterTurma ? ' para os filtros aplicados' : filterEstado === 'activa' ? ' — sem bolseiros activos' : filterEstado === 'revogada' ? ' — sem bolsas revogadas' : ''}.</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {atribuicoes.map(a => (
-              <div key={a.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-2xl">
-                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <GraduationCap className="w-4 h-4 text-primary"/>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm truncate">{a.aluno_nome}</p>
-                  <p className="text-xs text-slate-500">{a.turma} · <span className="font-medium text-primary">{a.bolsa_nome}</span> · {a.tipo_desconto === 'percentagem' ? `${a.bolsa_valor}%` : fmt(a.bolsa_valor)}</p>
-                  {a.data_fim && <p className="text-xs text-amber-600 mt-0.5">Válida até {new Date(a.data_fim).toLocaleDateString("pt-AO")}</p>}
-                  {a.notas && <p className="text-xs text-slate-400 mt-0.5 truncate">{a.notas}</p>}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {a.estado === 'activa'
-                    ? <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold">Activa</span>
-                    : <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full font-semibold capitalize">{a.estado}</span>}
-                  {a.estado === 'activa' && (
-                    <button onClick={() => revogarBolsa(a.id)} className="text-xs text-red-400 hover:text-red-600 font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors">Revogar</button>
+            {atribuicoesFiltradas.map(a => {
+              const days = daysUntil(a.data_fim ?? null);
+              const expireSoon = days !== null && days >= 0 && days <= 30;
+              const isEditing = editAtrib?.id === a.id;
+              return (
+                <div key={a.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <GraduationCap className="w-4 h-4 text-primary"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900 text-sm truncate">{a.aluno_nome}</p>
+                      <p className="text-xs text-slate-500">{a.turma} · <span className="font-medium text-primary">{a.bolsa_nome}</span> · {a.tipo_desconto === 'percentagem' ? `${a.bolsa_valor}%` : fmt(a.bolsa_valor)}</p>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        {a.data_fim && (
+                          <span className={`text-xs ${expireSoon ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                            {expireSoon && '⚠ '}Válida até {new Date(a.data_fim).toLocaleDateString("pt-AO")}{expireSoon && ` (${days}d)`}
+                          </span>
+                        )}
+                        {a.notas && <span className="text-xs text-slate-400 italic truncate max-w-[160px]">{a.notas}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {a.estado === 'activa'
+                        ? <span className="text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-semibold">Activa</span>
+                        : <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full font-semibold capitalize">{a.estado}</span>}
+                      {a.estado === 'activa' && (<>
+                        <button onClick={() => { setEditAtrib(a); setEditAtribDataFim(a.data_fim ?? ""); setEditAtribNotas(a.notas ?? ""); setEditAtribError(""); }}
+                          title="Editar vigência e notas"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+                          <Pencil className="w-3.5 h-3.5"/>
+                        </button>
+                        <button onClick={() => { setRevogarModal(a); setRevogarMotivo(""); }}
+                          className="text-xs text-red-400 hover:text-red-600 font-semibold px-2 py-1 rounded-lg hover:bg-red-50 transition-colors">
+                          Revogar
+                        </button>
+                      </>)}
+                    </div>
+                  </div>
+
+                  {/* ── Inline edit form ── */}
+                  {isEditing && (
+                    <form onSubmit={saveEditAtrib} className="border-t border-slate-100 px-4 py-3 bg-slate-50 space-y-3">
+                      <p className="text-xs font-semibold text-slate-600">Editar vigência e notas</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Data de fim (opcional)</label>
+                          <input type="date" className={iCls} value={editAtribDataFim} onChange={e => setEditAtribDataFim(e.target.value)}/>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Notas</label>
+                          <input className={iCls} value={editAtribNotas} onChange={e => setEditAtribNotas(e.target.value)} placeholder="Observações..."/>
+                        </div>
+                      </div>
+                      {editAtribError && <p className="text-xs text-red-600">{editAtribError}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setEditAtrib(null)} className="flex-1 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-xl hover:bg-white">Cancelar</button>
+                        <button type="submit" disabled={editAtribSaving} className="flex-1 py-1.5 text-xs font-semibold bg-primary text-white rounded-xl hover:bg-primary/90 disabled:opacity-60">
+                          {editAtribSaving ? "A guardar..." : "Guardar"}
+                        </button>
+                      </div>
+                    </form>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
+      {/* ── Modal de Revogação ── */}
+      <AnimatePresence>
+        {revogarModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            onClick={() => setRevogarModal(null)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+                  <XCircle className="w-5 h-5 text-red-500"/>
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Revogar Bolsa</h3>
+                  <p className="text-xs text-slate-500">{revogarModal.aluno_nome} · {revogarModal.bolsa_nome}</p>
+                </div>
+              </div>
+              <div>
+                <label className={lCls}>Motivo (opcional)</label>
+                <input className={iCls} value={revogarMotivo} onChange={e => setRevogarMotivo(e.target.value)}
+                  placeholder="ex: Não cumpriu critérios de renovação"/>
+              </div>
+              <p className="text-xs text-slate-400">A bolsa será marcada como revogada. As propinas futuras já não terão desconto aplicado.</p>
+              <div className="flex gap-2">
+                <button onClick={() => setRevogarModal(null)} className="flex-1 py-2.5 text-sm text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancelar</button>
+                <button onClick={confirmarRevogar} disabled={revogarSaving}
+                  className="flex-1 py-2.5 text-sm font-semibold bg-red-500 text-white rounded-xl hover:bg-red-600 disabled:opacity-60">
+                  {revogarSaving ? "A revogar..." : "Confirmar Revogação"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
