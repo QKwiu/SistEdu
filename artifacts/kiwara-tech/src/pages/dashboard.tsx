@@ -9670,12 +9670,12 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       <AnimatePresence>
       {showCalForm && (
         <motion.div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-          <motion.div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl" initial={{scale:0.95,y:20}} animate={{scale:1,y:0}}>
-            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <motion.div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]" initial={{scale:0.95,y:20}} animate={{scale:1,y:0}}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 shrink-0">
               <h3 className="font-bold text-slate-900">{editCal?"Editar Calendário":"Novo Calendário"}</h3>
               <button onClick={()=>setShowCalForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Nome *</label>
                 <input value={calForm.nome} onChange={e=>setCalForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Época de Exames 1º Trimestre"
@@ -9729,7 +9729,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
                   className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Descrição opcional..."/>
               </div>
             </div>
-            <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
+            <div className="flex justify-end gap-2 p-4 border-t border-slate-100 shrink-0">
               <button onClick={()=>setShowCalForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
               <button onClick={saveCal} disabled={savingCal||!calForm.nome.trim()}
                 className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
