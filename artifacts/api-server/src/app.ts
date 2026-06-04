@@ -14,6 +14,10 @@ const __dirname = path.dirname(__filename);
 
 const app: Express = express();
 
+/* ── Trust Replit's reverse proxy (sets X-Forwarded-For) ── */
+/* Required for express-rate-limit v8 to work correctly     */
+app.set("trust proxy", 1);
+
 /* ── Security headers ── */
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
