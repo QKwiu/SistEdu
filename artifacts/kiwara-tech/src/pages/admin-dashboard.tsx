@@ -7657,38 +7657,295 @@ function ConfiguracoesTecnicasView() {
       )}
 
       {/* DD Tab */}
-      {tab === "debito_direto" && (
-        <div className="space-y-5">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4 text-emerald-500"/> Débito Direto EMIS</h3>
-              {envToggle("debito_direto")}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {field("debito_direto", "ws_url", "URL do Web Service (SOAP)", { placeholder: "https://ws.emis.co.ao/debito/..." })}
-              {field("debito_direto", "ws_username", "Utilizador WS", { placeholder: "user_escola" })}
-              {field("debito_direto", "ws_password", "Password WS", { secret: true })}
-              {field("debito_direto", "mandate_creditor_id", "Creditor ID (Mandato)", { placeholder: "PT73ZZZ..." })}
-              {field("debito_direto", "mandate_creditor_name", "Nome do Credor", { placeholder: "Colégio Exemplo" })}
-            </div>
-            <div className="flex items-center justify-between mt-5 pt-4 border-t border-slate-100">
-              <div className="flex items-center gap-3">
-                <button onClick={() => test("debito_direto")} disabled={!!testing}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all disabled:opacity-50">
-                  {testing === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
-                  Testar Conectividade Débito Direto
-                </button>
-                <ConnBadge res={testResult.debito_direto}/>
+      {tab === "debito_direto" && (() => {
+        const dd = config.debito_direto ?? {};
+        const upd = (k: string, v: unknown) => update("debito_direto", k, v);
+        const fld = (k: string, label: string, opts?: { placeholder?: string; hint?: string; secret?: boolean; type?: string; required?: boolean }) => {
+          const val = String(dd[k] ?? "");
+          const isSecret = opts?.secret;
+          const shown = showSecret[`dd.${k}`];
+          return (
+            <div key={k}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                {label}{opts?.required && <span className="text-red-500 ml-0.5">*</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type={isSecret && !shown ? "password" : opts?.type ?? "text"}
+                  value={val}
+                  onChange={e => upd(k, e.target.value)}
+                  placeholder={opts?.placeholder ?? ""}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                />
+                {isSecret && (
+                  <button type="button" onClick={() => setShowSecret(p => ({ ...p, [`dd.${k}`]: !shown }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {shown ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                  </button>
+                )}
               </div>
-              <button onClick={() => save("debito_direto")} disabled={!!saving}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-50">
-                {saving === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "debito_direto" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
-                {saved === "debito_direto" ? "Guardado!" : "Gravar Configurações DD"}
-              </button>
+              {opts?.hint && <p className="text-xs text-slate-400 mt-1">{opts.hint}</p>}
+            </div>
+          );
+        };
+        const sel = (k: string, label: string, options: {v: string; l: string}[], opts?: { hint?: string; required?: boolean }) => (
+          <div key={k}>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              {label}{opts?.required && <span className="text-red-500 ml-0.5">*</span>}
+            </label>
+            <select value={String(dd[k] ?? options[0]?.v ?? "")} onChange={e => upd(k, e.target.value)}
+              className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 bg-white">
+              {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+            {opts?.hint && <p className="text-xs text-slate-400 mt-1">{opts.hint}</p>}
+          </div>
+        );
+        const tog = (k: string, label: string, hint?: string) => (
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <p className="text-xs font-semibold text-slate-700">{label}</p>
+              {hint && <p className="text-xs text-slate-400">{hint}</p>}
+            </div>
+            <button type="button" onClick={() => upd(k, !dd[k])}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${dd[k] ? "bg-emerald-500" : "bg-slate-300"}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${dd[k] ? "translate-x-4" : "translate-x-0"}`}/>
+            </button>
+          </div>
+        );
+        const protocol = String(dd.protocol ?? "SOAP");
+        const showSOAP = protocol === "SOAP" || protocol === "AMBOS";
+        const showREST  = protocol === "REST"  || protocol === "AMBOS";
+
+        const secHeader = (letter: string, title: string, desc: string, color: string) => (
+          <div className={`flex items-start gap-3 pb-4 mb-5 border-b border-slate-100`}>
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${color}`}>{letter}</div>
+            <div>
+              <p className="text-sm font-bold text-slate-800">{title}</p>
+              <p className="text-xs text-slate-400">{desc}</p>
             </div>
           </div>
-        </div>
-      )}
+        );
+
+        return (
+          <div className="space-y-5">
+
+            {/* ─── SECÇÃO A — Ambiente e Protocolo ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("A","Ambiente e Protocolo","Seleccione o ambiente activo e o tipo de integração com a EMIS SDD","bg-emerald-100 text-emerald-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Ambiente <span className="text-red-500">*</span></label>
+                  <div className="flex gap-2">
+                    {(["sandbox","producao"] as const).map(env => (
+                      <button key={env} onClick={() => upd("environment", env)}
+                        className={`flex-1 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                          (dd.environment ?? "sandbox") === env
+                            ? env === "producao" ? "bg-emerald-500 border-emerald-500 text-white shadow-sm" : "bg-amber-400 border-amber-400 text-white shadow-sm"
+                            : "border-slate-200 text-slate-500 hover:border-slate-300 bg-white"
+                        }`}>
+                        {env === "sandbox" ? "🧪 Sandbox" : "🚀 Produção"}
+                      </button>
+                    ))}
+                  </div>
+                  {(dd.environment ?? "sandbox") === "producao" && (
+                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Ambiente de produção activo</p>
+                  )}
+                </div>
+                {sel("protocol","Protocolo de Integração",[{v:"SOAP",l:"SOAP"},{v:"REST",l:"REST"},{v:"AMBOS",l:"SOAP + REST (Ambos)"}],{required:true})}
+                {fld("protocol_version","Versão do Protocolo",{placeholder:"ex: v1, v2",required:true,hint:"Versão da API/WSDL fornecida pela EMIS"})}
+              </div>
+            </div>
+
+            {/* ─── SECÇÃO B — Endpoints ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("B","Endpoints","URLs dos serviços SDD da EMIS","bg-blue-100 text-blue-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {showSOAP && fld("soap_url","URL Endpoint SOAP",{placeholder:"https://sdd.emis.co.ao/ws/sdd?wsdl",hint:"WSDL do Web Service SOAP da EMIS SDD"})}
+                {showREST  && fld("rest_url","URL Endpoint REST",{placeholder:"https://api.emis.co.ao/sdd/v1",hint:"Base URL da API REST SDD"})}
+                {showREST  && fld("oauth_url","URL Token OAuth2",{placeholder:"https://auth.emis.co.ao/oauth/token",hint:"Endpoint de obtenção de access_token"})}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Timeout (segundos) <span className="text-red-500">*</span></label>
+                  <input type="number" min={5} max={120}
+                    value={String(dd.timeout ?? "30")}
+                    onChange={e => upd("timeout", e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Segundos antes de abandonar a ligação (recomendado: 30)</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── SECÇÃO C — Credenciais ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("C","Credenciais de Autenticação","Username/Password para SOAP · Client ID/Secret para REST/OAuth2","bg-violet-100 text-violet-700")}
+              <div className="mb-4">
+                {sel("auth_type","Tipo de Autenticação",[{v:"basic",l:"Basic Auth (SOAP)"},{v:"oauth2",l:"OAuth2 (REST)"},{v:"cert",l:"Certificado Digital"}],{required:true})}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {fld("ws_username","Username",{placeholder:"Fornecido pela EMIS",hint:"Identificador de utilizador do Web Service"})}
+                {fld("ws_password","Password",{secret:true,hint:"Armazenada com hash — nunca exposta ao browser"})}
+                {(String(dd.auth_type ?? "basic") === "oauth2" || String(dd.auth_type ?? "") === "") && <>
+                  {fld("client_id","Client ID",{placeholder:"Fornecido pela EMIS (apenas REST/OAuth2)",hint:"Identificador da aplicação"})}
+                  {fld("client_secret","Client Secret",{secret:true,hint:"Segredo OAuth2 — apenas REST"})}
+                </>}
+              </div>
+            </div>
+
+            {/* ─── SECÇÃO D — Certificados Digitais ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("D","Certificados Digitais","Obrigatório em produção para autenticação mTLS e assinatura de mensagens","bg-orange-100 text-orange-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Certificado <span className="text-slate-400 font-normal">(.pem / .pfx)</span>
+                    {(dd.environment ?? "sandbox") === "producao" && <span className="text-red-500 ml-0.5">*</span>}
+                  </label>
+                  <label className="flex items-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-3 py-3 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/30 transition-all">
+                    <Upload className="w-4 h-4 text-slate-400"/>
+                    <span className="text-xs text-slate-500">
+                      {dd.cert_filename ? String(dd.cert_filename) : "Clique para carregar certificado"}
+                    </span>
+                    <input type="file" accept=".pem,.pfx,.cer,.crt,.p12" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        const reader = new FileReader();
+                        reader.onload = ev => { upd("cert_content", ev.target?.result); upd("cert_filename", f.name); };
+                        reader.readAsDataURL(f);
+                      }}/>
+                  </label>
+                  {dd.cert_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.cert_filename)}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Chave Privada <span className="text-slate-400 font-normal">(.key)</span></label>
+                  <label className="flex items-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-3 py-3 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/30 transition-all">
+                    <Lock className="w-4 h-4 text-slate-400"/>
+                    <span className="text-xs text-slate-500">
+                      {dd.key_filename ? String(dd.key_filename) : "Clique para carregar chave privada"}
+                    </span>
+                    <input type="file" accept=".key,.pem" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        const reader = new FileReader();
+                        reader.onload = ev => { upd("key_content", ev.target?.result); upd("key_filename", f.name); };
+                        reader.readAsDataURL(f);
+                      }}/>
+                  </label>
+                  {dd.key_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.key_filename)}</p>}
+                </div>
+                {fld("cert_password","Password do Certificado",{secret:true,hint:"Apenas se o certificado estiver protegido por password"})}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Expiração</label>
+                  <input type="date" value={String(dd.cert_expiry ?? "")} onChange={e => upd("cert_expiry", e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
+                  {dd.cert_expiry && (() => {
+                    const daysLeft = Math.ceil((new Date(String(dd.cert_expiry)).getTime() - Date.now()) / 86400000);
+                    return daysLeft <= 30
+                      ? <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/>Expira em {daysLeft} dias</p>
+                      : <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>Válido por {daysLeft} dias</p>;
+                  })()}
+                </div>
+              </div>
+              {tog("verify_ssl","Verificar SSL / TLS",`${(dd.environment ?? "sandbox") === "sandbox" ? "Desactivado em sandbox (recomendado activar em produção)" : "Activo em produção — obrigatório"}`)}
+            </div>
+
+            {/* ─── SECÇÃO E — Identificação do Credor ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("E","Identificação do Credor","Dados da entidade credora registada na EMIS para o SDD","bg-teal-100 text-teal-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {fld("creditor_id","ID do Credor (EMIS)",{placeholder:"Fornecido pela EMIS",required:true,hint:"Identificador único da entidade credora"})}
+                {fld("creditor_name","Nome Legal",{placeholder:"Nome completo da escola / entidade",required:true})}
+                {fld("nif","NIF",{placeholder:"10 dígitos",hint:"Número de Identificação Fiscal angolano"})}
+                {fld("settlement_iban","IBAN de Liquidação",{placeholder:"AO06 0000 0000 0000 0000 0000 0",required:true,hint:"IBAN angolano onde são creditados os débitos confirmados"})}
+                {fld("creditor_bic","BIC / SWIFT",{placeholder:"BAIANL21",hint:"8 ou 11 caracteres"})}
+                {fld("creditor_address","Morada",{placeholder:"Rua, número, cidade — Angola"})}
+                {sel("sdd_scheme","Esquema SDD",[{v:"CORE",l:"CORE (particulares)"},{v:"B2B",l:"B2B (empresas)"}],{required:true,hint:"CORE para encarregados individuais"})}
+              </div>
+            </div>
+
+            {/* ─── SECÇÃO F — Dados de Teste ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("F","Dados de Teste para Conectividade","Usados exclusivamente no botão «Testar Ligação» — não geram registos reais","bg-amber-100 text-amber-700")}
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-start gap-2">
+                <FlaskConical className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0"/>
+                <p className="text-xs text-amber-700">Estes campos são apenas para validar a conectividade com o servidor EMIS em ambiente sandbox. Nenhuma transação real é criada.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {fld("test_debtor_iban","IBAN Devedor (teste)",{placeholder:"AO06 0000 0000 0000 0000 0000 0",hint:"IBAN fictício para sandbox"})}
+                {fld("test_debtor_name","Nome Devedor (teste)",{placeholder:"Cliente Teste SDD"})}
+                {fld("test_debtor_bic","BIC Banco Devedor (teste)",{placeholder:"BKIAANLA",hint:"BIC do banco de teste"})}
+                {fld("test_mandate_id","MandateID de Teste",{placeholder:"TEST-MND-001",hint:"Gerado automaticamente se vazio"})}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Valor de Teste (AOA)</label>
+                  <input type="number" min={0.01} step={0.01}
+                    value={String(dd.test_amount ?? "1.00")}
+                    onChange={e => upd("test_amount", e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Valor simbólico para testar envio — ex: 1.00 AOA</p>
+                </div>
+                {fld("test_creditor_ref","Referência Credor (teste)",{placeholder:"TEST-REF-001"})}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Débito (teste)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="date"
+                      value={String(dd.test_debit_date ?? "")}
+                      onChange={e => upd("test_debit_date", e.target.value)}
+                      className="flex-1 border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
+                    <button type="button"
+                      onClick={() => {
+                        const d = new Date(); d.setDate(d.getDate() + 2);
+                        upd("test_debit_date", d.toISOString().slice(0, 10));
+                      }}
+                      className="px-3 py-2.5 border border-slate-300 rounded-xl text-xs text-slate-600 hover:bg-slate-50 whitespace-nowrap">
+                      D+2 auto
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Calculada automaticamente como D+2 dias úteis se vazia</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── SECÇÃO G — Acções ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {secHeader("G","Testar Ligação","Valida credenciais, conectividade e resposta do servidor EMIS","bg-slate-100 text-slate-600")}
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 mb-5">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">O que o teste executa:</p>
+                <ol className="text-xs text-slate-600 space-y-1 list-decimal list-inside">
+                  <li>Valida campos obrigatórios (credenciais, endpoints, credor)</li>
+                  <li>Carrega certificado e credenciais configuradas</li>
+                  {showSOAP && <li><span className="font-medium text-blue-700">SOAP →</span> Envia envelope de autenticação/ping ao WSDL e verifica resposta</li>}
+                  {showREST  && <li><span className="font-medium text-violet-700">REST →</span> POST ao endpoint de token com Client ID/Secret · GET ao health check da API</li>}
+                  <li>Regista resultado em <code className="bg-slate-200 px-1 rounded">sdd_last_connection_test</code></li>
+                </ol>
+              </div>
+
+              {/* Resultado do teste */}
+              <ConnBadge res={testResult.debito_direto}/>
+              {testResult.debito_direto && (
+                <div className="mt-3 bg-slate-900 rounded-xl p-3 text-xs font-mono text-slate-300 max-h-32 overflow-y-auto">
+                  <p className="text-slate-500 mb-1">// Log da ligação</p>
+                  <p>{testResult.debito_direto.message}</p>
+                  {(testResult.debito_direto as any).log && <p className="text-slate-400 mt-1">{(testResult.debito_direto as any).log}</p>}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between mt-5 pt-5 border-t border-slate-100 gap-3">
+                <button onClick={() => test("debito_direto")} disabled={!!testing}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
+                  {testing === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
+                  {testing === "debito_direto" ? "A testar ligação..." : "Testar Ligação EMIS SDD"}
+                </button>
+                <button onClick={() => save("debito_direto")} disabled={!!saving}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
+                  {saving === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "debito_direto" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                  {saved === "debito_direto" ? "Guardado com sucesso!" : "Gravar Configurações DD"}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -1,0 +1,39 @@
+Configurações e Teste de Ligação SOAP/REST
+
+SECÇÃO A — Ambiente e Protocolo
+CampoTipoValoresObrigatórioAmbienteSelectSandbox / Produção✅Protocolo de integraçãoSelectSOAP / REST / Ambos✅Versão do protocoloStringex: v1, v2✅
+
+SECÇÃO B — Endpoints
+CampoTipoPlaceholderObrigatórioURL Endpoint SOAPString (URL)https://sdd.emis.co.ao/ws/sdd?wsdlSe SOAPURL Endpoint RESTString (URL)https://api.emis.co.ao/sdd/v1Se RESTURL Token OAuth2String (URL)https://auth.emis.co.ao/oauth/tokenSe RESTTimeout (segundos)Integer30✅
+
+SECÇÃO C — Credenciais
+CampoTipoNotasUsernameStringFornecido pela EMISPasswordPassword (encrypted)Armazenado com hashClient IDStringApenas REST/OAuth2Client SecretPassword (encrypted)Apenas REST/OAuth2Tipo de autenticaçãoSelectBasic Auth / OAuth2 / Certificado
+
+SECÇÃO D — Certificados Digitais
+CampoTipoNotasCertificado (.pem / .pfx)File UploadObrigatório em produçãoPassword do certificadoPassword (encrypted)Se o certificado for protegidoChave privada (.key)File UploadPara assinatura de mensagensData de expiraçãoDate (auto-lido)Alerta 30 dias antesVerificar SSLToggleDesactivado em sandbox
+
+SECÇÃO E — Identificação do Credor
+CampoTipoValidaçãoID do Credor (EMIS)StringFornecido pela EMISNome LegalString—NIFString10 dígitosIBAN de LiquidaçãoStringFormato AO06...BIC / SWIFTString8 ou 11 caracteresMoradaString—Esquema SDDSelectCORE / B2B
+
+SECÇÃO F — Dados de Teste para Conectividade
+
+Usados exclusivamente no botão "Testar Ligação", sem gerar registos reais
+
+CampoTipoNotasIBAN Devedor (teste)StringIBAN fictício para sandboxNome Devedor (teste)Stringex: Cliente Teste SDDBIC Banco Devedor (teste)StringBIC do banco de testeMandateID de TesteStringGerado automaticamente ou manualValor de TesteDecimalex: 1.00 AOAReferência Credor (teste)Stringex: TEST-REF-001Data de Débito (teste)DateCalculada automaticamente (D+2)
+
+SECÇÃO G — Botão "Testar Ligação"
+O que o botão deve executar internamente:
+1. Validar se todos os campos obrigatórios estão preenchidos
+2. Carregar certificado e credenciais configuradas
+3. Consoante o protocolo:
+   │
+   ├── SOAP → Enviar envelope de autenticação/ping ao WSDL
+   │          Verificar resposta do serviço (HTTP 200 + envelope válido)
+   │
+   └── REST → POST para URL do token com Client ID + Secret
+              Verificar se retorna access_token válido
+              GET para endpoint de health/status da API
+4. Registar resultado em: sdd_last_connection_test
+                          sdd_last_connection_status
+                          sdd_last_connection_log
+5. Mostrar resultado na interface
