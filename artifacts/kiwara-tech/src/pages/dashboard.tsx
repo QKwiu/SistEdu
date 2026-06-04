@@ -4954,6 +4954,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   const [pushEncSearch, setPushEncSearch] = useState("");
   const [pushSelectedGuardianIds, setPushSelectedGuardianIds] = useState<number[]>([]);
   const [pushPickedTemplate, setPushPickedTemplate] = useState("");
+  const [pushTabCanal, setPushTabCanal] = useState<"push" | "portal" | "sms" | "email" | "ambos">("push");
 
   // ── Email (Compor tab) ──
   const [canaisConfig, setCanaisConfig] = useState<{ sms_ativo: boolean; email_ativo: boolean; smtp_configurado: boolean } | null>(null);
@@ -5861,218 +5862,388 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       {/* ── PUSH NOTIFICATIONS ── */}
       {tab === "push" && (
         <div className="space-y-5">
-          {/* Stats */}
-          {pushStats && (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-center gap-6">
-              <div className="text-center">
-                <p className="text-xl font-bold text-indigo-700">{pushStats.total}</p>
-                <p className="text-xs text-indigo-500">Dispositivos</p>
-              </div>
-              <div className="w-px h-10 bg-indigo-200"/>
-              <div className="text-center">
-                <p className="text-lg font-bold text-indigo-700">{pushStats.guardians}</p>
-                <p className="text-xs text-indigo-500">Encarregados</p>
-              </div>
-              <div className="w-px h-10 bg-indigo-200"/>
-              <div className="text-center">
-                <p className="text-lg font-bold text-indigo-700">{pushStats.staff}</p>
-                <p className="text-xs text-indigo-500">Funcionários</p>
-              </div>
-              {pushStats.total === 0 && (
-                <p className="text-xs text-indigo-600 ml-2">Nenhum dispositivo registado. Os utilizadores precisam de activar notificações na aplicação móvel.</p>
-              )}
-            </div>
-          )}
 
-          {/* Templates */}
+          {/* ── Canal sub-selector ── */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar Template</p>
-            <div className="flex flex-wrap gap-2">
-              {([
-                { key: "nova_fatura",          label: "Nova Fatura",          titulo: "Nova Propina Disponível",    mensagem: "A propina de {mes} no valor de {valor} Kz está disponível. {reference_info}" },
-                { key: "pagamento_confirmado", label: "Pagamento Confirmado", titulo: "Pagamento Confirmado ✓",     mensagem: "Pagamento de {nome_aluno} no valor de {valor} Kz recebido com sucesso. Obrigado." },
-                { key: "atraso_pagamento",     label: "Atraso de Pagamento",  titulo: "⚠️ Propina em Atraso",      mensagem: "A propina de {mes} está em atraso. Regularize para evitar multa." },
-                { key: "multa_aplicada",       label: "Multa Aplicada",       titulo: "Multa Aplicada",             mensagem: "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}." },
-              ]).map(tpl => (
-                <button key={tpl.key}
-                  onClick={() => { setPushTitulo(tpl.titulo); setPushMensagem(tpl.mensagem); setPushPickedTemplate(tpl.key); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${pushPickedTemplate === tpl.key ? "bg-primary text-white border-primary" : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40"}`}>
-                  {tpl.label}
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Canal de envio</p>
+            <div className="grid grid-cols-5 gap-2">
+              <button onClick={() => setPushTabCanal("push")}
+                className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${pushTabCanal === "push" ? "bg-indigo-50 border-indigo-400 text-indigo-600" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                <Zap className="w-4 h-4"/>
+                <span className="text-sm font-semibold">Push FCM</span>
+                <span className="text-[10px] text-slate-400 leading-tight">Notificação móvel</span>
+              </button>
+              {CANAL_OPTIONS.map(({ key, icon, label, desc, ativo }) => (
+                <button key={key} onClick={() => setPushTabCanal(key)}
+                  className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${pushTabCanal === key ? "bg-primary/10 border-primary text-primary" : ativo ? "border-slate-200 text-slate-600 hover:border-slate-300" : "border-slate-200 text-slate-400 bg-slate-50"}`}>
+                  {icon}
+                  <span className="text-sm font-semibold">{label}</span>
+                  <span className="text-[10px] text-slate-400 leading-tight">{desc}</span>
+                  {!ativo && (
+                    <span className="absolute -top-1.5 -right-1.5 text-[9px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-semibold leading-none">Não config.</span>
+                  )}
                 </button>
               ))}
-              {pushPickedTemplate && (
-                <button onClick={() => { setPushTitulo(""); setPushMensagem(""); setPushPickedTemplate(""); }}
-                  className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-400 hover:text-red-500">Limpar</button>
+            </div>
+          </div>
+
+          {/* ── Push FCM ── */}
+          {pushTabCanal === "push" && (<>
+            {pushStats && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-center gap-6">
+                <div className="text-center">
+                  <p className="text-xl font-bold text-indigo-700">{pushStats.total}</p>
+                  <p className="text-xs text-indigo-500">Dispositivos</p>
+                </div>
+                <div className="w-px h-10 bg-indigo-200"/>
+                <div className="text-center">
+                  <p className="text-lg font-bold text-indigo-700">{pushStats.guardians}</p>
+                  <p className="text-xs text-indigo-500">Encarregados</p>
+                </div>
+                <div className="w-px h-10 bg-indigo-200"/>
+                <div className="text-center">
+                  <p className="text-lg font-bold text-indigo-700">{pushStats.staff}</p>
+                  <p className="text-xs text-indigo-500">Funcionários</p>
+                </div>
+                {pushStats.total === 0 && (
+                  <p className="text-xs text-indigo-600 ml-2">Nenhum dispositivo registado. Os utilizadores precisam de activar notificações na aplicação móvel.</p>
+                )}
+              </div>
+            )}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar Template</p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { key: "nova_fatura",          label: "Nova Fatura",          titulo: "Nova Propina Disponível",    mensagem: "A propina de {mes} no valor de {valor} Kz está disponível. {reference_info}" },
+                  { key: "pagamento_confirmado", label: "Pagamento Confirmado", titulo: "Pagamento Confirmado ✓",     mensagem: "Pagamento de {nome_aluno} no valor de {valor} Kz recebido com sucesso. Obrigado." },
+                  { key: "atraso_pagamento",     label: "Atraso de Pagamento",  titulo: "⚠️ Propina em Atraso",      mensagem: "A propina de {mes} está em atraso. Regularize para evitar multa." },
+                  { key: "multa_aplicada",       label: "Multa Aplicada",       titulo: "Multa Aplicada",             mensagem: "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}." },
+                ]).map(tpl => (
+                  <button key={tpl.key}
+                    onClick={() => { setPushTitulo(tpl.titulo); setPushMensagem(tpl.mensagem); setPushPickedTemplate(tpl.key); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${pushPickedTemplate === tpl.key ? "bg-primary text-white border-primary" : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40"}`}>
+                    {tpl.label}
+                  </button>
+                ))}
+                {pushPickedTemplate && (
+                  <button onClick={() => { setPushTitulo(""); setPushMensagem(""); setPushPickedTemplate(""); }}
+                    className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-400 hover:text-red-500">Limpar</button>
+                )}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500"/> Compor Push Notification</h3>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+                <input value={pushTitulo} onChange={e => setPushTitulo(e.target.value)} placeholder="Ex: Reunião de Encarregados — Amanhã às 15h" maxLength={65}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                <p className="text-xs text-slate-400 mt-1 text-right">{pushTitulo.length}/65</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem *</label>
+                <textarea value={pushMensagem} onChange={e => setPushMensagem(e.target.value)} rows={3} maxLength={200} placeholder="Escreva o corpo da notificação push…"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+                <p className="text-xs text-slate-400 mt-1 text-right">{pushMensagem.length}/200</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Audiência</p>
+              <div className="grid grid-cols-3 gap-2">
+                {([{ k: "encarregados" as const, label: "Encarregados" }, { k: "funcionarios" as const, label: "Funcionários" }, { k: "escola" as const, label: "Toda a Escola" }]).map(({ k, label }) => (
+                  <button key={k} onClick={() => { setPushRecipientType(k); setPushSelectedGuardianIds([]); }}
+                    className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${pushRecipientType === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>{label}</button>
+                ))}
+              </div>
+              {pushRecipientType === "escola" && <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">Push enviada a todos os dispositivos — {pushStats ? `${pushStats.total} no total` : "a carregar…"}.</p>}
+              {pushRecipientType === "funcionarios" && <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">Push enviada a todos os funcionários — {pushStats ? `${pushStats.staff} dispositivos` : "a carregar…"}.</p>}
+              {pushRecipientType === "encarregados" && (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Filtro Rápido</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {([{ k: "todos", label: "Todos" }, { k: "devedores", label: "Devedores" }] as const).map(({ k, label }) => (
+                        <button key={k} onClick={() => { setPushEncModo(k); setPushEncTurmaId(null); }}
+                          className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${pushEncModo === k ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{label}</button>
+                      ))}
+                      <select value={pushEncModo === "turma" ? (pushEncTurmaId ?? "") : ""}
+                        onChange={e => { if (e.target.value) { setPushEncModo("turma"); setPushEncTurmaId(Number(e.target.value)); } else { setPushEncModo("todos"); setPushEncTurmaId(null); } }}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors focus:outline-none ${pushEncModo === "turma" ? "border-primary text-primary bg-primary/5" : "border-slate-200 text-slate-600 bg-white"}`}>
+                        <option value="">Por Turma...</option>
+                        {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {!pushEncLoadingAudiencia && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">{allPushEncs.length} encarregados <span className="text-slate-400 text-xs">({pushEncAudiencia.registados.length} portal · {pushEncAudiencia.nao_registados.length} só SMS)</span></span>
+                      <label className="flex items-center gap-2 cursor-pointer text-slate-600">
+                        <input type="checkbox" checked={pushPortalEncs.length > 0 && pushPortalEncs.every(e => pushSelectedGuardianIds.includes(e.id))}
+                          onChange={ev => ev.target.checked ? setPushSelectedGuardianIds(pushPortalEncs.map(e => e.id)) : setPushSelectedGuardianIds([])} className="rounded text-primary"/>
+                        Todos ({pushPortalEncs.length})
+                      </label>
+                    </div>
+                  )}
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                    <input value={pushEncSearch} onChange={e => setPushEncSearch(e.target.value)} placeholder="Pesquisar por nome, telefone ou aluno..."
+                      className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                  </div>
+                  {pushEncLoadingAudiencia ? (
+                    <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                  ) : filteredPushEncs.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-6">Nenhum encarregado encontrado.</p>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
+                      {filteredPushEncs.map((enc, i) => {
+                        const sel = pushSelectedGuardianIds.includes(enc.id);
+                        const canPush = enc.tem_portal && enc.id;
+                        return (
+                          <label key={enc.id ?? `ns-${i}`} className={`flex items-start gap-3 px-3 py-3 border-l-2 transition-colors ${canPush ? "cursor-pointer" : "cursor-default opacity-55"} ${sel ? "bg-primary/5 border-primary" : "hover:bg-slate-50 border-transparent"}`}>
+                            <input type="checkbox" checked={sel} disabled={!canPush}
+                              onChange={() => canPush && setPushSelectedGuardianIds(prev => sel ? prev.filter(x => x !== enc.id) : [...prev, enc.id])}
+                              className="rounded text-primary mt-0.5 shrink-0"/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-semibold text-slate-800">{enc.nome ?? "Sem nome"}</span>
+                                {enc.tem_portal ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Portal</span>
+                                  : <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Só SMS</span>}
+                              </div>
+                              <p className="text-xs text-slate-400 mt-0.5 truncate">{enc.telefone ?? "—"}{enc.alunos?.filter(Boolean).length > 0 ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {pushSelectedGuardianIds.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-primary font-medium">{pushSelectedGuardianIds.length} encarregado(s) seleccionado(s)</p>
+                      <button onClick={() => setPushSelectedGuardianIds([])} className="text-xs text-slate-400 hover:text-red-500">Limpar selecção</button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-          </div>
-
-          {/* Composer */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
-            <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500"/> Compor Push Notification</h3>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
-              <input value={pushTitulo} onChange={e => setPushTitulo(e.target.value)}
-                placeholder="Ex: Reunião de Encarregados — Amanhã às 15h"
-                maxLength={65}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
-              <p className="text-xs text-slate-400 mt-1 text-right">{pushTitulo.length}/65</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem *</label>
-              <textarea value={pushMensagem} onChange={e => setPushMensagem(e.target.value)} rows={3}
-                placeholder="Escreva o corpo da notificação push…"
-                maxLength={200}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
-              <p className="text-xs text-slate-400 mt-1 text-right">{pushMensagem.length}/200</p>
-            </div>
-          </div>
-
-          {/* Audience */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Audiência</p>
-
-            {/* Top-level recipient type */}
-            <div className="grid grid-cols-3 gap-2">
-              {([
-                { k: "encarregados" as const, label: "Encarregados" },
-                { k: "funcionarios" as const,  label: "Funcionários" },
-                { k: "escola" as const,        label: "Toda a Escola" },
-              ]).map(({ k, label }) => (
-                <button key={k} onClick={() => { setPushRecipientType(k); setPushSelectedGuardianIds([]); }}
-                  className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${pushRecipientType === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {pushRecipientType === "escola" && (
-              <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
-                Push será enviada a todos os dispositivos registados — {pushStats ? `${pushStats.total} no total` : "a carregar…"}.
-              </p>
+            {pushResult && (
+              <div className={`rounded-2xl p-4 flex items-start gap-3 ${pushResult.ok && (pushResult.sent ?? 0) > 0 ? "bg-emerald-50 border border-emerald-200" : pushResult.ok ? "bg-amber-50 border border-amber-200" : "bg-red-50 border border-red-200"}`}>
+                {pushResult.ok && (pushResult.sent ?? 0) > 0 ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5"/> : <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"/>}
+                <div>{pushResult.ok ? <p className="text-sm font-medium text-slate-800">{pushResult.message ?? `Push enviada: ${pushResult.sent} entregues, ${pushResult.failed ?? 0} falharam (de ${pushResult.total_devices} dispositivos). Ambiente: ${pushResult.environment}.`}</p>
+                  : <p className="text-sm font-medium text-red-800">{pushResult.error ?? "Erro ao enviar notificações."}</p>}</div>
+              </div>
             )}
+            <div className="flex justify-end">
+              <button onClick={handlePush} disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushRecipientType === "encarregados" && pushSelectedGuardianIds.length === 0)}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                {pushing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>}
+                {pushing ? "A disparar…" : pushRecipientType === "encarregados" && pushSelectedGuardianIds.length > 0 ? `Disparar para ${pushSelectedGuardianIds.length} encarregado(s)` : "Disparar Comunicado Push"}
+              </button>
+            </div>
+          </>)}
 
-            {pushRecipientType === "funcionarios" && (
-              <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
-                Push será enviada a todos os funcionários com app — {pushStats ? `${pushStats.staff} dispositivos` : "a carregar…"}.
-              </p>
-            )}
-
-            {pushRecipientType === "encarregados" && (
-              <div className="space-y-3">
-                {/* Filtro rápido */}
+          {/* ── Portal / SMS / Email / Portal+SMS ── */}
+          {pushTabCanal !== "push" && (<>
+            {pushTabCanal !== "email" && <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <h3 className="font-semibold text-slate-900">Mensagem</h3>
+              {(pushTabCanal === "sms" || pushTabCanal === "ambos") && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar template SMS</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SMS_EVENTS.map(ev => (
+                      <button key={ev.key} onClick={() => { setConteudo(templates[ev.key] ?? DEFAULT_TEMPLATES[ev.key] ?? ""); setPickedTemplate(ev.key); }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${pickedTemplate === ev.key ? "bg-primary text-white border-primary" : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40"}`}>{ev.label}</button>
+                    ))}
+                    {pickedTemplate && <button onClick={() => { setConteudo(""); setPickedTemplate(""); }} className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-400 hover:text-red-500">Limpar</button>}
+                  </div>
+                </div>
+              )}
+              {(pushTabCanal === "portal" || pushTabCanal === "ambos") && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Filtro Rápido</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {([{ k: "todos", label: "Todos" }, { k: "devedores", label: "Devedores" }] as const).map(({ k, label }) => (
-                      <button key={k} onClick={() => { setPushEncModo(k); setPushEncTurmaId(null); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${pushEncModo === k ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                        {label}
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Título *</label>
+                  <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex: Reunião de encarregados — 30 de Abril"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  {pushTabCanal === "sms" ? "Mensagem SMS *" : pushTabCanal === "portal" ? "Conteúdo *" : "Conteúdo / Mensagem SMS *"}
+                </label>
+                <textarea value={conteudo} onChange={e => { setConteudo(e.target.value); setPickedTemplate(""); }} rows={4}
+                  placeholder={pushTabCanal === "sms" ? "Texto da mensagem SMS…" : "Escreva o comunicado para os encarregados…"}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+                {(pushTabCanal === "sms" || pushTabCanal === "ambos") && <p className="text-xs text-slate-400 mt-1">{conteudo.length} car. · {Math.ceil(Math.max(1, conteudo.length) / 160)} SMS</p>}
+              </div>
+              {(pushTabCanal === "portal" || pushTabCanal === "ambos") && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Prioridade</label>
+                  <div className="flex gap-2">
+                    {(["normal", "alta", "urgente"] as const).map(p => (
+                      <button key={p} onClick={() => setPrioridade(p)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border capitalize transition-all ${prioridade === p ? p === "urgente" ? "bg-red-600 border-red-600 text-white" : p === "alta" ? "bg-amber-500 border-amber-500 text-white" : "bg-primary border-primary text-white" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                        {p === "normal" ? "Normal" : p === "alta" ? "Alta" : "Urgente"}
                       </button>
                     ))}
-                    <select
-                      value={pushEncModo === "turma" ? (pushEncTurmaId ?? "") : ""}
-                      onChange={e => { if (e.target.value) { setPushEncModo("turma"); setPushEncTurmaId(Number(e.target.value)); } else { setPushEncModo("todos"); setPushEncTurmaId(null); } }}
-                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors focus:outline-none ${pushEncModo === "turma" ? "border-primary text-primary bg-primary/5" : "border-slate-200 text-slate-600 bg-white"}`}>
-                      <option value="">Por Turma...</option>
-                      {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
-                    </select>
                   </div>
                 </div>
+              )}
+            </div>}
 
-                {/* Count + select all */}
-                {!pushEncLoadingAudiencia && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">
-                      {allPushEncs.length} encarregados{" "}
-                      <span className="text-slate-400 text-xs">({pushEncAudiencia.registados.length} portal · {pushEncAudiencia.nao_registados.length} só SMS)</span>
-                    </span>
-                    <label className="flex items-center gap-2 cursor-pointer text-slate-600">
-                      <input type="checkbox"
-                        checked={pushPortalEncs.length > 0 && pushPortalEncs.every(e => pushSelectedGuardianIds.includes(e.id))}
-                        onChange={ev => ev.target.checked
-                          ? setPushSelectedGuardianIds(pushPortalEncs.map(e => e.id))
-                          : setPushSelectedGuardianIds([])}
-                        className="rounded text-primary"/>
-                      Todos ({pushPortalEncs.length})
+            {(pushTabCanal === "sms" || pushTabCanal === "ambos") && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+                <h3 className="font-semibold text-slate-900">Audiência</h3>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-full">Filtro rápido</p>
+                  {([{ k: "todos" as const, label: "Todos" }, { k: "devedores" as const, label: "Devedores" }]).map(({ k, label }) => (
+                    <button key={k} onClick={() => { setAudienciaModo(k); setAudienciaTurmaId(null); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === k ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>{label}</button>
+                  ))}
+                  <select value={audienciaModo === "turma" ? (audienciaTurmaId ?? "") : ""}
+                    onChange={e => { if (e.target.value) { setAudienciaModo("turma"); setAudienciaTurmaId(Number(e.target.value)); } }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === "turma" ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600"}`}>
+                    <option value="">Por Turma…</option>
+                    {turmas.map((t: any) => <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` — ${t.turno}` : ""}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">{loadingAudiencia ? "A carregar…" : `${allEncs.length} encarregados (${audiencia.registados.length} portal · ${audiencia.nao_registados.length} só SMS)`}</p>
+                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} className="rounded"/>
+                      Todos ({filteredEncs.length})
                     </label>
                   </div>
-                )}
-
-                {/* Search */}
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                  <input value={pushEncSearch} onChange={e => setPushEncSearch(e.target.value)}
-                    placeholder="Pesquisar por nome, telefone ou aluno..."
-                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
-                </div>
-
-                {/* List */}
-                {pushEncLoadingAudiencia ? (
-                  <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
-                ) : filteredPushEncs.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-6">Nenhum encarregado encontrado.</p>
-                ) : (
-                  <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
-                    {filteredPushEncs.map((enc, i) => {
-                      const sel = pushSelectedGuardianIds.includes(enc.id);
-                      const canPush = enc.tem_portal && enc.id;
-                      return (
-                        <label key={enc.id ?? `ns-${i}`}
-                          className={`flex items-start gap-3 px-3 py-3 border-l-2 transition-colors ${canPush ? "cursor-pointer" : "cursor-default opacity-55"} ${sel ? "bg-primary/5 border-primary" : "hover:bg-slate-50 border-transparent"}`}>
-                          <input type="checkbox" checked={sel} disabled={!canPush}
-                            onChange={() => canPush && setPushSelectedGuardianIds(prev => sel ? prev.filter(x => x !== enc.id) : [...prev, enc.id])}
-                            className="rounded text-primary mt-0.5 shrink-0"/>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-semibold text-slate-800">{enc.nome ?? "Sem nome"}</span>
-                              {enc.tem_portal
-                                ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Portal</span>
-                                : <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Só SMS</span>}
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                    <input value={encSearch} onChange={e => setEncSearch(e.target.value)} placeholder="Pesquisar por nome, telefone ou aluno…"
+                      className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                  </div>
+                  {loadingAudiencia ? <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                  : filteredEncs.length === 0 ? <div className="text-center py-8 text-slate-400"><Users className="w-8 h-8 mx-auto mb-2 opacity-30"/><p className="text-sm">Nenhum encarregado neste segmento.</p></div>
+                  : (
+                    <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-100">
+                      {filteredEncs.map((enc, i) => {
+                        const sel = selectedPhones.includes(enc.telefone);
+                        return (
+                          <label key={`${enc.telefone}-${i}`} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                            <input type="checkbox" checked={sel} onChange={() => togglePhone(enc.telefone)} className="rounded text-primary"/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-medium text-slate-800 truncate">{enc.nome ?? "Sem nome"}</p>
+                                {enc.tem_portal ? <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Portal</span>
+                                  : <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">Só SMS</span>}
+                              </div>
+                              <p className="text-xs text-slate-400 truncate">{enc.telefone}{enc.alunos?.length ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}</p>
                             </div>
-                            <p className="text-xs text-slate-400 mt-0.5 truncate">
-                              {enc.telefone ?? "—"}{enc.alunos?.filter(Boolean).length > 0 ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}
-                            </p>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {pushSelectedGuardianIds.length > 0 && (
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-primary font-medium">{pushSelectedGuardianIds.length} encarregado(s) seleccionado(s)</p>
-                    <button onClick={() => setPushSelectedGuardianIds([])} className="text-xs text-slate-400 hover:text-red-500">Limpar selecção</button>
-                  </div>
-                )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {selectedPhones.length > 0 && <p className="text-xs text-primary font-medium">{selectedPhones.length} seleccionado(s)</p>}
+                </div>
               </div>
             )}
-          </div>
 
-          {/* Result */}
-          {pushResult && (
-            <div className={`rounded-2xl p-4 flex items-start gap-3 ${pushResult.ok && (pushResult.sent ?? 0) > 0 ? "bg-emerald-50 border border-emerald-200" : pushResult.ok ? "bg-amber-50 border border-amber-200" : "bg-red-50 border border-red-200"}`}>
-              {pushResult.ok && (pushResult.sent ?? 0) > 0
-                ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5"/>
-                : <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"/>}
-              <div>
-                {pushResult.ok
-                  ? <p className="text-sm font-medium text-slate-800">{pushResult.message ?? `Push enviada: ${pushResult.sent} entregues, ${pushResult.failed ?? 0} falharam (de ${pushResult.total_devices} dispositivos). Ambiente: ${pushResult.environment}.`}</p>
-                  : <p className="text-sm font-medium text-red-800">{pushResult.error ?? "Erro ao enviar notificações."}</p>}
+            {pushTabCanal === "email" && (<>
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+                <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-primary"/><h3 className="font-semibold text-slate-900">Mensagem Email</h3></div>
+                {!smtpConf && <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200"><AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0"/><p className="text-xs text-amber-700">Canal Email não configurado. Configure o SMTP nas definições da escola para activar o envio.</p></div>}
+                <div><label className="block text-xs font-medium text-slate-600 mb-1">Assunto *</label>
+                  <input value={emailAssunto} onChange={e => setEmailAssunto(e.target.value)} placeholder="Ex: Reunião de encarregados — 30 de Abril"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/></div>
+                <div><label className="block text-xs font-medium text-slate-600 mb-1">Conteúdo *</label>
+                  <textarea value={emailCorpo} onChange={e => setEmailCorpo(e.target.value)} rows={5} placeholder="Escreva o conteúdo do email…"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/></div>
               </div>
-            </div>
-          )}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+                <h3 className="font-semibold text-slate-900">Audiência</h3>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-full">Filtro rápido</p>
+                  {([{ k: "todos" as const, label: "Todos" }, { k: "devedores" as const, label: "Devedores" }]).map(({ k, label }) => (
+                    <button key={k} onClick={() => { setAudienciaModo(k); setAudienciaTurmaId(null); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === k ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>{label}</button>
+                  ))}
+                  <select value={audienciaModo === "turma" ? (audienciaTurmaId ?? "") : ""}
+                    onChange={e => { if (e.target.value) { setAudienciaModo("turma"); setAudienciaTurmaId(Number(e.target.value)); } }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === "turma" ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600"}`}>
+                    <option value="">Por Turma…</option>
+                    {turmas.map((t: any) => <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` — ${t.turno}` : ""}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">{loadingAudiencia ? "A carregar…" : `${filteredEmailEncs.length} encarregados com email`}</p>
+                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={filteredEmailEncs.length > 0 && filteredEmailEncs.every(e => emailSelectedIds.includes(e.id))}
+                        onChange={ev => { if (ev.target.checked) setEmailSelectedIds(filteredEmailEncs.map(e => e.id)); else setEmailSelectedIds([]); }} className="rounded"/>
+                      Todos ({filteredEmailEncs.length})
+                    </label>
+                  </div>
+                  <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                    <input value={emailEncSearch} onChange={e => setEmailEncSearch(e.target.value)} placeholder="Pesquisar por nome, email ou aluno…"
+                      className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/></div>
+                  {loadingAudiencia ? <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                  : filteredEmailEncs.length === 0 ? <div className="text-center py-8 text-slate-400"><Mail className="w-8 h-8 mx-auto mb-2 opacity-30"/><p className="text-sm">Nenhum encarregado com email neste segmento.</p></div>
+                  : (
+                    <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-100">
+                      {filteredEmailEncs.map((enc, i) => {
+                        const sel = emailSelectedIds.includes(enc.id);
+                        return (
+                          <label key={`${enc.id}-${i}`} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                            <input type="checkbox" checked={sel} onChange={() => setEmailSelectedIds(prev => sel ? prev.filter(id => id !== enc.id) : [...prev, enc.id])} className="rounded text-primary"/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-medium text-slate-800 truncate">{enc.nome ?? "Sem nome"}</p>
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Portal</span>
+                              </div>
+                              <p className="text-xs text-slate-400 truncate">{enc.email}{enc.alunos?.length ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {emailSelectedIds.length > 0 && <p className="text-xs text-primary font-medium">{emailSelectedIds.length} seleccionado(s)</p>}
+                </div>
+              </div>
+              {emailResult && (
+                <div className={`rounded-xl p-4 flex items-center gap-3 ${emailResult.ok ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}>
+                  {emailResult.ok ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0"/> : <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0"/>}
+                  <p className={`text-sm font-medium ${emailResult.ok ? "text-emerald-800" : "text-red-700"}`}>
+                    {emailResult.ok ? `${emailResult.sent ?? 0} email(s) enviado(s).${(emailResult.failed ?? 0) > 0 ? ` ${emailResult.failed} falha(s).` : ""}` : emailResult.error}
+                  </p>
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button onClick={handleSendEmail} disabled={emailSending || !emailAssunto.trim() || !emailCorpo.trim() || emailSelectedIds.length === 0}
+                  className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                  {emailSending ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Mail className="w-4 h-4"/>}
+                  {emailSending ? "A enviar…" : `Enviar Email (${emailSelectedIds.length})`}
+                </button>
+              </div>
+            </>)}
 
-          {/* Send button */}
-          <div className="flex justify-end">
-            <button onClick={handlePush}
-              disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushRecipientType === "encarregados" && pushSelectedGuardianIds.length === 0)}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-              {pushing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>}
-              {pushing ? "A disparar…" : pushRecipientType === "encarregados" && pushSelectedGuardianIds.length > 0 ? `Disparar para ${pushSelectedGuardianIds.length} encarregado(s)` : "Disparar Comunicado Push"}
-            </button>
-          </div>
+            {pushTabCanal !== "email" && publishResult && (
+              <div className="rounded-xl p-4 flex items-center gap-3 bg-emerald-50 border border-emerald-200">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0"/>
+                <p className="text-sm font-medium text-emerald-800">
+                  {publishResult.comunicado_id ? "Comunicado publicado no portal. " : ""}
+                  {(publishResult.sms_sent ?? 0) > 0 ? `${publishResult.sms_sent} SMS enviado(s).` : ""}
+                  {(publishResult.sms_failed ?? 0) > 0 ? ` ${publishResult.sms_failed} falha(s).` : ""}
+                </p>
+              </div>
+            )}
+            {pushTabCanal !== "email" && (
+              <div className="flex justify-end">
+                <button onClick={pushTabCanal === "sms" ? handleSendSMS : handlePublish}
+                  disabled={publishing || !conteudo.trim() || ((pushTabCanal === "sms" || pushTabCanal === "ambos") && selectedPhones.length === 0)}
+                  className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                  {publishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+                  {publishing ? "A processar…" : pushTabCanal === "portal" ? "Publicar no Portal" : pushTabCanal === "sms" ? `Enviar SMS (${selectedPhones.length})` : `Publicar + Enviar SMS (${selectedPhones.length})`}
+                </button>
+              </div>
+            )}
+          </>)}
+
         </div>
       )}
     </div>
