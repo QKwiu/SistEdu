@@ -8951,24 +8951,38 @@ function EmolumentosView({ token, onStorePending }: { token: string; onStorePend
 function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turmas: Turma[]; moduloInfantil?: boolean }) {
   type CTab = "calendarios" | "tipos" | "infantil";
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-  const DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-  const MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const DIAS_FULL = ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
+  const MESES_SHORT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const MESES_FULL = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
   const COR_PRESETS = ["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6B7280"];
-  const STATUS_CLS: Record<string,string> = {
-    activo: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    programado: "bg-blue-100 text-blue-700 border-blue-200",
-    historico: "bg-slate-100 text-slate-500 border-slate-200",
-  };
+  const PESO_LABELS = ["","Peso 1","Peso 2","Peso 3","Peso 4","Peso 5"];
+  const PESO_COLORS = ["","bg-slate-100 text-slate-500","bg-blue-100 text-blue-700","bg-violet-100 text-violet-700","bg-amber-100 text-amber-700","bg-red-100 text-red-700"];
+  const DISCIPLINAS = ["Língua Portuguesa","Matemática","Física","Química","Biologia","História","Geografia","Educação Física","Educação Cívica","Inglês","Francês","Geometria Descritiva","Filosofia","Economia","Contabilidade","Direito","Literatura","Informática","Música","Artes Visuais","Ciências Naturais","Empreendedorismo"];
+  const STATUS_CLS: Record<string,string> = { activo:"bg-emerald-100 text-emerald-700 border-emerald-200", programado:"bg-blue-100 text-blue-700 border-blue-200", historico:"bg-slate-100 text-slate-500 border-slate-200" };
   const STATUS_PT: Record<string,string> = { activo:"Activo", programado:"Programado", historico:"Histórico" };
 
+  // ─── Navigation ───
   const [cTab, setCTab] = useState<CTab>("calendarios");
+  const [calViewMode, setCalViewMode] = useState<"mes"|"semana"|"lista">("lista");
+  const [calViewDate, setCalViewDate] = useState(() => new Date());
 
-  /* ─── Tipos de Prova ─── */
+  // ─── Filters ───
+  const [filterTurma, setFilterTurma] = useState("");
+  const [filterTipo, setFilterTipo] = useState("");
+
+  // ─── Toast ───
+  const [toast, setToast] = useState<{msg:string;type:"error"|"warning"}|null>(null);
+  const showToast = useCallback((msg: string, type: "error"|"warning" = "error") => {
+    setToast({msg, type});
+    setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  // ─── Tipos de Prova ───
   const [tipos, setTipos] = useState<any[]>([]);
   const [loadingTipos, setLoadingTipos] = useState(false);
   const [showTipoForm, setShowTipoForm] = useState(false);
   const [editTipo, setEditTipo] = useState<any>(null);
-  const [tipoForm, setTipoForm] = useState({ nome: "", cor: "#3B82F6", descricao: "" });
+  const [tipoForm, setTipoForm] = useState({ nome:"", sigla:"", cor:"#3B82F6", peso:1, descricao:"" });
   const [savingTipo, setSavingTipo] = useState(false);
 
   const loadTipos = useCallback(async () => {
@@ -8985,17 +8999,17 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
     setSavingTipo(true);
     try {
       const url = editTipo ? `${API}/school/calendario/tipos-prova/${editTipo.id}` : `${API}/school/calendario/tipos-prova`;
-      const r = await fetch(url, { method: editTipo ? "PUT" : "POST", headers, body: JSON.stringify(tipoForm) });
-      if (r.ok) { await loadTipos(); setShowTipoForm(false); setEditTipo(null); setTipoForm({ nome:"", cor:"#3B82F6", descricao:"" }); }
+      const r = await fetch(url, { method: editTipo?"PUT":"POST", headers, body: JSON.stringify(tipoForm) });
+      if (r.ok) { await loadTipos(); setShowTipoForm(false); setEditTipo(null); setTipoForm({nome:"",sigla:"",cor:"#3B82F6",peso:1,descricao:""}); }
     } catch {} finally { setSavingTipo(false); }
   };
   const deleteTipo = async (id: number) => {
     if (!confirm("Eliminar este tipo de prova?")) return;
-    await fetch(`${API}/school/calendario/tipos-prova/${id}`, { method: "DELETE", headers });
+    await fetch(`${API}/school/calendario/tipos-prova/${id}`, { method:"DELETE", headers });
     await loadTipos();
   };
 
-  /* ─── Calendários ─── */
+  // ─── Calendários ───
   const [calendarios, setCalendarios] = useState<any[]>([]);
   const [loadingCal, setLoadingCal] = useState(false);
   const [showCalForm, setShowCalForm] = useState(false);
@@ -9029,14 +9043,14 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
     setSavingCal(true);
     try {
       const url = editCal ? `${API}/school/calendarios/${editCal.id}` : `${API}/school/calendarios`;
-      const r = await fetch(url, { method: editCal ? "PUT" : "POST", headers, body: JSON.stringify({ ...calForm, alertas_horas: Number(calForm.alertas_horas) }) });
+      const r = await fetch(url, { method: editCal?"PUT":"POST", headers, body: JSON.stringify({...calForm, alertas_horas: Number(calForm.alertas_horas)}) });
       if (r.ok) { await loadCalendarios(); setShowCalForm(false); setEditCal(null); setCalForm(emptyCalForm); }
     } catch {} finally { setSavingCal(false); }
   };
   const togglePublicar = async (id: number) => {
     setTogglingPub(id);
     try {
-      const r = await fetch(`${API}/school/calendarios/${id}/publicar`, { method: "PATCH", headers });
+      const r = await fetch(`${API}/school/calendarios/${id}/publicar`, { method:"PATCH", headers });
       if (r.ok) { const up = await r.json(); setCalendarios(prev => prev.map(c => c.id===id ? {...c,...up} : c)); }
     } catch {} finally { setTogglingPub(null); }
   };
@@ -9050,7 +9064,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
     } catch {} finally { setDeletingCal(null); }
   };
 
-  /* ─── Eventos ─── */
+  // ─── Eventos ───
   const [eventos, setEventos] = useState<Record<number,any[]>>({});
   const [loadingEvt, setLoadingEvt] = useState<number|null>(null);
   const [showEvtForm, setShowEvtForm] = useState<number|null>(null);
@@ -9067,6 +9081,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       if (r.ok) { const data = await r.json(); setEventos(prev => ({...prev, [calId]: data})); }
     } catch {} finally { setLoadingEvt(null); }
   };
+
   const toggleExpandCal = (id: number) => {
     setExpandedCals(prev => {
       const s = new Set(prev);
@@ -9074,43 +9089,73 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       return s;
     });
   };
-  const openEvtForm = (calId: number, cal: any, evt?: any) => {
+
+  const openEvtForm = (calId: number, cal: any, evt?: any, prefillDate?: string) => {
     setEditEvt(evt||null); setEvtError(null);
     if (evt) {
-      setEvtForm({...evt, data_inicio: evt.data_inicio ? evt.data_inicio.slice(0,16) : "", data_fim: evt.data_fim ? evt.data_fim.slice(0,16) : "", dias_semana: [Number(evt.dia_semana)]});
+      setEvtForm({...evt, data_inicio: evt.data_inicio ? evt.data_inicio.slice(0,16) : "", data_fim: evt.data_fim ? evt.data_fim.slice(0,16) : "", dias_semana: [Number(evt.dia_semana)], turma_ids: evt.turma_id ? [String(evt.turma_id)] : []});
     } else {
-      const base: Record<string,any> = { titulo:"", turma_id:"", professor:"", sala:"", descricao:"", tipo_prova_id:"", publicado:true };
-      if (cal.tipo==="provas") { base.data_inicio=""; base.data_fim=""; }
-      else { base.dias_semana=[0,1,2,3,4]; base.hora_inicio_aula="08:00"; base.hora_fim_aula="09:00"; }
+      const base: Record<string,any> = { titulo:"", turma_id:"", turma_ids:[], professor:"", sala:"", descricao:"", tipo_prova_id:"", publicado:true };
+      if (cal.tipo==="provas") {
+        base.data_inicio = prefillDate ? `${prefillDate}T08:00` : "";
+        base.data_fim    = prefillDate ? `${prefillDate}T10:00` : "";
+      } else {
+        base.dias_semana=[0,1,2,3,4]; base.hora_inicio_aula="08:00"; base.hora_fim_aula="09:00";
+      }
       setEvtForm(base);
     }
     setShowEvtForm(calId);
   };
+
   const saveEvt = async (calId: number) => {
     setSavingEvt(true); setEvtError(null);
     try {
       const base = {...evtForm};
-      if (base.tipo_prova_id) { const tp = tipos.find((t:any) => t.id===Number(base.tipo_prova_id)); if (tp) { base.tipo_prova_nome=tp.nome; base.tipo_prova_cor=tp.cor; } }
-      if (base.turma_id) { const tm = turmas.find(t => t.id===Number(base.turma_id)); if (tm) base.turma_nome=tm.nome; }
+      if (base.tipo_prova_id) {
+        const tp = tipos.find((t:any) => t.id===Number(base.tipo_prova_id));
+        if (tp) { base.tipo_prova_nome=tp.nome; base.tipo_prova_cor=tp.cor; }
+      }
+      const cal = calendarios.find(c => c.id===calId);
+      const isProvas = cal?.tipo === "provas";
+      const turmaIds: string[] = (isProvas && !editEvt && (base.turma_ids||[]).length > 0) ? base.turma_ids : [];
+
       if (editEvt) {
         const payload = {...base, dia_semana: (base.dias_semana||[Number(base.dia_semana)])[0] };
+        if (payload.turma_id) { const tm = turmas.find(t => String(t.id)===String(payload.turma_id)); if (tm) payload.turma_nome=tm.nome; }
+        delete payload.dias_semana; delete payload.turma_ids;
         const r = await fetch(`${API}/school/calendarios/${calId}/eventos/${editEvt.id}`, { method:"PUT", headers, body: JSON.stringify(payload) });
-        if (!r.ok) { const e = await r.json(); setEvtError(e.error || "Erro ao guardar evento."); setSavingEvt(false); return; }
-      } else {
+        if (!r.ok) { const e = await r.json(); const msg = e.error||"Erro ao guardar."; setEvtError(msg); if (r.status===409) showToast(msg,"warning"); setSavingEvt(false); return; }
+      } else if (isProvas && turmaIds.length > 0) {
+        const results = await Promise.all(turmaIds.map(tid => {
+          const tm = turmas.find(t => String(t.id)===tid);
+          const payload = {...base, turma_id: tid, turma_nome: tm?.nome||"", dia_semana: null };
+          delete payload.dias_semana; delete payload.turma_ids;
+          return fetch(`${API}/school/calendarios/${calId}/eventos`, { method:"POST", headers, body: JSON.stringify(payload) });
+        }));
+        const failed = results.find(r => !r.ok);
+        if (failed) { const e = await failed.json(); const msg = e.error||"Erro ao guardar."; setEvtError(msg); if (failed.status===409) showToast(msg,"warning"); setSavingEvt(false); return; }
+      } else if (!isProvas) {
         const dias: number[] = base.dias_semana||[0];
         if (dias.length===0) { setEvtError("Seleccione pelo menos um dia da semana."); setSavingEvt(false); return; }
         const results = await Promise.all(dias.map(d => {
           const payload = {...base, dia_semana: d};
-          delete payload.dias_semana;
+          delete payload.dias_semana; delete payload.turma_ids;
+          if (payload.turma_id) { const tm = turmas.find(t => String(t.id)===String(payload.turma_id)); if (tm) payload.turma_nome=tm.nome; }
           return fetch(`${API}/school/calendarios/${calId}/eventos`, { method:"POST", headers, body: JSON.stringify(payload) });
         }));
         const failed = results.find(r => !r.ok);
-        if (failed) { const e = await failed.json(); setEvtError(e.error || "Erro ao guardar evento."); setSavingEvt(false); return; }
+        if (failed) { const e = await failed.json(); const msg = e.error||"Erro ao guardar."; setEvtError(msg); if (failed.status===409) showToast(msg,"warning"); setSavingEvt(false); return; }
+      } else {
+        if (base.turma_id) { const tm = turmas.find(t => String(t.id)===String(base.turma_id)); if (tm) base.turma_nome=tm.nome; }
+        const payload = {...base}; delete payload.dias_semana; delete payload.turma_ids;
+        const r = await fetch(`${API}/school/calendarios/${calId}/eventos`, { method:"POST", headers, body: JSON.stringify(payload) });
+        if (!r.ok) { const e = await r.json(); const msg = e.error||"Erro ao guardar."; setEvtError(msg); if (r.status===409) showToast(msg,"warning"); setSavingEvt(false); return; }
       }
       await loadEventos(calId);
       setShowEvtForm(null); setEditEvt(null);
     } catch { setEvtError("Erro de ligação."); } finally { setSavingEvt(false); }
   };
+
   const deleteEvt = async (calId: number, evtId: number) => {
     setDeletingEvt(evtId);
     try {
@@ -9120,10 +9165,86 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
   };
 
   const fmtDate = (s: string) => new Date(s).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"});
-  const fmtDT = (s: string) => new Date(s).toLocaleString("pt-AO",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+
+  // ─── Computed ───
+  const allEventos = useMemo(() => Object.values(eventos).flat(), [eventos]);
+
+  const filteredEventos = useMemo(() => allEventos.filter(ev => {
+    if (filterTurma && String(ev.turma_id) !== filterTurma) return false;
+    if (filterTipo && String(ev.tipo_prova_id) !== filterTipo) return false;
+    return true;
+  }), [allEventos, filterTurma, filterTipo]);
+
+  const eventosByDate = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    filteredEventos.forEach(ev => {
+      if (!ev.data_inicio) return;
+      const key = new Date(ev.data_inicio).toISOString().slice(0,10);
+      if (!map[key]) map[key] = [];
+      map[key].push(ev);
+    });
+    return map;
+  }, [filteredEventos]);
+
+  const monthCells = useMemo(() => {
+    const firstDay = new Date(calViewDate.getFullYear(), calViewDate.getMonth(), 1);
+    const dow = (firstDay.getDay() + 6) % 7;
+    const start = new Date(firstDay);
+    start.setDate(start.getDate() - dow);
+    const cells: Date[] = [];
+    for (let i = 0; i < 42; i++) cells.push(new Date(start.getTime() + i * 86400000));
+    return cells;
+  }, [calViewDate]);
+
+  const weekDays = useMemo(() => {
+    const d = new Date(calViewDate);
+    const dow = (d.getDay() + 6) % 7;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - dow);
+    const days: Date[] = [];
+    for (let i = 0; i < 7; i++) days.push(new Date(monday.getTime() + i * 86400000));
+    return days;
+  }, [calViewDate]);
+
+  const todayDateStr = new Date().toISOString().slice(0,10);
+
+  const defaultProvasCal = useMemo(() =>
+    calendarios.find(c => c.tipo==="provas" && c.status==="activo") ||
+    calendarios.find(c => c.tipo==="provas") || null,
+  [calendarios]);
+
+  const navigatePrev = () => {
+    const d = new Date(calViewDate);
+    if (calViewMode==="mes") d.setMonth(d.getMonth()-1); else d.setDate(d.getDate()-7);
+    setCalViewDate(d);
+  };
+  const navigateNext = () => {
+    const d = new Date(calViewDate);
+    if (calViewMode==="mes") d.setMonth(d.getMonth()+1); else d.setDate(d.getDate()+7);
+    setCalViewDate(d);
+  };
+
+  const calNavLabel = calViewMode==="mes"
+    ? `${MESES_FULL[calViewDate.getMonth()]} ${calViewDate.getFullYear()}`
+    : (() => {
+        const s = weekDays[0]; const e = weekDays[6];
+        return `${String(s.getDate()).padStart(2,"0")} ${MESES_SHORT[s.getMonth()]} – ${String(e.getDate()).padStart(2,"0")} ${MESES_SHORT[e.getMonth()]} ${e.getFullYear()}`;
+      })();
 
   return (
     <div className="max-w-5xl mx-auto px-4 pb-8">
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div className={`fixed top-4 right-4 z-[100] flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg border max-w-sm ${toast.type==="warning"?"bg-amber-50 border-amber-200 text-amber-800":"bg-red-50 border-red-200 text-red-800"}`}
+            initial={{opacity:0,y:-16}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-16}}>
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5"/>
+            <p className="text-sm font-medium flex-1">{toast.msg}</p>
+            <button onClick={()=>setToast(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="w-3.5 h-3.5"/></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -9138,7 +9259,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Main tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-6 w-fit flex-wrap">
         {([["calendarios","Calendários"],["tipos","Tipos de Prova"],...(moduloInfantil?[["infantil","Módulo Infantil"]]:[])] as [CTab,string][]).map(([k,l]) => (
           <button key={k} onClick={() => setCTab(k)}
@@ -9148,202 +9269,344 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
 
       {/* ─── TAB: CALENDÁRIOS ─── */}
       {cTab==="calendarios" && (
-        <div className="space-y-4">
-          {loadingCal ? (
-            <div className="flex justify-center py-16"><RefreshCw className="w-6 h-6 animate-spin text-blue-500"/></div>
-          ) : calendarios.length===0 ? (
-            <div className="bg-white rounded-2xl p-12 border border-slate-200 text-center">
-              <Calendar className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
-              <p className="font-semibold text-slate-400">Nenhum calendário criado</p>
-              <p className="text-slate-300 text-sm mt-1">Crie um calendário de aulas ou de provas para começar</p>
+        <div>
+          {/* View switcher + filters bar */}
+          <div className="flex flex-wrap gap-3 items-center mb-5">
+            <div className="flex gap-0.5 bg-slate-100 rounded-xl p-1">
+              {(["lista","mes","semana"] as const).map(m => (
+                <button key={m} onClick={() => setCalViewMode(m)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${calViewMode===m?"bg-white shadow text-slate-900":"text-slate-500 hover:text-slate-700"}`}>
+                  {m==="lista"?"Lista":m==="mes"?"Mês":"Semana"}
+                </button>
+              ))}
             </div>
-          ) : calendarios.map(cal => (
-            <div key={cal.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-start gap-3 p-4">
-                <div className={`mt-0.5 p-2 rounded-xl ${cal.tipo==="aulas"?"bg-blue-50":"bg-violet-50"}`}>
-                  {cal.tipo==="aulas" ? <Clock className="w-5 h-5 text-blue-600"/> : <BookOpen className="w-5 h-5 text-violet-600"/>}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-slate-900">{cal.nome}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_CLS[cal.status]||STATUS_CLS.historico}`}>
-                      {STATUS_PT[cal.status]||cal.status}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{cal.tipo==="aulas"?"Horário de Aulas":"Calendário de Provas"}</span>
-                    {cal.publicado && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">Publicado</span>}
-                  </div>
-                  <div className="flex items-center gap-4 mt-1 flex-wrap">
-                    <span className="text-xs text-slate-400 flex items-center gap-1"><CalendarDays className="w-3 h-3"/> {fmtDate(cal.vigencia_inicio)} → {fmtDate(cal.vigencia_fim)}</span>
-                    <span className="text-xs text-slate-400 flex items-center gap-1"><Bell className="w-3 h-3"/> Alertas {cal.alertas_horas}h antes</span>
-                    <span className="text-xs text-slate-400">{cal.total_eventos} evento{cal.total_eventos!==1?"s":""}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => togglePublicar(cal.id)} disabled={togglingPub===cal.id}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${cal.publicado?"bg-amber-50 text-amber-700 hover:bg-amber-100":"bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
-                    {togglingPub===cal.id?<RefreshCw className="w-3 h-3 animate-spin inline"/>:(cal.publicado?"Despublicar":"Publicar")}
-                  </button>
-                  <button onClick={() => { setEditCal(cal); setCalForm({nome:cal.nome,tipo:cal.tipo,descricao:cal.descricao||"",vigencia_inicio:cal.vigencia_inicio?.slice(0,10)||"",vigencia_fim:cal.vigencia_fim?.slice(0,10)||"",alertas_horas:String(cal.alertas_horas||48),gerar_notificacoes:cal.gerar_notificacoes!==false}); setShowCalForm(true); }}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
-                  <button onClick={() => deleteCal(cal.id)} disabled={deletingCal===cal.id}
-                    className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
-                    {deletingCal===cal.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
-                  </button>
-                  <button onClick={() => toggleExpandCal(cal.id)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-                    {expandedCals.has(cal.id)?<ChevronUp className="w-4 h-4"/>:<ChevronDown className="w-4 h-4"/>}
-                  </button>
-                </div>
-              </div>
+            <select value={filterTurma} onChange={e=>setFilterTurma(e.target.value)}
+              className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">Todas as turmas</option>
+              {turmas.map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+            <select value={filterTipo} onChange={e=>setFilterTipo(e.target.value)}
+              className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">Todos os tipos</option>
+              {tipos.map(tp=><option key={tp.id} value={tp.id}>{tp.nome}</option>)}
+            </select>
+            {(filterTurma||filterTipo) && (
+              <button onClick={()=>{setFilterTurma("");setFilterTipo("");}} className="text-xs text-blue-600 hover:underline">Limpar filtros</button>
+            )}
+          </div>
 
-              {expandedCals.has(cal.id) && (
-                <div className="border-t border-slate-100 bg-slate-50/60 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold text-slate-700">Eventos do calendário</span>
-                    <button onClick={() => openEvtForm(cal.id, cal)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">
-                      <Plus className="w-3.5 h-3.5"/> Novo Evento
-                    </button>
-                  </div>
-                  {loadingEvt===cal.id ? (
-                    <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-blue-500"/></div>
-                  ) : (eventos[cal.id]||[]).length===0 ? (
-                    <div className="text-center py-8 text-slate-400">
-                      <Calendar className="w-8 h-8 text-slate-200 mx-auto mb-2"/>
-                      <p className="text-sm">Sem eventos. Clique em "Novo Evento" para adicionar.</p>
+          {/* ── VISTA MÊS ── */}
+          {calViewMode==="mes" && (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <button onClick={navigatePrev} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><ChevronLeft className="w-5 h-5"/></button>
+                <span className="font-bold text-slate-800 min-w-[190px] text-center">{calNavLabel}</span>
+                <button onClick={navigateNext} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><ChevronRight className="w-5 h-5"/></button>
+                <button onClick={()=>setCalViewDate(new Date())} className="ml-1 px-3 py-1 rounded-lg text-xs font-medium border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Hoje</button>
+                {defaultProvasCal && (
+                  <span className="ml-auto text-xs text-slate-400 hidden sm:block">Clique num dia para agendar</span>
+                )}
+              </div>
+              <div className="grid grid-cols-7 mb-1">
+                {DIAS_FULL.map(d=>(
+                  <div key={d} className="py-1 text-center text-xs font-bold text-slate-400 uppercase tracking-wide">{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {monthCells.map((cell, idx) => {
+                  const dateStr = cell.toISOString().slice(0,10);
+                  const isCurrentMonth = cell.getMonth()===calViewDate.getMonth();
+                  const isToday = dateStr===todayDateStr;
+                  const dayEvts = eventosByDate[dateStr]||[];
+                  return (
+                    <div key={idx}
+                      onClick={() => { if (defaultProvasCal) openEvtForm(defaultProvasCal.id, defaultProvasCal, undefined, dateStr); }}
+                      className={`min-h-[80px] sm:min-h-[90px] rounded-xl p-1.5 border transition-colors
+                        ${isToday?"border-blue-400 bg-blue-50/50":"border-slate-100"}
+                        ${!isCurrentMonth?"bg-slate-50/40 border-slate-50":"bg-white"}
+                        ${defaultProvasCal?"cursor-pointer hover:border-blue-200 hover:bg-blue-50/20":""}`}>
+                      <span className={`text-xs font-bold leading-none inline-flex items-center justify-center w-6 h-6 rounded-full mb-1
+                        ${isToday?"bg-blue-600 text-white":isCurrentMonth?"text-slate-700":"text-slate-300"}`}>
+                        {cell.getDate()}
+                      </span>
+                      <div className="space-y-0.5">
+                        {dayEvts.slice(0,3).map(ev=>(
+                          <div key={ev.id} onClick={e=>{e.stopPropagation();const c=calendarios.find(cl=>cl.id===ev.calendario_id);if(c)openEvtForm(c.id,c,ev);}}
+                            className="text-xs rounded px-1 py-0.5 truncate font-medium leading-tight cursor-pointer hover:opacity-80 transition-opacity"
+                            style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"28",color:ev.tipo_prova_cor||"#3B82F6"}}>
+                            {ev.turma_nome?`${ev.turma_nome} `:""}
+                            {ev.titulo}
+                          </div>
+                        ))}
+                        {dayEvts.length>3 && <div className="text-xs text-slate-400 pl-1">+{dayEvts.length-3}</div>}
+                      </div>
                     </div>
-                  ) : cal.tipo==="aulas" ? (
-                    (() => {
-                      const evList = eventos[cal.id] || [];
-                      const DIAS_FULL = ["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
-                      const activeDays = [0,1,2,3,4,5].filter(d => evList.some((e:any) => Number(e.dia_semana)===d));
-                      const slots = [...new Set(evList.filter((e:any)=>e.hora_inicio_aula).map((e:any)=>e.hora_inicio_aula.slice(0,5)))].sort() as string[];
-                      const grid: Record<string,Record<number,any[]>> = {};
-                      evList.forEach((ev:any) => {
-                        const s = ev.hora_inicio_aula?.slice(0,5); const d = Number(ev.dia_semana);
-                        if (!s) return;
-                        if (!grid[s]) grid[s]={};
-                        if (!grid[s][d]) grid[s][d]=[];
-                        grid[s][d].push(ev);
-                      });
-                      return (
-                        <div className="overflow-x-auto rounded-xl border border-slate-200">
-                          <table className="w-full text-sm min-w-[520px] border-collapse">
-                            <thead>
-                              <tr className="bg-slate-700 text-white">
-                                <th className="px-3 py-2.5 text-xs font-semibold text-left border-r border-slate-600 w-24 whitespace-nowrap">Horário</th>
-                                {activeDays.length===0
-                                  ? <th className="px-3 py-2.5 text-xs font-semibold text-center">—</th>
-                                  : activeDays.map(d=>(
-                                    <th key={d} className="px-3 py-2.5 text-xs font-semibold text-center border-r border-slate-600 last:border-r-0">{DIAS_FULL[d]}</th>
-                                  ))
-                                }
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {slots.length===0 ? (
-                                <tr><td colSpan={activeDays.length+1} className="px-4 py-10 text-center text-slate-400 text-sm bg-white">
-                                  Sem eventos. Clique em "Novo Evento" para adicionar aulas ao horário.
-                                </td></tr>
-                              ) : slots.map((slot,si) => {
-                                const fim = (evList.find((e:any)=>e.hora_inicio_aula?.slice(0,5)===slot) as any)?.hora_fim_aula?.slice(0,5);
-                                return (
-                                  <tr key={slot} className={si%2===0?"bg-white":"bg-slate-50/60"}>
-                                    <td className="px-3 py-2 border-r border-b border-slate-100 align-middle">
-                                      <span className="block text-xs font-bold text-slate-700">{slot}</span>
-                                      {fim && <span className="block text-xs text-slate-400">{fim}</span>}
-                                    </td>
-                                    {activeDays.map(d => {
-                                      const cell = (grid[slot]||{})[d]||[];
-                                      return (
-                                        <td key={d} className="px-1.5 py-1.5 border-r border-b border-slate-100 last:border-r-0 align-middle min-w-[110px]">
-                                          {cell.length===0 ? (
-                                            <span className="text-slate-200 text-xs flex justify-center">—</span>
-                                          ) : cell.map((ev:any)=>(
-                                            <div key={ev.id} className="rounded-lg px-2 py-1.5 mb-1 last:mb-0 relative group"
-                                              style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"18",borderLeft:`3px solid ${ev.tipo_prova_cor||"#3B82F6"}`}}>
-                                              <p className="text-xs font-bold text-slate-800 leading-tight">{ev.titulo}</p>
-                                              {ev.professor && <p className="text-xs text-slate-500 leading-tight mt-0.5">{ev.professor}</p>}
-                                              {ev.sala && <p className="text-xs text-slate-400 leading-tight">Sala {ev.sala}</p>}
-                                              {ev.turma_nome && <p className="text-xs text-slate-400 leading-tight">{ev.turma_nome}</p>}
-                                              <div className="absolute top-0.5 right-0.5 hidden group-hover:flex gap-0.5 bg-white/80 rounded p-0.5">
-                                                <button onClick={()=>openEvtForm(cal.id,cal,ev)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400"><Pencil className="w-3 h-3"/></button>
-                                                <button onClick={()=>deleteEvt(cal.id,ev.id)} disabled={deletingEvt===ev.id} className="p-0.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-500">
-                                                  {deletingEvt===ev.id?<RefreshCw className="w-3 h-3 animate-spin"/>:<Trash2 className="w-3 h-3"/>}
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </td>
-                                      );
-                                    })}
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200">
-                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Data</th>
-                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Título / Disciplina</th>
-                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Tipo</th>
-                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Professor</th>
-                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Sala</th>
-                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
-                            <th className="px-4 py-2.5"/>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...(eventos[cal.id]||[])].sort((a,b)=>(a.data_inicio||"").localeCompare(b.data_inicio||"")).map(ev => {
-                            const d = ev.data_inicio ? new Date(ev.data_inicio) : null;
-                            return (
-                              <tr key={ev.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
-                                <td className="px-4 py-3 whitespace-nowrap">
-                                  {d ? (
-                                    <div className="flex flex-col">
-                                      <span className="font-bold text-slate-900 text-base leading-none">{String(d.getDate()).padStart(2,"0")}</span>
-                                      <span className="text-xs text-slate-400">{MESES[d.getMonth()]} {d.getFullYear()}</span>
-                                      <span className="text-xs text-slate-400 mt-0.5">{d.toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})}</span>
-                                    </div>
-                                  ) : "—"}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="font-semibold text-slate-900">{ev.titulo}</span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  {ev.tipo_prova_nome ? (
-                                    <span className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap" style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"20",color:ev.tipo_prova_cor||"#3B82F6"}}>
-                                      {ev.tipo_prova_nome}
-                                    </span>
-                                  ) : "—"}
-                                </td>
-                                <td className="px-4 py-3 text-slate-500">{ev.professor||"—"}</td>
-                                <td className="px-4 py-3 text-slate-500">{ev.sala||"—"}</td>
-                                <td className="px-4 py-3 text-slate-500">{ev.turma_nome||"—"}</td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-1 justify-end">
-                                    <button onClick={() => openEvtForm(cal.id, cal, ev)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
-                                    <button onClick={() => deleteEvt(cal.id, ev.id)} disabled={deletingEvt===ev.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
-                                      {deletingEvt===ev.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                  );
+                })}
+              </div>
+              {tipos.filter(tp=>filteredEventos.some(ev=>Number(ev.tipo_prova_id)===tp.id)).length>0 && (
+                <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-slate-100">
+                  {tipos.filter(tp=>filteredEventos.some(ev=>Number(ev.tipo_prova_id)===tp.id)).map(tp=>(
+                    <div key={tp.id} className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{backgroundColor:tp.cor}}/>
+                      <span className="text-xs text-slate-500">{tp.sigla||tp.nome}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
-          ))}
+          )}
+
+          {/* ── VISTA SEMANA ── */}
+          {calViewMode==="semana" && (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <button onClick={navigatePrev} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><ChevronLeft className="w-5 h-5"/></button>
+                <span className="font-bold text-slate-800 min-w-[240px] text-center text-sm">{calNavLabel}</span>
+                <button onClick={navigateNext} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"><ChevronRight className="w-5 h-5"/></button>
+                <button onClick={()=>setCalViewDate(new Date())} className="ml-1 px-3 py-1 rounded-lg text-xs font-medium border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Hoje</button>
+              </div>
+              <div className="grid grid-cols-7 gap-1.5">
+                {weekDays.map((day, di) => {
+                  const dateStr = day.toISOString().slice(0,10);
+                  const isToday = dateStr===todayDateStr;
+                  const dayEvts = eventosByDate[dateStr]||[];
+                  return (
+                    <div key={di} className={`rounded-xl border overflow-hidden ${isToday?"border-blue-400":"border-slate-200"}`}>
+                      <div className={`px-2 py-2 text-center border-b ${isToday?"border-blue-200 bg-blue-50":"border-slate-100 bg-slate-50/60"}`}>
+                        <p className="text-xs font-bold text-slate-400 uppercase">{DIAS_FULL[di]}</p>
+                        <p className={`text-xl font-bold leading-none mt-0.5 ${isToday?"text-blue-600":"text-slate-800"}`}>{day.getDate()}</p>
+                        <p className="text-xs text-slate-400">{MESES_SHORT[day.getMonth()]}</p>
+                      </div>
+                      <div className="p-1.5 space-y-1 min-h-[96px] bg-white">
+                        {dayEvts.length===0 ? (
+                          defaultProvasCal ? (
+                            <button onClick={()=>openEvtForm(defaultProvasCal.id,defaultProvasCal,undefined,dateStr)}
+                              className="w-full min-h-[72px] flex items-center justify-center text-slate-200 hover:text-blue-300 transition-colors">
+                              <Plus className="w-5 h-5"/>
+                            </button>
+                          ) : <div className="min-h-[72px]"/>
+                        ) : dayEvts.map(ev=>(
+                          <div key={ev.id} className="rounded-lg px-2 py-1.5 relative group cursor-pointer"
+                            onClick={()=>{const c=calendarios.find(cl=>cl.id===ev.calendario_id);if(c)openEvtForm(c.id,c,ev);}}
+                            style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"22",borderLeft:`3px solid ${ev.tipo_prova_cor||"#3B82F6"}`}}>
+                            <p className="text-xs font-bold leading-tight text-slate-800 truncate">{ev.titulo}</p>
+                            {ev.turma_nome && <p className="text-xs text-slate-400 leading-tight">{ev.turma_nome}</p>}
+                            {ev.data_inicio && <p className="text-xs text-slate-400">{new Date(ev.data_inicio).toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})}</p>}
+                            <button onClick={e=>{e.stopPropagation();deleteEvt(ev.calendario_id||0,ev.id);}} disabled={deletingEvt===ev.id}
+                              className="absolute top-0.5 right-0.5 hidden group-hover:flex p-0.5 rounded hover:bg-red-50 text-slate-300 hover:text-red-500 bg-white/80">
+                              {deletingEvt===ev.id?<RefreshCw className="w-3 h-3 animate-spin"/>:<Trash2 className="w-3 h-3"/>}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── VISTA LISTA ── */}
+          {calViewMode==="lista" && (
+            <div className="space-y-4">
+              {loadingCal ? (
+                <div className="flex justify-center py-16"><RefreshCw className="w-6 h-6 animate-spin text-blue-500"/></div>
+              ) : calendarios.length===0 ? (
+                <div className="bg-white rounded-2xl p-12 border border-slate-200 text-center">
+                  <Calendar className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+                  <p className="font-semibold text-slate-400">Nenhum calendário criado</p>
+                  <p className="text-slate-300 text-sm mt-1">Crie um calendário de aulas ou de provas para começar</p>
+                </div>
+              ) : calendarios.map(cal => {
+                const calEvts = (eventos[cal.id]||[]).filter(ev => {
+                  if (filterTurma && String(ev.turma_id) !== filterTurma) return false;
+                  if (filterTipo && String(ev.tipo_prova_id) !== filterTipo) return false;
+                  return true;
+                });
+                return (
+                  <div key={cal.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="flex items-start gap-3 p-4">
+                      <div className={`mt-0.5 p-2 rounded-xl ${cal.tipo==="aulas"?"bg-blue-50":"bg-violet-50"}`}>
+                        {cal.tipo==="aulas" ? <Clock className="w-5 h-5 text-blue-600"/> : <BookOpen className="w-5 h-5 text-violet-600"/>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900">{cal.nome}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_CLS[cal.status]||STATUS_CLS.historico}`}>{STATUS_PT[cal.status]||cal.status}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{cal.tipo==="aulas"?"Horário de Aulas":"Calendário de Provas"}</span>
+                          {cal.publicado && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">Publicado</span>}
+                        </div>
+                        <div className="flex items-center gap-4 mt-1 flex-wrap">
+                          <span className="text-xs text-slate-400 flex items-center gap-1"><CalendarDays className="w-3 h-3"/> {fmtDate(cal.vigencia_inicio)} → {fmtDate(cal.vigencia_fim)}</span>
+                          <span className="text-xs text-slate-400 flex items-center gap-1"><Bell className="w-3 h-3"/> Alertas {cal.alertas_horas}h antes</span>
+                          <span className="text-xs text-slate-400">{cal.total_eventos} evento{cal.total_eventos!==1?"s":""}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={()=>togglePublicar(cal.id)} disabled={togglingPub===cal.id}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${cal.publicado?"bg-amber-50 text-amber-700 hover:bg-amber-100":"bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
+                          {togglingPub===cal.id?<RefreshCw className="w-3 h-3 animate-spin inline"/>:(cal.publicado?"Despublicar":"Publicar")}
+                        </button>
+                        <button onClick={()=>{ setEditCal(cal); setCalForm({nome:cal.nome,tipo:cal.tipo,descricao:cal.descricao||"",vigencia_inicio:cal.vigencia_inicio?.slice(0,10)||"",vigencia_fim:cal.vigencia_fim?.slice(0,10)||"",alertas_horas:String(cal.alertas_horas||48),gerar_notificacoes:cal.gerar_notificacoes!==false}); setShowCalForm(true); }}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
+                        <button onClick={()=>deleteCal(cal.id)} disabled={deletingCal===cal.id}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
+                          {deletingCal===cal.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+                        </button>
+                        <button onClick={()=>toggleExpandCal(cal.id)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                          {expandedCals.has(cal.id)?<ChevronUp className="w-4 h-4"/>:<ChevronDown className="w-4 h-4"/>}
+                        </button>
+                      </div>
+                    </div>
+
+                    {expandedCals.has(cal.id) && (
+                      <div className="border-t border-slate-100 bg-slate-50/60 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-sm font-semibold text-slate-700">Eventos</span>
+                          <button onClick={()=>openEvtForm(cal.id, cal)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">
+                            <Plus className="w-3.5 h-3.5"/> Novo Evento
+                          </button>
+                        </div>
+                        {loadingEvt===cal.id ? (
+                          <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-blue-500"/></div>
+                        ) : calEvts.length===0 ? (
+                          <div className="text-center py-8 text-slate-400">
+                            <Calendar className="w-8 h-8 text-slate-200 mx-auto mb-2"/>
+                            <p className="text-sm">{(filterTurma||filterTipo)?"Nenhum evento corresponde aos filtros.":"Sem eventos. Clique em \"Novo Evento\" para adicionar."}</p>
+                          </div>
+                        ) : cal.tipo==="aulas" ? (
+                          (() => {
+                            const DIAS_TBL = ["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+                            const activeDays = [0,1,2,3,4,5].filter(d => calEvts.some((e:any) => Number(e.dia_semana)===d));
+                            const slots = [...new Set(calEvts.filter((e:any)=>e.hora_inicio_aula).map((e:any)=>e.hora_inicio_aula.slice(0,5)))].sort() as string[];
+                            const grid: Record<string,Record<number,any[]>> = {};
+                            calEvts.forEach((ev:any) => {
+                              const s = ev.hora_inicio_aula?.slice(0,5); const d = Number(ev.dia_semana);
+                              if (!s) return;
+                              if (!grid[s]) grid[s]={};
+                              if (!grid[s][d]) grid[s][d]=[];
+                              grid[s][d].push(ev);
+                            });
+                            return (
+                              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                <table className="w-full text-sm min-w-[520px] border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-700 text-white">
+                                      <th className="px-3 py-2.5 text-xs font-semibold text-left border-r border-slate-600 w-24">Horário</th>
+                                      {activeDays.length===0
+                                        ? <th className="px-3 py-2.5 text-xs font-semibold text-center">—</th>
+                                        : activeDays.map(d=>(
+                                          <th key={d} className="px-3 py-2.5 text-xs font-semibold text-center border-r border-slate-600 last:border-r-0">{DIAS_TBL[d]}</th>
+                                        ))
+                                      }
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {slots.length===0 ? (
+                                      <tr><td colSpan={activeDays.length+1} className="px-4 py-10 text-center text-slate-400 text-sm bg-white">Sem eventos. Clique em "Novo Evento" para adicionar.</td></tr>
+                                    ) : slots.map((slot,si) => {
+                                      const fim = (calEvts.find((e:any)=>e.hora_inicio_aula?.slice(0,5)===slot) as any)?.hora_fim_aula?.slice(0,5);
+                                      return (
+                                        <tr key={slot} className={si%2===0?"bg-white":"bg-slate-50/60"}>
+                                          <td className="px-3 py-2 border-r border-b border-slate-100 align-middle">
+                                            <span className="block text-xs font-bold text-slate-700">{slot}</span>
+                                            {fim && <span className="block text-xs text-slate-400">{fim}</span>}
+                                          </td>
+                                          {activeDays.map(d => {
+                                            const cell = (grid[slot]||{})[d]||[];
+                                            return (
+                                              <td key={d} className="px-1.5 py-1.5 border-r border-b border-slate-100 last:border-r-0 align-middle min-w-[110px]">
+                                                {cell.length===0 ? (
+                                                  <span className="text-slate-200 text-xs flex justify-center">—</span>
+                                                ) : cell.map((ev:any)=>(
+                                                  <div key={ev.id} className="rounded-lg px-2 py-1.5 mb-1 last:mb-0 relative group"
+                                                    style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"18",borderLeft:`3px solid ${ev.tipo_prova_cor||"#3B82F6"}`}}>
+                                                    <p className="text-xs font-bold text-slate-800 leading-tight">{ev.titulo}</p>
+                                                    {ev.professor && <p className="text-xs text-slate-500 leading-tight mt-0.5">{ev.professor}</p>}
+                                                    {ev.sala && <p className="text-xs text-slate-400 leading-tight">Sala {ev.sala}</p>}
+                                                    {ev.turma_nome && <p className="text-xs text-slate-400 leading-tight">{ev.turma_nome}</p>}
+                                                    <div className="absolute top-0.5 right-0.5 hidden group-hover:flex gap-0.5 bg-white/80 rounded p-0.5">
+                                                      <button onClick={()=>openEvtForm(cal.id,cal,ev)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400"><Pencil className="w-3 h-3"/></button>
+                                                      <button onClick={()=>deleteEvt(cal.id,ev.id)} disabled={deletingEvt===ev.id} className="p-0.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-500">
+                                                        {deletingEvt===ev.id?<RefreshCw className="w-3 h-3 animate-spin"/>:<Trash2 className="w-3 h-3"/>}
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </td>
+                                            );
+                                          })}
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200">
+                                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Data</th>
+                                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Disciplina / Título</th>
+                                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Tipo</th>
+                                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Professor</th>
+                                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Sala</th>
+                                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Turma</th>
+                                  <th className="px-4 py-2.5"/>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[...calEvts].sort((a,b)=>(a.data_inicio||"").localeCompare(b.data_inicio||"")).map(ev => {
+                                  const d = ev.data_inicio ? new Date(ev.data_inicio) : null;
+                                  return (
+                                    <tr key={ev.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                                      <td className="px-4 py-3 whitespace-nowrap">
+                                        {d ? (
+                                          <div className="flex flex-col">
+                                            <span className="font-bold text-slate-900 text-base leading-none">{String(d.getDate()).padStart(2,"0")}</span>
+                                            <span className="text-xs text-slate-400">{MESES_SHORT[d.getMonth()]} {d.getFullYear()}</span>
+                                            <span className="text-xs text-slate-400 mt-0.5">{d.toLocaleTimeString("pt-AO",{hour:"2-digit",minute:"2-digit"})}</span>
+                                          </div>
+                                        ) : "—"}
+                                      </td>
+                                      <td className="px-4 py-3"><span className="font-semibold text-slate-900">{ev.titulo}</span></td>
+                                      <td className="px-4 py-3">
+                                        {ev.tipo_prova_nome ? (
+                                          <span className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap" style={{backgroundColor:(ev.tipo_prova_cor||"#3B82F6")+"20",color:ev.tipo_prova_cor||"#3B82F6"}}>
+                                            {ev.tipo_prova_nome}
+                                          </span>
+                                        ) : "—"}
+                                      </td>
+                                      <td className="px-4 py-3 text-slate-500">{ev.professor||"—"}</td>
+                                      <td className="px-4 py-3 text-slate-500">{ev.sala||"—"}</td>
+                                      <td className="px-4 py-3 text-slate-500">{ev.turma_nome||"—"}</td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-1 justify-end">
+                                          <button onClick={()=>openEvtForm(cal.id,cal,ev)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
+                                          <button onClick={()=>deleteEvt(cal.id,ev.id)} disabled={deletingEvt===ev.id} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
+                                            {deletingEvt===ev.id?<RefreshCw className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -9351,8 +9614,8 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       {cTab==="tipos" && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-slate-500">Categorize as avaliações da sua instituição</p>
-            <button onClick={() => { setShowTipoForm(true); setEditTipo(null); setTipoForm({nome:"",cor:"#3B82F6",descricao:""}); }}
+            <p className="text-sm text-slate-500">Categorize as avaliações e defina o peso de cada tipo</p>
+            <button onClick={()=>{ setShowTipoForm(true); setEditTipo(null); setTipoForm({nome:"",sigla:"",cor:"#3B82F6",peso:1,descricao:""}); }}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 shadow-sm">
               <Plus className="w-4 h-4"/> Novo Tipo
             </button>
@@ -9363,27 +9626,44 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
             <div className="bg-white rounded-2xl p-12 border border-slate-200 text-center">
               <BookOpen className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
               <p className="font-semibold text-slate-400">Nenhum tipo de prova definido</p>
-              <p className="text-slate-300 text-sm mt-1">Ex: Prova Trimestral, Exame, Teste de Aptidão</p>
+              <p className="text-slate-300 text-sm mt-1">Ex: Prova Trimestral, Exame Nacional, Trabalho de Campo</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {tipos.map(tp => (
                 <div key={tp.id} className="bg-white rounded-2xl border border-slate-200 p-4 flex items-start gap-3">
-                  <div className="w-3 h-3 rounded-full shrink-0 mt-0.5" style={{backgroundColor:tp.cor}}/>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-slate-900 text-sm">{tp.nome}</p>
-                    {tp.descricao && <p className="text-xs text-slate-400 mt-0.5 truncate">{tp.descricao}</p>}
+                  <div className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center" style={{backgroundColor:tp.cor+"22"}}>
+                    <div className="w-4 h-4 rounded-full" style={{backgroundColor:tp.cor}}/>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => { setEditTipo(tp); setTipoForm({nome:tp.nome,cor:tp.cor||"#3B82F6",descricao:tp.descricao||""}); setShowTipoForm(true); }}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-slate-900 text-sm">{tp.nome}</p>
+                      {tp.sigla && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-mono font-bold">{tp.sigla}</span>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {tp.peso>=1 && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${PESO_COLORS[Math.min(tp.peso||1,5)]}`}>
+                          {PESO_LABELS[Math.min(tp.peso||1,5)]}
+                        </span>
+                      )}
+                    </div>
+                    {tp.descricao && <p className="text-xs text-slate-400 mt-1 line-clamp-1">{tp.descricao}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={()=>{ setEditTipo(tp); setTipoForm({nome:tp.nome,sigla:tp.sigla||"",cor:tp.cor||"#3B82F6",peso:tp.peso||1,descricao:tp.descricao||""}); setShowTipoForm(true); }}
                       className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><Pencil className="w-3.5 h-3.5"/></button>
-                    <button onClick={() => deleteTipo(tp.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>deleteTipo(tp.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+      )}
+
+      {/* ─── TAB: MÓDULO INFANTIL ─── */}
+      {cTab === "infantil" && moduloInfantil && (
+        <InfantilView token={token} embedded/>
       )}
 
       {/* MODAL: Calendário */}
@@ -9393,7 +9673,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
           <motion.div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl" initial={{scale:0.95,y:20}} animate={{scale:1,y:0}}>
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h3 className="font-bold text-slate-900">{editCal?"Editar Calendário":"Novo Calendário"}</h3>
-              <button onClick={() => setShowCalForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
+              <button onClick={()=>setShowCalForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
             </div>
             <div className="p-5 space-y-4">
               <div>
@@ -9424,11 +9704,9 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Antecedência dos Alertas</label>
                 <div className="flex gap-2">
-                  {["24","48","72"].map(h => (
+                  {["24","48","72"].map(h=>(
                     <button key={h} onClick={()=>setCalForm(p=>({...p,alertas_horas:h}))}
-                      className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${calForm.alertas_horas===h?"bg-blue-600 text-white border-blue-600":"border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                      {h}h
-                    </button>
+                      className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${calForm.alertas_horas===h?"bg-blue-600 text-white border-blue-600":"border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{h}h</button>
                   ))}
                 </div>
               </div>
@@ -9440,9 +9718,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${calForm.gerar_notificacoes?"left-5":"left-0.5"}`}/>
                   </div>
                   <div className="text-left">
-                    <p className={`text-sm font-medium ${calForm.gerar_notificacoes?"text-blue-700":"text-slate-500"}`}>
-                      {calForm.gerar_notificacoes?"Notificações activas":"Notificações desactivadas"}
-                    </p>
+                    <p className={`text-sm font-medium ${calForm.gerar_notificacoes?"text-blue-700":"text-slate-500"}`}>{calForm.gerar_notificacoes?"Notificações activas":"Notificações desactivadas"}</p>
                     <p className="text-xs text-slate-400">Enviar alertas automáticos aos encarregados sobre eventos deste calendário</p>
                   </div>
                 </button>
@@ -9471,21 +9747,39 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
         <motion.div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
           <motion.div className="bg-white rounded-2xl w-full max-w-md shadow-2xl" initial={{scale:0.95,y:20}} animate={{scale:1,y:0}}>
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900">{editTipo?"Editar Tipo":"Novo Tipo de Prova"}</h3>
+              <h3 className="font-bold text-slate-900">{editTipo?"Editar Tipo de Prova":"Novo Tipo de Prova"}</h3>
               <button onClick={()=>setShowTipoForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
             </div>
             <div className="p-5 space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Nome *</label>
-                <input value={tipoForm.nome} onChange={e=>setTipoForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Prova Trimestral"
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Nome *</label>
+                  <input value={tipoForm.nome} onChange={e=>setTipoForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Prova Trimestral"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Sigla</label>
+                  <input value={tipoForm.sigla} onChange={e=>setTipoForm(p=>({...p,sigla:e.target.value}))} placeholder="Ex: P1, ATT, EX"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" maxLength={20}/>
+                </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Cor</label>
-                <div className="flex gap-2 flex-wrap">
-                  {COR_PRESETS.map(cor => (
-                    <button key={cor} onClick={()=>setTipoForm(p=>({...p,cor}))}
-                      className={`w-8 h-8 rounded-full border-2 transition-all ${tipoForm.cor===cor?"border-slate-900 scale-110":"border-transparent"}`}
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Peso Académico</label>
+                <div className="flex gap-2">
+                  {[1,2,3,4,5].map(p=>(
+                    <button key={p} type="button" onClick={()=>setTipoForm(f=>({...f,peso:p}))}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${tipoForm.peso===p?"shadow-sm":"border-slate-200 text-slate-400 hover:border-slate-300"}`}
+                      style={tipoForm.peso===p?{backgroundColor:tipoForm.cor+"25",borderColor:tipoForm.cor,color:tipoForm.cor}:{}}>{p}</button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-1.5">{["","Peso leve — participação, trabalhos pequenos","Peso intermédio — testes, mini-provas","Peso standard — provas trimestrais","Peso alto — exames de época","Peso máximo — exames nacionais"][tipoForm.peso]}</p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Cor no Calendário</label>
+                <div className="flex gap-2 flex-wrap items-center">
+                  {COR_PRESETS.map(cor=>(
+                    <button key={cor} type="button" onClick={()=>setTipoForm(p=>({...p,cor}))}
+                      className={`w-8 h-8 rounded-full border-2 transition-all ${tipoForm.cor===cor?"border-slate-900 scale-110":"border-transparent hover:scale-105"}`}
                       style={{backgroundColor:cor}}/>
                   ))}
                 </div>
@@ -9508,21 +9802,17 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       )}
       </AnimatePresence>
 
-      {/* ─── TAB: MÓDULO INFANTIL ─── */}
-      {cTab === "infantil" && moduloInfantil && (
-        <InfantilView token={token} embedded/>
-      )}
-
-      {/* MODAL: Evento */}
+      {/* MODAL: Evento / Agendar Avaliação */}
       <AnimatePresence>
       {showEvtForm!==null && (() => {
         const cal = calendarios.find(c=>c.id===showEvtForm)!;
         const isAulas = cal?.tipo==="aulas";
+        const isProvas = cal?.tipo==="provas";
         return (
           <motion.div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
             <motion.div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" initial={{scale:0.95,y:20}} animate={{scale:1,y:0}}>
               <div className="flex items-center justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
-                <h3 className="font-bold text-slate-900">{editEvt?"Editar Evento":"Novo Evento"}</h3>
+                <h3 className="font-bold text-slate-900">{editEvt?"Editar Evento":isProvas?"Agendar Avaliação":"Novo Evento de Aula"}</h3>
                 <button onClick={()=>{setShowEvtForm(null);setEditEvt(null);setEvtError(null);}} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X className="w-4 h-4"/></button>
               </div>
               <div className="p-5 space-y-4">
@@ -9532,30 +9822,80 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
                     <p className="text-xs text-red-700 font-medium">{evtError}</p>
                   </div>
                 )}
+                {/* Disciplina / Título */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Título / Disciplina *</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">{isProvas?"Disciplina *":"Título *"}</label>
                   <input value={evtForm.titulo||""} onChange={e=>setEvtForm(p=>({...p,titulo:e.target.value}))}
-                    placeholder={isAulas?"Ex: Matemática":"Ex: Prova de Física"}
+                    placeholder={isAulas?"Ex: Matemática":"Ex: Matemática — Prova do 1.º Trimestre"}
+                    list={isProvas?"disciplinas-datalist":undefined}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                  {isProvas && (
+                    <datalist id="disciplinas-datalist">
+                      {DISCIPLINAS.map(d=><option key={d} value={d}/>)}
+                    </datalist>
+                  )}
                 </div>
+                {/* Tipo de Prova */}
                 {!isAulas && (
                   <div>
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Tipo de Prova</label>
                     <select value={evtForm.tipo_prova_id||""} onChange={e=>setEvtForm(p=>({...p,tipo_prova_id:e.target.value}))}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option value="">— Nenhum —</option>
-                      {tipos.map(tp=><option key={tp.id} value={tp.id}>{tp.nome}</option>)}
+                      {tipos.map(tp=>(
+                        <option key={tp.id} value={tp.id}>
+                          {tp.sigla?`[${tp.sigla}] `:""}
+                          {tp.nome}
+                          {tp.peso?` · Peso ${tp.peso}`:""}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 )}
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Turma</label>
-                  <select value={evtForm.turma_id||""} onChange={e=>setEvtForm(p=>({...p,turma_id:e.target.value}))}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">— Todas as turmas —</option>
-                    {turmas.map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}
-                  </select>
-                </div>
+                {/* Turma(s) */}
+                {isProvas && !editEvt ? (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Turma(s)</label>
+                    {turmas.length===0 ? (
+                      <p className="text-xs text-slate-400">Nenhuma turma disponível</p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-40 overflow-y-auto">
+                        {turmas.map(t=>{
+                          const selected = (evtForm.turma_ids||[]).includes(String(t.id));
+                          return (
+                            <button key={t.id} type="button"
+                              onClick={()=>setEvtForm(p=>{
+                                const cur: string[] = p.turma_ids||[];
+                                return {...p, turma_ids: selected ? cur.filter((x:string)=>x!==String(t.id)) : [...cur,String(t.id)]};
+                              })}
+                              className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border-2 text-xs font-medium transition-all text-left ${selected?"bg-blue-50 border-blue-500 text-blue-700":"border-slate-200 text-slate-500 hover:border-blue-300"}`}>
+                              <div className={`w-3.5 h-3.5 rounded border-2 shrink-0 flex items-center justify-center ${selected?"bg-blue-500 border-blue-500":"border-slate-300"}`}>
+                                {selected && <span className="text-white" style={{fontSize:"9px",lineHeight:1}}>✓</span>}
+                              </div>
+                              <span className="truncate">{t.nome}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {(evtForm.turma_ids||[]).length===0 && (
+                      <p className="text-xs text-slate-400 mt-1">Sem turma — o evento ficará geral para toda a escola</p>
+                    )}
+                    {(evtForm.turma_ids||[]).length>1 && (
+                      <p className="text-xs text-blue-500 mt-1">Serão criados {(evtForm.turma_ids||[]).length} eventos separados (um por turma)</p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Turma</label>
+                    <select value={evtForm.turma_id||""} onChange={e=>setEvtForm(p=>({...p,turma_id:e.target.value}))}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">— Todas as turmas —</option>
+                      {turmas.map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}
+                    </select>
+                  </div>
+                )}
+                {/* Professor + Sala */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Professor</label>
@@ -9568,41 +9908,35 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
                   </div>
                 </div>
+                {/* Date/time */}
                 {isAulas ? (
                   <div className="space-y-3">
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dias da Semana</label>
                         <div className="flex gap-1">
-                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[0,1,2,3,4]}))}
-                            className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Seg–Sex</button>
-                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[0,1,2,3,4,5]}))}
-                            className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Todos</button>
-                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[]}))}
-                            className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">Limpar</button>
+                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[0,1,2,3,4]}))} className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200">Seg–Sex</button>
+                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[0,1,2,3,4,5]}))} className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200">Todos</button>
+                          <button type="button" onClick={()=>setEvtForm(p=>({...p,dias_semana:[]}))} className="text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200">Limpar</button>
                         </div>
                       </div>
                       <div className="flex gap-1.5 flex-wrap">
                         {[["Seg",0],["Ter",1],["Qua",2],["Qui",3],["Sex",4],["Sáb",5]].map(([label,i]) => {
-                          const selected = (evtForm.dias_semana||[]).includes(i);
+                          const sel = (evtForm.dias_semana||[]).includes(i);
                           return (
                             <button key={i} type="button"
                               onClick={()=>setEvtForm(p=>{
                                 const cur: number[] = p.dias_semana||[];
-                                return {...p, dias_semana: selected ? cur.filter((x:number)=>x!==i) : [...cur,i as number].sort()};
+                                return {...p, dias_semana: sel ? cur.filter((x:number)=>x!==i) : [...cur,i as number].sort()};
                               })}
-                              className={`px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${selected?"bg-blue-600 text-white border-blue-600 shadow-sm":"border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 bg-white"}`}>
+                              className={`px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${sel?"bg-blue-600 text-white border-blue-600 shadow-sm":"border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 bg-white"}`}>
                               {label}
                             </button>
                           );
                         })}
                       </div>
-                      {(evtForm.dias_semana||[]).length===0 && (
-                        <p className="text-xs text-amber-600 mt-1">Seleccione pelo menos um dia</p>
-                      )}
-                      {!editEvt && (evtForm.dias_semana||[]).length>1 && (
-                        <p className="text-xs text-blue-500 mt-1">Serão criados {(evtForm.dias_semana||[]).length} eventos (um por dia)</p>
-                      )}
+                      {(evtForm.dias_semana||[]).length===0 && <p className="text-xs text-amber-600 mt-1">Seleccione pelo menos um dia</p>}
+                      {!editEvt&&(evtForm.dias_semana||[]).length>1&&<p className="text-xs text-blue-500 mt-1">Serão criados {(evtForm.dias_semana||[]).length} eventos (um por dia)</p>}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -9631,17 +9965,20 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
                     </div>
                   </div>
                 )}
+                {/* Notes */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Descrição / Notas</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Notas / Instruções Adicionais</label>
                   <textarea value={evtForm.descricao||""} onChange={e=>setEvtForm(p=>({...p,descricao:e.target.value}))} rows={2}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Notas adicionais..."/>
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    placeholder="Ex: Trazer calculadora científica, material de desenho geométrico..."/>
                 </div>
               </div>
               <div className="flex justify-end gap-2 p-5 border-t border-slate-100 sticky bottom-0 bg-white">
                 <button onClick={()=>{setShowEvtForm(null);setEditEvt(null);setEvtError(null);}} className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
                 <button onClick={()=>saveEvt(showEvtForm!)} disabled={savingEvt||!evtForm.titulo?.trim()}
                   className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-                  {savingEvt&&<RefreshCw className="w-3.5 h-3.5 animate-spin"/>} Guardar Evento
+                  {savingEvt&&<RefreshCw className="w-3.5 h-3.5 animate-spin"/>}
+                  {isProvas?"Agendar":"Guardar Evento"}
                 </button>
               </div>
             </motion.div>
@@ -9652,6 +9989,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
     </div>
   );
 }
+
 
 /* ══════════════════════════════════════════════════════════════════
    InfantilView — Módulo de Gestão Infantil (Creche / Centro Infantil)

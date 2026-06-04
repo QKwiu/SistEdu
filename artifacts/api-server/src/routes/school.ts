@@ -2280,11 +2280,11 @@ router.get("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) =
 router.post("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { nome, cor, descricao } = req.body;
+  const { nome, cor, sigla, peso, descricao } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
   const r = await pool.query(
-    `INSERT INTO cal_tipos_prova (school_id, nome, cor, descricao) VALUES ($1,$2,$3,$4) RETURNING *`,
-    [school.school_id, nome.trim(), cor || '#3B82F6', descricao || null]
+    `INSERT INTO cal_tipos_prova (school_id, nome, cor, sigla, peso, descricao) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [school.school_id, nome.trim(), cor || '#3B82F6', sigla?.trim() || null, peso ? Number(peso) : 1, descricao || null]
   );
   res.json(r.rows[0]);
 });
@@ -2293,10 +2293,10 @@ router.post("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) 
 router.put("/school/calendario/tipos-prova/:id", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { nome, cor, descricao } = req.body;
+  const { nome, cor, sigla, peso, descricao } = req.body;
   const r = await pool.query(
-    `UPDATE cal_tipos_prova SET nome=$1, cor=$2, descricao=$3 WHERE id=$4 AND school_id=$5 RETURNING *`,
-    [nome, cor || '#3B82F6', descricao || null, req.params.id, school.school_id]
+    `UPDATE cal_tipos_prova SET nome=$1, cor=$2, sigla=$3, peso=$4, descricao=$5 WHERE id=$6 AND school_id=$7 RETURNING *`,
+    [nome, cor || '#3B82F6', sigla?.trim() || null, peso ? Number(peso) : 1, descricao || null, req.params.id, school.school_id]
   );
   if (!r.rowCount) return res.status(404).json({ error: "Tipo não encontrado." });
   res.json(r.rows[0]);
