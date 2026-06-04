@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Lock, Eye, EyeOff, LogOut, Copy, Check,
-  AlertTriangle, Clock, CheckCircle, Wallet, Users,
+  AlertTriangle, AlertCircle, Clock, CheckCircle, Wallet, Users,
   RefreshCw, X, CreditCard, Calendar, Info,
   ShieldCheck, KeyRound, Zap, ListFilter, BookOpen,
   Phone, HelpCircle, RotateCcw, Menu, Bell, ArrowLeftRight,
@@ -15,6 +15,20 @@ import {
 
 const API = "/api";
 const SESSION_KEY = "kiwara_guardian_token";
+
+/* ── Calendar cache (localStorage, 7-day TTL) ────────────────── */
+function calCache<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(`kw_c_${key}`);
+    if (!raw) return null;
+    const { d, t } = JSON.parse(raw) as { d: T; t: number };
+    if (Date.now() - t > 7 * 24 * 3600_000) { localStorage.removeItem(`kw_c_${key}`); return null; }
+    return d;
+  } catch { return null; }
+}
+function calCacheSet(key: string, data: unknown) {
+  try { localStorage.setItem(`kw_c_${key}`, JSON.stringify({ d: data, t: Date.now() })); } catch {}
+}
 
 interface Guardian { id: number; nome: string; telefone: string; first_login: boolean; }
 interface Student {
@@ -1622,13 +1636,15 @@ function getMondayISO(d: Date) {
 }
 
 function InfantRotinaScreen({ token, headers }: { token: string; headers: Record<string,string> }) {
-  const [rotinas, setRotinas] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rotinas, setRotinas] = useState<any[]>(() => calCache<any[]>(`r_${token.slice(-8)}`) ?? []);
+  const [loading, setLoading] = useState(rotinas.length === 0);
 
   useEffect(() => {
-    setLoading(true);
+    if (rotinas.length > 0) setLoading(false);
     fetch(`${API}/guardian/infant/rotinas`, { headers })
-      .then(r => r.ok ? r.json() : []).then(setRotinas).finally(() => setLoading(false));
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setRotinas(d); calCacheSet(`r_${token.slice(-8)}`, d); } })
+      .finally(() => setLoading(false));
   }, [token]);
 
   if (loading) return (
@@ -1687,14 +1703,18 @@ function InfantRotinaScreen({ token, headers }: { token: string; headers: Record
 }
 
 function InfantEmentaScreen({ token, headers }: { token: string; headers: Record<string,string> }) {
-  const [ementas, setEmentas] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [semana, setSemana] = useState(() => getMondayISO(new Date()));
+  const [ementas, setEmentas] = useState<any[]>(() => calCache<any[]>(`e_${token.slice(-8)}_${getMondayISO(new Date())}`) ?? []);
+  const [loading, setLoading] = useState(ementas.length === 0);
 
   useEffect(() => {
-    setLoading(true);
+    const ckey = `e_${token.slice(-8)}_${semana}`;
+    const cached = calCache<any[]>(ckey);
+    if (cached) { setEmentas(cached); setLoading(false); } else setLoading(true);
     fetch(`${API}/guardian/infant/ementa?semana=${semana}`, { headers })
-      .then(r => r.ok ? r.json() : []).then(setEmentas).finally(() => setLoading(false));
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setEmentas(d); calCacheSet(ckey, d); } })
+      .finally(() => setLoading(false));
   }, [token, semana]);
 
   const shiftWeek = (n: number) => {
@@ -1798,23 +1818,27 @@ function InfantGaleriaScreen({ token, headers }: { token: string; headers: Recor
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          {/* 🔒 SEGURANÇA: grelha com protecção contra download/right-click */}
+          <div className="grid grid-cols-2 gap-3 select-none">
             {galeria.map((g: any) => (
               <div key={g.id} onClick={() => setLightbox(g)}
+                onContextMenu={e => e.preventDefault()}
                 className="relative rounded-2xl overflow-hidden bg-gray-100 aspect-square cursor-pointer active:scale-95 transition-transform">
                 {g.tipo === "video" ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800">
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800 pointer-events-none">
                     <Play size={28} className="text-white/70"/>
                     {g.titulo && <p className="text-white/60 text-xs mt-2 px-2 text-center truncate">{g.titulo}</p>}
                   </div>
                 ) : (
                   <img src={`${API}/guardian/infant/media/${g.filename}`}
-                    alt={g.titulo || ""}
-                    className="w-full h-full object-cover"
+                    alt=""
+                    draggable={false}
+                    onContextMenu={e => e.preventDefault()}
+                    className="w-full h-full object-cover pointer-events-none"
                     onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}/>
                 )}
                 {(g.titulo || g.turma_nome) && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2 pointer-events-none">
                     {g.titulo && <p className="text-white text-xs font-medium truncate">{g.titulo}</p>}
                     {g.turma_nome && <p className="text-white/70 text-xs truncate">{g.turma_nome}</p>}
                   </div>
@@ -1827,15 +1851,23 @@ function InfantGaleriaScreen({ token, headers }: { token: string; headers: Recor
             {lightbox && (
               <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
                 onClick={() => setLightbox(null)}
-                className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
+                onContextMenu={e => e.preventDefault()}
+                className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 select-none">
                 <motion.div initial={{scale:0.9}} animate={{scale:1}} exit={{scale:0.9}}
                   onClick={e => e.stopPropagation()} className="relative max-w-lg w-full">
                   {lightbox.tipo === "video" ? (
                     <video src={`${API}/guardian/infant/media/${lightbox.filename}`}
-                      controls autoPlay className="w-full rounded-2xl max-h-[75vh]"/>
+                      controls autoPlay
+                      controlsList="nodownload nofullscreen"
+                      disablePictureInPicture
+                      onContextMenu={e => e.preventDefault()}
+                      className="w-full rounded-2xl max-h-[75vh]"/>
                   ) : (
                     <img src={`${API}/guardian/infant/media/${lightbox.filename}`}
-                      alt={lightbox.titulo || ""} className="w-full rounded-2xl max-h-[75vh] object-contain"/>
+                      alt=""
+                      draggable={false}
+                      onContextMenu={e => e.preventDefault()}
+                      className="w-full rounded-2xl max-h-[75vh] object-contain pointer-events-none"/>
                   )}
                   {lightbox.titulo && <p className="text-white text-center mt-3 font-medium text-sm">{lightbox.titulo}</p>}
                   <button onClick={() => setLightbox(null)}
@@ -1895,7 +1927,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [loadingOcorrencias, setLoadingOcorrencias] = useState(false);
 
   // Avaliações
-  const [calSub, setCalSub] = useState<"provas"|"horario">("provas");
+  const [calSub, setCalSub] = useState<"provas"|"horario"|"rotinas"|"ementa"|"galeria">("provas");
   const [horario, setHorario] = useState<any[]>([]);
   const [provas, setProvas] = useState<any[]>([]);
   const [loadingHorario, setLoadingHorario] = useState(false);
@@ -1996,20 +2028,24 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   }, [token]);
 
   const loadHorario = useCallback(async () => {
-    setLoadingHorario(true);
+    const ckey = `h_${selectedStudent?.school_id}`;
+    const cached = calCache<any[]>(ckey);
+    if (cached) { setHorario(cached); setLoadingHorario(false); } else setLoadingHorario(true);
     try {
       const res = await fetch(`${API}/guardian/horario`, { headers });
-      if (res.ok) setHorario(await res.json());
+      if (res.ok) { const d = await res.json(); setHorario(d); calCacheSet(ckey, d); }
     } catch {} finally { setLoadingHorario(false); }
-  }, [token]);
+  }, [token, selectedStudent?.school_id]);
 
   const loadProvas = useCallback(async () => {
-    setLoadingProvas(true);
+    const ckey = `p_${selectedStudent?.school_id}`;
+    const cached = calCache<any[]>(ckey);
+    if (cached) { setProvas(cached); setLoadingProvas(false); } else setLoadingProvas(true);
     try {
       const res = await fetch(`${API}/guardian/provas`, { headers });
-      if (res.ok) setProvas(await res.json());
+      if (res.ok) { const d = await res.json(); setProvas(d); calCacheSet(ckey, d); }
     } catch {} finally { setLoadingProvas(false); }
-  }, [token]);
+  }, [token, selectedStudent?.school_id]);
 
   const loadStoreItems = useCallback(async () => {
     setLoadingStore(true);
@@ -2043,7 +2079,16 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
   useEffect(() => { loadComunicados(); }, [loadComunicados]);
-  useEffect(() => { if (activeMenu === "avaliacoes") { loadHorario(); loadProvas(); } }, [activeMenu]);
+  useEffect(() => {
+    if (activeMenu !== "avaliacoes") return;
+    if (schoolModuloInfantil) {
+      setCalSub("rotinas");
+    } else {
+      setCalSub("provas");
+      loadHorario();
+      loadProvas();
+    }
+  }, [activeMenu, schoolModuloInfantil]);
   useEffect(() => { if (activeMenu === "loja") { loadStoreItems(); loadStoreOrders(); } }, [activeMenu, selectedStudent?.school_id]);
 
   // Fetch infant module status when student changes
@@ -2127,13 +2172,8 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
     { key: "facturas",    label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
     { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
     { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
-    { key: "avaliacoes",  label: "Calendário Escolar",                  icon: <CalendarDays size={16} /> },
+    { key: "avaliacoes",  label: schoolModuloInfantil ? "Rotinas & Alimentação" : "Calendário Escolar", icon: <CalendarDays size={16} /> },
     { key: "loja",        label: "Outros Emolumentos & Artigos",        icon: <ShoppingCart size={16} /> },
-    ...(schoolModuloInfantil ? [
-      { key: "inf_rotinas" as ActiveMenu, label: "Rotinas Diárias",       icon: <Clock size={16} /> },
-      { key: "inf_ementa"  as ActiveMenu, label: "Ementa Semanal",        icon: <UtensilsCrossed size={16} /> },
-      { key: "inf_galeria" as ActiveMenu, label: "Galeria de Momentos",   icon: <ImageIcon size={16} /> },
-    ] : []),
   ];
 
   if (loadingStudents) return (
@@ -2721,28 +2761,52 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
         {/* ══ ECRÃ: CALENDÁRIO ESCOLAR ══ */}
         {activeMenu === "avaliacoes" && <>
+          {/* ── Header ── */}
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-              <CalendarDays size={12}/> Calendário Escolar
+              <CalendarDays size={12}/> {schoolModuloInfantil ? "Rotinas & Alimentação" : "Calendário Escolar"}
             </p>
-            <button onClick={() => { loadHorario(); loadProvas(); }} disabled={loadingHorario || loadingProvas}
+            <button
+              onClick={() => schoolModuloInfantil ? undefined : (loadHorario(), loadProvas())}
+              disabled={loadingHorario || loadingProvas}
               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 disabled:opacity-50">
               <RefreshCw size={13} className={(loadingHorario || loadingProvas) ? "animate-spin" : ""}/>
             </button>
           </div>
 
-          {/* Sub-tabs */}
-          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
-            {([["provas","Calendário de Provas"],["horario","Horário de Aulas"]] as const).map(([k,l]) => (
-              <button key={k} onClick={() => setCalSub(k)}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${calSub===k?"bg-white shadow text-gray-900":"text-gray-500"}`}>
-                {l}
-              </button>
-            ))}
+          {/* ── Sub-tabs (context-sensitive) ── */}
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4 overflow-x-auto scrollbar-none">
+            {schoolModuloInfantil ? (
+              <>
+                {([["rotinas","Rotinas Diárias"],["ementa","Alimentação"],["galeria","Galeria"]] as const).map(([k,l]) => (
+                  <button key={k} onClick={() => setCalSub(k)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${calSub===k?"bg-white shadow text-gray-900":"text-gray-500"}`}>
+                    {l}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                {([["provas","Calendário de Provas"],["horario","Horário de Aulas"]] as const).map(([k,l]) => (
+                  <button key={k} onClick={() => setCalSub(k)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${calSub===k?"bg-white shadow text-gray-900":"text-gray-500"}`}>
+                    {l}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
 
-          {/* ── PROVAS ── */}
-          {calSub === "provas" && (loadingProvas ? (
+          {/* ── Creche: Rotinas ── */}
+          {schoolModuloInfantil && calSub === "rotinas" && <InfantRotinaScreen token={token} headers={headers}/>}
+          {/* ── Creche: Alimentação ── */}
+          {schoolModuloInfantil && calSub === "ementa" && <InfantEmentaScreen token={token} headers={headers}/>}
+          {/* ── Creche: Galeria ── */}
+          {schoolModuloInfantil && calSub === "galeria" && <InfantGaleriaScreen token={token} headers={headers}/>}
+
+
+          {/* ── PROVAS (colégio only) ── */}
+          {!schoolModuloInfantil && calSub === "provas" && (loadingProvas ? (
             <div className="flex items-center justify-center py-16">
               <RefreshCw size={22} className="animate-spin text-blue-500"/>
             </div>
@@ -2820,8 +2884,8 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             );
           })())}
 
-          {/* ── HORÁRIO ── */}
-          {calSub === "horario" && (loadingHorario ? (
+          {/* ── HORÁRIO (colégio only) ── */}
+          {!schoolModuloInfantil && calSub === "horario" && (loadingHorario ? (
             <div className="flex items-center justify-center py-16">
               <RefreshCw size={22} className="animate-spin text-blue-500"/>
             </div>
@@ -2891,6 +2955,16 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               </div>
             );
           })())}
+
+          {/* ── Galeria de Momentos abaixo do horário/provas (colégio) ── */}
+          {!schoolModuloInfantil && (calSub === "horario" || calSub === "provas") && (
+            <div className="mt-6">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
+                <ImageIcon size={12}/> Galeria de Momentos
+              </p>
+              <InfantGaleriaScreen token={token} headers={headers}/>
+            </div>
+          )}
         </>}{/* end calendário screen */}
 
         {/* ══ ECRÃ: LOJA & EMOLUMENTOS ══ */}
