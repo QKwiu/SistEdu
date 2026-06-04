@@ -4943,11 +4943,16 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   // ── Push Notifications ──
   const [pushTitulo, setPushTitulo] = useState("");
   const [pushMensagem, setPushMensagem] = useState("");
-  const [pushAudiencia, setPushAudiencia] = useState<"todos" | "encarregados" | "professores" | "turma">("todos");
+  const [pushAudiencia, setPushAudiencia] = useState<"todos" | "encarregados" | "professores" | "turma" | "especifico">("todos");
   const [pushTurmaId, setPushTurmaId] = useState<number | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<{ ok: boolean; sent?: number; failed?: number; total_devices?: number; environment?: string; message?: string; error?: string } | null>(null);
   const [pushStats, setPushStats] = useState<{ total: number; guardians: number; staff: number } | null>(null);
+  const [pushGuardianIds, setPushGuardianIds] = useState<number[]>([]);
+  const [pushGuardianSearch, setPushGuardianSearch] = useState("");
+  const [pushAllGuardians, setPushAllGuardians] = useState<any[]>([]);
+  const [pushLoadingGuardians, setPushLoadingGuardians] = useState(false);
+  const [pushPickedTemplate, setPushPickedTemplate] = useState("");
 
   // ── Aniversário ──
   const [aniversariantesHoje, setAniversariantesHoje] = useState<any[]>([]);
@@ -4979,6 +4984,12 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
     if (tab === "push") {
       fetch(`${API}/school/comunicar/fcm-stats`, { headers: authH })
         .then(r => r.ok ? r.json() : null).then(d => d && setPushStats(d)).catch(() => {});
+      setPushLoadingGuardians(true);
+      fetch(`${API}/school/comunicar/audiencia?modo=todos`, { headers: authH })
+        .then(r => r.ok ? r.json() : { registados: [] })
+        .then(d => setPushAllGuardians((d.registados || []).filter((g: any) => g.id !== null)))
+        .catch(() => {})
+        .finally(() => setPushLoadingGuardians(false));
     }
   }, [tab]);
 
@@ -4989,12 +5000,18 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       const r = await fetch(`${API}/school/comunicar/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authH },
-        body: JSON.stringify({ titulo: pushTitulo.trim(), mensagem: pushMensagem.trim(), audiencia: pushAudiencia, turma_id: pushTurmaId }),
+        body: JSON.stringify({
+          titulo: pushTitulo.trim(),
+          mensagem: pushMensagem.trim(),
+          audiencia: pushAudiencia,
+          turma_id: pushTurmaId,
+          encarregado_ids: pushAudiencia === "especifico" ? pushGuardianIds : undefined,
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setPushResult(d);
-      if (d.ok && d.sent > 0) { setPushTitulo(""); setPushMensagem(""); }
+      if (d.ok && d.sent > 0) { setPushTitulo(""); setPushMensagem(""); setPushPickedTemplate(""); }
     } catch (e: any) { setPushResult({ ok: false, error: e.message ?? "Erro ao enviar." }); }
     finally { setPushing(false); }
   };
@@ -5640,6 +5657,29 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
             </div>
           )}
 
+          {/* Templates */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Usar Template</p>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: "nova_fatura",          label: "Nova Fatura",          titulo: "Nova Propina Disponível",    mensagem: "A propina de {mes} no valor de {valor} Kz está disponível. {reference_info}" },
+                { key: "pagamento_confirmado", label: "Pagamento Confirmado", titulo: "Pagamento Confirmado ✓",     mensagem: "Pagamento de {nome_aluno} no valor de {valor} Kz recebido com sucesso. Obrigado." },
+                { key: "atraso_pagamento",     label: "Atraso de Pagamento",  titulo: "⚠️ Propina em Atraso",      mensagem: "A propina de {mes} está em atraso. Regularize para evitar multa." },
+                { key: "multa_aplicada",       label: "Multa Aplicada",       titulo: "Multa Aplicada",             mensagem: "Foi aplicada uma multa de {valor_multa} Kz à propina de {mes}." },
+              ]).map(tpl => (
+                <button key={tpl.key}
+                  onClick={() => { setPushTitulo(tpl.titulo); setPushMensagem(tpl.mensagem); setPushPickedTemplate(tpl.key); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${pushPickedTemplate === tpl.key ? "bg-primary text-white border-primary" : "bg-slate-50 text-slate-700 border-slate-200 hover:border-primary/40"}`}>
+                  {tpl.label}
+                </button>
+              ))}
+              {pushPickedTemplate && (
+                <button onClick={() => { setPushTitulo(""); setPushMensagem(""); setPushPickedTemplate(""); }}
+                  className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-400 hover:text-red-500">Limpar</button>
+              )}
+            </div>
+          </div>
+
           {/* Composer */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500"/> Compor Push Notification</h3>
@@ -5653,7 +5693,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Mensagem *</label>
-              <textarea value={pushMensagem} onChange={e => setPushMensagem(e.target.value)} rows={4}
+              <textarea value={pushMensagem} onChange={e => setPushMensagem(e.target.value)} rows={3}
                 placeholder="Escreva o corpo da notificação push…"
                 maxLength={200}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
@@ -5663,26 +5703,79 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
 
           {/* Audience */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filtro de Audiência</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Destinatários</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {([
-                { k: "todos" as const, label: "Toda a Escola" },
+                { k: "todos" as const,       label: "Toda a Escola" },
                 { k: "encarregados" as const, label: "Encarregados" },
-                { k: "professores" as const, label: "Funcionários" },
-                { k: "turma" as const, label: "Por Turma" },
+                { k: "professores" as const,  label: "Funcionários" },
+                { k: "turma" as const,        label: "Por Turma" },
+                { k: "especifico" as const,   label: "Específico(s)" },
               ]).map(({ k, label }) => (
-                <button key={k} onClick={() => { setPushAudiencia(k); setPushTurmaId(null); }}
+                <button key={k} onClick={() => { setPushAudiencia(k); setPushTurmaId(null); setPushGuardianIds([]); setPushGuardianSearch(""); }}
                   className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${pushAudiencia === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
                   {label}
                 </button>
               ))}
             </div>
+
             {pushAudiencia === "turma" && (
               <select value={pushTurmaId ?? ""} onChange={e => setPushTurmaId(Number(e.target.value) || null)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
                 <option value="">Selecionar turma…</option>
                 {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
               </select>
+            )}
+
+            {pushAudiencia === "especifico" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">Seleccione um ou mais encarregados</p>
+                  {pushGuardianIds.length > 0 && (
+                    <button onClick={() => setPushGuardianIds([])} className="text-xs text-slate-400 hover:text-red-500">Limpar ({pushGuardianIds.length})</button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                  <input value={pushGuardianSearch} onChange={e => setPushGuardianSearch(e.target.value)}
+                    placeholder="Pesquisar por nome ou aluno…"
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                </div>
+                {pushLoadingGuardians ? (
+                  <div className="flex justify-center py-6"><RefreshCw className="w-4 h-4 animate-spin text-primary"/></div>
+                ) : (
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
+                    {(pushGuardianSearch.trim()
+                      ? pushAllGuardians.filter(g =>
+                          g.nome?.toLowerCase().includes(pushGuardianSearch.toLowerCase()) ||
+                          g.alunos?.some((a: string) => a?.toLowerCase().includes(pushGuardianSearch.toLowerCase())))
+                      : pushAllGuardians
+                    ).map((g: any) => {
+                      const sel = pushGuardianIds.includes(g.id);
+                      return (
+                        <label key={g.id}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                          <input type="checkbox" checked={sel}
+                            onChange={() => setPushGuardianIds(prev => sel ? prev.filter(x => x !== g.id) : [...prev, g.id])}
+                            className="rounded text-primary"/>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{g.nome ?? "Sem nome"}</p>
+                            {g.alunos?.length > 0 && (
+                              <p className="text-xs text-slate-400 truncate">{(g.alunos as string[]).filter(Boolean).join(", ")}</p>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                    {pushAllGuardians.length === 0 && !pushLoadingGuardians && (
+                      <p className="text-xs text-slate-400 text-center py-6">Nenhum encarregado com portal activo.</p>
+                    )}
+                  </div>
+                )}
+                {pushGuardianIds.length > 0 && (
+                  <p className="text-xs text-primary font-medium">{pushGuardianIds.length} encarregado(s) seleccionado(s)</p>
+                )}
+              </div>
             )}
           </div>
 
@@ -5702,10 +5795,11 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
 
           {/* Send button */}
           <div className="flex justify-end">
-            <button onClick={handlePush} disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushAudiencia === "turma" && !pushTurmaId)}
+            <button onClick={handlePush}
+              disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushAudiencia === "turma" && !pushTurmaId) || (pushAudiencia === "especifico" && pushGuardianIds.length === 0)}
               className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
               {pushing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>}
-              {pushing ? "A disparar…" : "Disparar Comunicado Push"}
+              {pushing ? "A disparar…" : pushAudiencia === "especifico" ? `Disparar para ${pushGuardianIds.length} encarregado(s)` : "Disparar Comunicado Push"}
             </button>
           </div>
         </div>

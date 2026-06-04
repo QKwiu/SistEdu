@@ -201,7 +201,7 @@ router.post("/school/comunicar/push", async (req: any, res) => {
     const school = await getSchoolFromToken(auth.slice(7));
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-    const { titulo, mensagem, audiencia = "todos", turma_id } = req.body;
+    const { titulo, mensagem, audiencia = "todos", turma_id, encarregado_ids } = req.body;
     if (!titulo?.trim() || !mensagem?.trim())
       return res.status(400).json({ error: "Título e mensagem são obrigatórios." });
 
@@ -229,6 +229,9 @@ router.post("/school/comunicar/push", async (req: any, res) => {
         JOIN students s ON s.id = ea.aluno_id
         WHERE t.school_id=$1 AND s.turma_id=$2`;
       params = [school.id, turma_id];
+    } else if (audiencia === "especifico" && Array.isArray(encarregado_ids) && encarregado_ids.length > 0) {
+      tokensQ = `SELECT DISTINCT token FROM fcm_device_tokens WHERE school_id=$1 AND user_type='guardian' AND user_id = ANY($2::int[])`;
+      params = [school.id, encarregado_ids.map(Number)];
     } else {
       tokensQ = `SELECT DISTINCT token FROM fcm_device_tokens WHERE school_id=$1`;
       params = [school.id];
