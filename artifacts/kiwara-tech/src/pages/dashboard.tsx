@@ -4943,15 +4943,16 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   // ── Push Notifications ──
   const [pushTitulo, setPushTitulo] = useState("");
   const [pushMensagem, setPushMensagem] = useState("");
-  const [pushAudiencia, setPushAudiencia] = useState<"todos" | "encarregados" | "professores" | "turma" | "especifico">("todos");
-  const [pushTurmaId, setPushTurmaId] = useState<number | null>(null);
+  const [pushRecipientType, setPushRecipientType] = useState<"encarregados" | "funcionarios" | "escola">("encarregados");
+  const [pushEncModo, setPushEncModo] = useState<"todos" | "devedores" | "turma">("todos");
+  const [pushEncTurmaId, setPushEncTurmaId] = useState<number | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<{ ok: boolean; sent?: number; failed?: number; total_devices?: number; environment?: string; message?: string; error?: string } | null>(null);
   const [pushStats, setPushStats] = useState<{ total: number; guardians: number; staff: number } | null>(null);
-  const [pushGuardianIds, setPushGuardianIds] = useState<number[]>([]);
-  const [pushGuardianSearch, setPushGuardianSearch] = useState("");
-  const [pushAllGuardians, setPushAllGuardians] = useState<any[]>([]);
-  const [pushLoadingGuardians, setPushLoadingGuardians] = useState(false);
+  const [pushEncAudiencia, setPushEncAudiencia] = useState<{ registados: any[]; nao_registados: any[] }>({ registados: [], nao_registados: [] });
+  const [pushEncLoadingAudiencia, setPushEncLoadingAudiencia] = useState(false);
+  const [pushEncSearch, setPushEncSearch] = useState("");
+  const [pushSelectedGuardianIds, setPushSelectedGuardianIds] = useState<number[]>([]);
   const [pushPickedTemplate, setPushPickedTemplate] = useState("");
 
   // ── Aniversário ──
@@ -4979,34 +4980,45 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   }, [token]);
 
   useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
+  useEffect(() => { if (tab === "push") loadPushAudiencia(); }, [pushEncModo, pushEncTurmaId]);
   useEffect(() => { if (tab === "historico") fetchLogs(1); }, [tab]);
   useEffect(() => {
     if (tab === "push") {
       fetch(`${API}/school/comunicar/fcm-stats`, { headers: authH })
         .then(r => r.ok ? r.json() : null).then(d => d && setPushStats(d)).catch(() => {});
-      setPushLoadingGuardians(true);
-      fetch(`${API}/school/comunicar/audiencia?modo=todos`, { headers: authH })
-        .then(r => r.ok ? r.json() : { registados: [] })
-        .then(d => setPushAllGuardians((d.registados || []).filter((g: any) => g.id !== null)))
-        .catch(() => {})
-        .finally(() => setPushLoadingGuardians(false));
+      loadPushAudiencia();
     }
   }, [tab]);
+
+  const loadPushAudiencia = () => {
+    setPushEncLoadingAudiencia(true);
+    let url = `${API}/school/comunicar/audiencia?modo=${pushEncModo}`;
+    if (pushEncModo === "turma" && pushEncTurmaId) url += `&turma_id=${pushEncTurmaId}`;
+    fetch(url, { headers: authH })
+      .then(r => r.ok ? r.json() : { registados: [], nao_registados: [] })
+      .then(d => { setPushEncAudiencia(d); setPushSelectedGuardianIds([]); })
+      .catch(() => {})
+      .finally(() => setPushEncLoadingAudiencia(false));
+  };
 
   const handlePush = async () => {
     if (!pushTitulo.trim() || !pushMensagem.trim()) return;
     setPushing(true); setPushResult(null);
     try {
+      let audienciaParam: string;
+      let encarregadoIds: number[] | undefined;
+      if (pushRecipientType === "funcionarios") {
+        audienciaParam = "professores";
+      } else if (pushRecipientType === "escola") {
+        audienciaParam = "todos";
+      } else {
+        audienciaParam = "especifico";
+        encarregadoIds = pushSelectedGuardianIds;
+      }
       const r = await fetch(`${API}/school/comunicar/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authH },
-        body: JSON.stringify({
-          titulo: pushTitulo.trim(),
-          mensagem: pushMensagem.trim(),
-          audiencia: pushAudiencia,
-          turma_id: pushTurmaId,
-          encarregado_ids: pushAudiencia === "especifico" ? pushGuardianIds : undefined,
-        }),
+        body: JSON.stringify({ titulo: pushTitulo.trim(), mensagem: pushMensagem.trim(), audiencia: audienciaParam, encarregado_ids: encarregadoIds }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
@@ -5072,6 +5084,20 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
     ...audiencia.registados.map(e => ({ ...e, tem_portal: true })),
     ...audiencia.nao_registados.map(e => ({ ...e, tem_portal: false })),
   ].filter(e => e.telefone), [audiencia]);
+
+  const allPushEncs = useMemo(() => [
+    ...pushEncAudiencia.registados.map(e => ({ ...e, tem_portal: true })),
+    ...pushEncAudiencia.nao_registados.map(e => ({ ...e, tem_portal: false })),
+  ], [pushEncAudiencia]);
+
+  const filteredPushEncs = useMemo(() => pushEncSearch.trim()
+    ? allPushEncs.filter(e =>
+        e.nome?.toLowerCase().includes(pushEncSearch.toLowerCase()) ||
+        e.telefone?.includes(pushEncSearch) ||
+        e.alunos?.some((a: string) => a?.toLowerCase().includes(pushEncSearch.toLowerCase())))
+    : allPushEncs, [allPushEncs, pushEncSearch]);
+
+  const pushPortalEncs = useMemo(() => filteredPushEncs.filter(e => e.tem_portal && e.id), [filteredPushEncs]);
 
   const filteredEncs = useMemo(() => encSearch.trim()
     ? allEncs.filter(e =>
@@ -5702,78 +5728,122 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
           </div>
 
           {/* Audience */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Destinatários</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Audiência</p>
+
+            {/* Top-level recipient type */}
+            <div className="grid grid-cols-3 gap-2">
               {([
-                { k: "todos" as const,       label: "Toda a Escola" },
                 { k: "encarregados" as const, label: "Encarregados" },
-                { k: "professores" as const,  label: "Funcionários" },
-                { k: "turma" as const,        label: "Por Turma" },
-                { k: "especifico" as const,   label: "Específico(s)" },
+                { k: "funcionarios" as const,  label: "Funcionários" },
+                { k: "escola" as const,        label: "Toda a Escola" },
               ]).map(({ k, label }) => (
-                <button key={k} onClick={() => { setPushAudiencia(k); setPushTurmaId(null); setPushGuardianIds([]); setPushGuardianSearch(""); }}
-                  className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${pushAudiencia === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                <button key={k} onClick={() => { setPushRecipientType(k); setPushSelectedGuardianIds([]); }}
+                  className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${pushRecipientType === k ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
                   {label}
                 </button>
               ))}
             </div>
 
-            {pushAudiencia === "turma" && (
-              <select value={pushTurmaId ?? ""} onChange={e => setPushTurmaId(Number(e.target.value) || null)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <option value="">Selecionar turma…</option>
-                {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
-              </select>
+            {pushRecipientType === "escola" && (
+              <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
+                Push será enviada a todos os dispositivos registados — {pushStats ? `${pushStats.total} no total` : "a carregar…"}.
+              </p>
             )}
 
-            {pushAudiencia === "especifico" && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-slate-500">Seleccione um ou mais encarregados</p>
-                  {pushGuardianIds.length > 0 && (
-                    <button onClick={() => setPushGuardianIds([])} className="text-xs text-slate-400 hover:text-red-500">Limpar ({pushGuardianIds.length})</button>
-                  )}
+            {pushRecipientType === "funcionarios" && (
+              <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
+                Push será enviada a todos os funcionários com app — {pushStats ? `${pushStats.staff} dispositivos` : "a carregar…"}.
+              </p>
+            )}
+
+            {pushRecipientType === "encarregados" && (
+              <div className="space-y-3">
+                {/* Filtro rápido */}
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Filtro Rápido</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {([{ k: "todos", label: "Todos" }, { k: "devedores", label: "Devedores" }] as const).map(({ k, label }) => (
+                      <button key={k} onClick={() => { setPushEncModo(k); setPushEncTurmaId(null); }}
+                        className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${pushEncModo === k ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                        {label}
+                      </button>
+                    ))}
+                    <select
+                      value={pushEncModo === "turma" ? (pushEncTurmaId ?? "") : ""}
+                      onChange={e => { if (e.target.value) { setPushEncModo("turma"); setPushEncTurmaId(Number(e.target.value)); } else { setPushEncModo("todos"); setPushEncTurmaId(null); } }}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors focus:outline-none ${pushEncModo === "turma" ? "border-primary text-primary bg-primary/5" : "border-slate-200 text-slate-600 bg-white"}`}>
+                      <option value="">Por Turma...</option>
+                      {turmas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                    </select>
+                  </div>
                 </div>
+
+                {/* Count + select all */}
+                {!pushEncLoadingAudiencia && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">
+                      {allPushEncs.length} encarregados{" "}
+                      <span className="text-slate-400 text-xs">({pushEncAudiencia.registados.length} portal · {pushEncAudiencia.nao_registados.length} só SMS)</span>
+                    </span>
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-600">
+                      <input type="checkbox"
+                        checked={pushPortalEncs.length > 0 && pushPortalEncs.every(e => pushSelectedGuardianIds.includes(e.id))}
+                        onChange={ev => ev.target.checked
+                          ? setPushSelectedGuardianIds(pushPortalEncs.map(e => e.id))
+                          : setPushSelectedGuardianIds([])}
+                        className="rounded text-primary"/>
+                      Todos ({pushPortalEncs.length})
+                    </label>
+                  </div>
+                )}
+
+                {/* Search */}
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                  <input value={pushGuardianSearch} onChange={e => setPushGuardianSearch(e.target.value)}
-                    placeholder="Pesquisar por nome ou aluno…"
-                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                  <input value={pushEncSearch} onChange={e => setPushEncSearch(e.target.value)}
+                    placeholder="Pesquisar por nome, telefone ou aluno..."
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
                 </div>
-                {pushLoadingGuardians ? (
-                  <div className="flex justify-center py-6"><RefreshCw className="w-4 h-4 animate-spin text-primary"/></div>
+
+                {/* List */}
+                {pushEncLoadingAudiencia ? (
+                  <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                ) : filteredPushEncs.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-6">Nenhum encarregado encontrado.</p>
                 ) : (
-                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
-                    {(pushGuardianSearch.trim()
-                      ? pushAllGuardians.filter(g =>
-                          g.nome?.toLowerCase().includes(pushGuardianSearch.toLowerCase()) ||
-                          g.alunos?.some((a: string) => a?.toLowerCase().includes(pushGuardianSearch.toLowerCase())))
-                      : pushAllGuardians
-                    ).map((g: any) => {
-                      const sel = pushGuardianIds.includes(g.id);
+                  <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
+                    {filteredPushEncs.map((enc, i) => {
+                      const sel = pushSelectedGuardianIds.includes(enc.id);
+                      const canPush = enc.tem_portal && enc.id;
                       return (
-                        <label key={g.id}
-                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
-                          <input type="checkbox" checked={sel}
-                            onChange={() => setPushGuardianIds(prev => sel ? prev.filter(x => x !== g.id) : [...prev, g.id])}
-                            className="rounded text-primary"/>
+                        <label key={enc.id ?? `ns-${i}`}
+                          className={`flex items-start gap-3 px-3 py-3 border-l-2 transition-colors ${canPush ? "cursor-pointer" : "cursor-default opacity-55"} ${sel ? "bg-primary/5 border-primary" : "hover:bg-slate-50 border-transparent"}`}>
+                          <input type="checkbox" checked={sel} disabled={!canPush}
+                            onChange={() => canPush && setPushSelectedGuardianIds(prev => sel ? prev.filter(x => x !== enc.id) : [...prev, enc.id])}
+                            className="rounded text-primary mt-0.5 shrink-0"/>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate">{g.nome ?? "Sem nome"}</p>
-                            {g.alunos?.length > 0 && (
-                              <p className="text-xs text-slate-400 truncate">{(g.alunos as string[]).filter(Boolean).join(", ")}</p>
-                            )}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-semibold text-slate-800">{enc.nome ?? "Sem nome"}</span>
+                              {enc.tem_portal
+                                ? <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Portal</span>
+                                : <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Só SMS</span>}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-0.5 truncate">
+                              {enc.telefone ?? "—"}{enc.alunos?.filter(Boolean).length > 0 ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}
+                            </p>
                           </div>
                         </label>
                       );
                     })}
-                    {pushAllGuardians.length === 0 && !pushLoadingGuardians && (
-                      <p className="text-xs text-slate-400 text-center py-6">Nenhum encarregado com portal activo.</p>
-                    )}
                   </div>
                 )}
-                {pushGuardianIds.length > 0 && (
-                  <p className="text-xs text-primary font-medium">{pushGuardianIds.length} encarregado(s) seleccionado(s)</p>
+
+                {pushSelectedGuardianIds.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-primary font-medium">{pushSelectedGuardianIds.length} encarregado(s) seleccionado(s)</p>
+                    <button onClick={() => setPushSelectedGuardianIds([])} className="text-xs text-slate-400 hover:text-red-500">Limpar selecção</button>
+                  </div>
                 )}
               </div>
             )}
@@ -5796,10 +5866,10 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
           {/* Send button */}
           <div className="flex justify-end">
             <button onClick={handlePush}
-              disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushAudiencia === "turma" && !pushTurmaId) || (pushAudiencia === "especifico" && pushGuardianIds.length === 0)}
+              disabled={pushing || !pushTitulo.trim() || !pushMensagem.trim() || (pushRecipientType === "encarregados" && pushSelectedGuardianIds.length === 0)}
               className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
               {pushing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>}
-              {pushing ? "A disparar…" : pushAudiencia === "especifico" ? `Disparar para ${pushGuardianIds.length} encarregado(s)` : "Disparar Comunicado Push"}
+              {pushing ? "A disparar…" : pushRecipientType === "encarregados" && pushSelectedGuardianIds.length > 0 ? `Disparar para ${pushSelectedGuardianIds.length} encarregado(s)` : "Disparar Comunicado Push"}
             </button>
           </div>
         </div>
