@@ -14,6 +14,7 @@ import staffPortalRouter from "./staff-portal";
 import infantRouter, { runInfantMigration } from "./infant";
 import portalRouter from "./portal";
 import fcmRouter from "./fcm";
+import directDebitRouter, { runDirectDebitMigration } from "./direct-debit";
 
 const router: IRouter = Router();
 
@@ -32,6 +33,7 @@ router.use(staffPortalRouter);
 router.use(infantRouter);
 router.use(portalRouter);
 router.use(fcmRouter);
+router.use(directDebitRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>
@@ -48,6 +50,9 @@ runRBACMigration().catch(err =>
 );
 runInfantMigration().catch(err =>
   console.error("[infant migration]", err)
+);
+runDirectDebitMigration().catch(err =>
+  console.error("[direct-debit migration]", err)
 );
 
 export default router;
