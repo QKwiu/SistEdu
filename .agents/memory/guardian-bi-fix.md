@@ -1,11 +1,17 @@
 ---
-name: Guardian portal e.bi column bug
-description: tabela encarregados não tem coluna bi — causava 500 em todas as rotas guardian após login
+name: Guardian portal invalid columns in getGuardianFromToken
+description: tabela encarregados tem colunas limitadas — dois bugs de coluna inválida causavam 500 em rotas autenticadas
 ---
 
 ## Regra
-A tabela `encarregados` **não tem** coluna `bi`. As colunas existentes são: `id, nome, telefone, email, password, first_login, escola_id, created_at`.
+A tabela `encarregados` tem exactamente estas colunas: `id, nome, telefone, email, password, first_login, created_at`.
 
-**Why:** A função `getGuardianFromToken` em `guardian.ts` tinha `e.bi` no SELECT. O postgres lançava `column e.bi does not exist` e devolvia 500 em todas as rotas autenticadas do guardian (alunos, comunicados, débito directo, etc).
+**NÃO existem** as colunas `bi` nem `escola_id`.
 
-**How to apply:** Se houver referências a `e.bi` em guardian.ts ou qualquer query sobre `encarregados`, remover — a coluna não existe. Se for necessário guardar BI do encarregado, adicionar uma migration antes de a referenciar.
+**Why:** A função `getGuardianFromToken` em `guardian.ts` teve dois bugs consecutivos:
+1. `e.bi` — removido (causava 500 em todas as rotas guardian)
+2. `e.escola_id` — removido (causava 500 especificamente em `change-password` e outras rotas autenticadas)
+
+Ambos causavam `column X does not exist` no postgres com 500 sem JSON, o que o frontend interpretava como HTML.
+
+**How to apply:** Qualquer query sobre `encarregados e` deve usar apenas as colunas acima. Para adicionar dados de escola, fazer JOIN via `encarregado_aluno ea → schools sc`.
