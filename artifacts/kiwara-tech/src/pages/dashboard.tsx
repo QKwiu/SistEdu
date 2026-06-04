@@ -21,7 +21,7 @@ import {
   Zap, Printer, Building2, Hash, MessageCircle, ArrowRight, PlayCircle,
   ShoppingCart, Truck, Store,
   Baby, UtensilsCrossed, Image as ImageIcon, Film, Soup,
-  LayoutGrid, List,
+  LayoutGrid, List, Mail,
 } from "lucide-react";
 import { Button, Card } from "@/components/ui-elements";
 import { useAuth } from "@/lib/auth";
@@ -4912,7 +4912,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   const [titulo, setTitulo] = useState("");
   const [conteudo, setConteudo] = useState("");
   const [prioridade, setPrioridade] = useState<"normal" | "alta" | "urgente">("normal");
-  const [canal, setCanal] = useState<"portal" | "sms" | "ambos">("portal");
+  const [canal, setCanal] = useState<"portal" | "sms" | "ambos" | "email">("portal");
   const [pickedTemplate, setPickedTemplate] = useState("");
   const [audienciaModo, setAudienciaModo] = useState<"todos" | "turma" | "devedores">("todos");
   const [audienciaTurmaId, setAudienciaTurmaId] = useState<number | null>(null);
@@ -4955,6 +4955,15 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   const [pushSelectedGuardianIds, setPushSelectedGuardianIds] = useState<number[]>([]);
   const [pushPickedTemplate, setPushPickedTemplate] = useState("");
 
+  // ── Email (Compor tab) ──
+  const [canaisConfig, setCanaisConfig] = useState<{ sms_ativo: boolean; email_ativo: boolean; smtp_configurado: boolean } | null>(null);
+  const [emailAssunto, setEmailAssunto] = useState("");
+  const [emailCorpo, setEmailCorpo] = useState("");
+  const [emailSelectedIds, setEmailSelectedIds] = useState<number[]>([]);
+  const [emailEncSearch, setEmailEncSearch] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ ok: boolean; sent?: number; failed?: number; error?: string } | null>(null);
+
   // ── Aniversário ──
   const [aniversariantesHoje, setAniversariantesHoje] = useState<any[]>([]);
   const [loadingAniv, setLoadingAniv] = useState(false);
@@ -4977,6 +4986,8 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
     fetchStats();
     fetch(`${API}/school/turmas`, { headers: authH })
       .then(r => r.json()).then(d => setTurmas(Array.isArray(d) ? d : [])).catch(() => {});
+    fetch(`${API}/school/comunicar/canais-config`, { headers: authH })
+      .then(r => r.ok ? r.json() : null).then(d => d && setCanaisConfig(d)).catch(() => {});
   }, [token]);
 
   useEffect(() => { loadAudiencia(); }, [audienciaModo, audienciaTurmaId]);
@@ -4999,6 +5010,43 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       .then(d => { setPushEncAudiencia(d); setPushSelectedGuardianIds([]); })
       .catch(() => {})
       .finally(() => setPushEncLoadingAudiencia(false));
+  };
+
+  const handleSendSMS = async () => {
+    if (!conteudo.trim() || selectedPhones.length === 0) return;
+    setPublishing(true); setPublishResult(null);
+    try {
+      const r = await fetch(`${API}/school/comunicar/sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authH },
+        body: JSON.stringify({ mensagem: conteudo.trim(), phones: selectedPhones }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setPublishResult({ sms_sent: d.sent, sms_failed: d.failed });
+      if ((d.sent ?? 0) > 0) { setConteudo(""); setSelectedPhones([]); setSelectAll(false); setPickedTemplate(""); }
+      fetchStats();
+    } catch (e: any) { alert(e.message ?? "Erro ao enviar SMS."); }
+    finally { setPublishing(false); }
+  };
+
+  const handleSendEmail = async () => {
+    if (!emailAssunto.trim() || !emailCorpo.trim() || emailSelectedIds.length === 0) return;
+    const emails = emailEncs.filter(e => emailSelectedIds.includes(e.id) && e.email).map(e => e.email as string);
+    if (emails.length === 0) { setEmailResult({ ok: false, error: "Nenhum dos seleccionados tem email registado." }); return; }
+    setEmailSending(true); setEmailResult(null);
+    try {
+      const r = await fetch(`${API}/school/comunicar/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authH },
+        body: JSON.stringify({ assunto: emailAssunto.trim(), corpo: emailCorpo.trim(), emails }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setEmailResult(d);
+      if (d.ok && (d.sent ?? 0) > 0) { setEmailAssunto(""); setEmailCorpo(""); setEmailSelectedIds([]); }
+    } catch (e: any) { setEmailResult({ ok: false, error: e.message ?? "Erro ao enviar email." }); }
+    finally { setEmailSending(false); }
   };
 
   const handlePush = async () => {
@@ -5106,6 +5154,14 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
         e.alunos?.some((a: string) => a?.toLowerCase().includes(encSearch.toLowerCase())))
     : allEncs, [allEncs, encSearch]);
 
+  const emailEncs = useMemo(() => audiencia.registados.filter(e => e.email), [audiencia]);
+  const filteredEmailEncs = useMemo(() => emailEncSearch.trim()
+    ? emailEncs.filter(e =>
+        e.nome?.toLowerCase().includes(emailEncSearch.toLowerCase()) ||
+        e.email?.toLowerCase().includes(emailEncSearch.toLowerCase()) ||
+        e.alunos?.some((a: string) => a?.toLowerCase().includes(emailEncSearch.toLowerCase())))
+    : emailEncs, [emailEncs, emailEncSearch]);
+
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked);
     if (checked) setSelectedPhones(filteredEncs.map(e => e.telefone)); else setSelectedPhones([]);
@@ -5190,10 +5246,15 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
   const eventLabel = (e: string) => SMS_EVENTS.find(ev => ev.key === e)?.label ?? e;
   const totalLogPages = Math.ceil(logsTotal / 20);
 
+  const smsAtivo = canaisConfig?.sms_ativo ?? false;
+  const emailAtivo = canaisConfig?.email_ativo ?? false;
+  const smtpConf = canaisConfig?.smtp_configurado ?? false;
+
   const CANAL_OPTIONS = [
-    { key: "portal" as const, icon: <Megaphone className="w-4 h-4"/>, label: "Portal", desc: "Visível no portal do encarregado" },
-    { key: "sms" as const, icon: <Smartphone className="w-4 h-4"/>, label: "SMS", desc: "Enviado por mensagem SMS" },
-    { key: "ambos" as const, icon: <Send className="w-4 h-4"/>, label: "Portal + SMS", desc: "Portal e SMS simultâneo" },
+    { key: "portal" as const, icon: <Megaphone className="w-4 h-4"/>, label: "Portal", desc: "Visível no portal do encarregado", ativo: true },
+    { key: "sms" as const, icon: <Smartphone className="w-4 h-4"/>, label: "SMS", desc: "Enviado por mensagem SMS", ativo: smsAtivo },
+    { key: "email" as const, icon: <Mail className="w-4 h-4"/>, label: "Email", desc: "Enviado por e-mail", ativo: emailAtivo },
+    { key: "ambos" as const, icon: <Send className="w-4 h-4"/>, label: "Portal + SMS", desc: "Portal e SMS simultâneo", ativo: smsAtivo },
   ];
 
   return (
@@ -5242,20 +5303,23 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
           {/* Canal */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Canal de envio</p>
-            <div className="grid grid-cols-3 gap-3">
-              {CANAL_OPTIONS.map(({ key, icon, label, desc }) => (
+            <div className="grid grid-cols-4 gap-3">
+              {CANAL_OPTIONS.map(({ key, icon, label, desc, ativo }) => (
                 <button key={key} onClick={() => setCanal(key)}
-                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${canal === key ? "bg-primary/10 border-primary text-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                  className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all ${canal === key ? "bg-primary/10 border-primary text-primary" : ativo ? "border-slate-200 text-slate-600 hover:border-slate-300" : "border-slate-200 text-slate-400 bg-slate-50"}`}>
                   {icon}
                   <span className="text-sm font-semibold">{label}</span>
                   <span className="text-[10px] text-slate-400 leading-tight">{desc}</span>
+                  {!ativo && (
+                    <span className="absolute -top-1.5 -right-1.5 text-[9px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-semibold leading-none">Não config.</span>
+                  )}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Composer */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+          {/* Composer — Portal / SMS / Portal+SMS */}
+          {canal !== "email" && <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900">Mensagem</h3>
             {(canal === "sms" || canal === "ambos") && (
               <div className="space-y-2">
@@ -5311,7 +5375,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Audiência — only for SMS/ambos */}
           {(canal === "sms" || canal === "ambos") && (
@@ -5386,7 +5450,140 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
             </div>
           )}
 
-          {publishResult && (
+          {/* Email canal — compose + audience + send */}
+          {canal === "email" && (
+            <>
+              {/* Email compose */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-primary"/>
+                  <h3 className="font-semibold text-slate-900">Mensagem Email</h3>
+                </div>
+                {!smtpConf && (
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200">
+                    <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0"/>
+                    <p className="text-xs text-amber-700">Canal Email não configurado. Configure o SMTP nas definições da escola para activar o envio.</p>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Assunto *</label>
+                  <input value={emailAssunto} onChange={e => setEmailAssunto(e.target.value)}
+                    placeholder="Ex: Reunião de encarregados — 30 de Abril"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Conteúdo *</label>
+                  <textarea value={emailCorpo} onChange={e => setEmailCorpo(e.target.value)} rows={5}
+                    placeholder="Escreva o conteúdo do email para os encarregados…"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"/>
+                </div>
+              </div>
+
+              {/* Email audience */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+                <h3 className="font-semibold text-slate-900">Audiência</h3>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-full">Filtro rápido</p>
+                  {([{ k: "todos" as const, label: "Todos" }, { k: "devedores" as const, label: "Devedores" }]).map(({ k, label }) => (
+                    <button key={k} onClick={() => { setAudienciaModo(k); setAudienciaTurmaId(null); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === k ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600 hover:border-slate-300"}`}>
+                      {label}
+                    </button>
+                  ))}
+                  <select
+                    value={audienciaModo === "turma" ? (audienciaTurmaId ?? "") : ""}
+                    onChange={e => { if (e.target.value) { setAudienciaModo("turma"); setAudienciaTurmaId(Number(e.target.value)); } }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${audienciaModo === "turma" ? "bg-primary text-white border-primary" : "border-slate-200 text-slate-600"}`}>
+                    <option value="">Por Turma…</option>
+                    {turmas.map((t: any) => <option key={t.id} value={t.id}>{t.nome}{t.turno ? ` — ${t.turno}` : ""}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500">
+                      {loadingAudiencia ? "A carregar…" : `${filteredEmailEncs.length} encarregados com email`}
+                    </p>
+                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                      <input type="checkbox"
+                        checked={filteredEmailEncs.length > 0 && filteredEmailEncs.every(e => emailSelectedIds.includes(e.id))}
+                        onChange={ev => {
+                          if (ev.target.checked) setEmailSelectedIds(filteredEmailEncs.map(e => e.id));
+                          else setEmailSelectedIds([]);
+                        }}
+                        className="rounded"/>
+                      Todos ({filteredEmailEncs.length})
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                    <input value={emailEncSearch} onChange={e => setEmailEncSearch(e.target.value)}
+                      placeholder="Pesquisar por nome, email ou aluno…"
+                      className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                  </div>
+                  {loadingAudiencia ? (
+                    <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>
+                  ) : filteredEmailEncs.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400">
+                      <Mail className="w-8 h-8 mx-auto mb-2 opacity-30"/>
+                      <p className="text-sm">Nenhum encarregado com email neste segmento.</p>
+                      <p className="text-xs mt-1">Os emails são registados no perfil do encarregado.</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-100">
+                      {filteredEmailEncs.map((enc, i) => {
+                        const sel = emailSelectedIds.includes(enc.id);
+                        return (
+                          <label key={`${enc.id}-${i}`}
+                            className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${sel ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-slate-50 border-l-2 border-transparent"}`}>
+                            <input type="checkbox" checked={sel}
+                              onChange={() => setEmailSelectedIds(prev => sel ? prev.filter(id => id !== enc.id) : [...prev, enc.id])}
+                              className="rounded text-primary"/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-medium text-slate-800 truncate">{enc.nome ?? "Sem nome"}</p>
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Portal</span>
+                              </div>
+                              <p className="text-xs text-slate-400 truncate">{enc.email}{enc.alunos?.length ? ` · ${(enc.alunos as string[]).filter(Boolean).join(", ")}` : ""}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {emailSelectedIds.length > 0 && (
+                    <p className="text-xs text-primary font-medium">{emailSelectedIds.length} seleccionado(s)</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Email result */}
+              {emailResult && (
+                <div className={`rounded-xl p-4 flex items-center gap-3 ${emailResult.ok ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}>
+                  {emailResult.ok
+                    ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0"/>
+                    : <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0"/>}
+                  <p className={`text-sm font-medium ${emailResult.ok ? "text-emerald-800" : "text-red-700"}`}>
+                    {emailResult.ok
+                      ? `${emailResult.sent ?? 0} email(s) enviado(s).${(emailResult.failed ?? 0) > 0 ? ` ${emailResult.failed} falha(s).` : ""}`
+                      : emailResult.error}
+                  </p>
+                </div>
+              )}
+
+              {/* Email send button */}
+              <div className="flex justify-end">
+                <button onClick={handleSendEmail}
+                  disabled={emailSending || !emailAssunto.trim() || !emailCorpo.trim() || emailSelectedIds.length === 0}
+                  className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                  {emailSending ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Mail className="w-4 h-4"/>}
+                  {emailSending ? "A enviar…" : `Enviar Email (${emailSelectedIds.length})`}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Result feedback — Portal / SMS / Portal+SMS */}
+          {canal !== "email" && publishResult && (
             <div className="rounded-xl p-4 flex items-center gap-3 bg-emerald-50 border border-emerald-200">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0"/>
               <p className="text-sm font-medium text-emerald-800">
@@ -5396,13 +5593,17 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
               </p>
             </div>
           )}
-          <div className="flex justify-end">
-            <button onClick={handlePublish} disabled={publishing || !conteudo.trim()}
-              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
-              {publishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
-              {publishing ? "A processar…" : canal === "portal" ? "Publicar no Portal" : canal === "sms" ? `Enviar SMS (${selectedPhones.length})` : `Publicar + Enviar SMS (${selectedPhones.length})`}
-            </button>
-          </div>
+          {canal !== "email" && (
+            <div className="flex justify-end">
+              <button
+                onClick={canal === "sms" ? handleSendSMS : handlePublish}
+                disabled={publishing || !conteudo.trim() || ((canal === "sms" || canal === "ambos") && selectedPhones.length === 0)}
+                className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                {publishing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}
+                {publishing ? "A processar…" : canal === "portal" ? "Publicar no Portal" : canal === "sms" ? `Enviar SMS (${selectedPhones.length})` : `Publicar + Enviar SMS (${selectedPhones.length})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

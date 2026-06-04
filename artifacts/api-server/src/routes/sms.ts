@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
 import { sendSMS, sendBulkSMS, SMSConfig, DEFAULT_TEMPLATES } from "../services/sms.service";
+import { createTransport } from "nodemailer";
 
 const router = Router();
 
@@ -263,7 +264,7 @@ router.get("/school/comunicar/audiencia", schoolAuth, async (req: any, res) => {
   }
 
   const registados = await pool.query(
-    `SELECT e.id, e.nome, e.telefone,
+    `SELECT e.id, e.nome, e.telefone, e.email,
             array_agg(DISTINCT s.nome) FILTER (WHERE s.nome IS NOT NULL) AS alunos,
             array_agg(DISTINCT t.nome) FILTER (WHERE t.nome IS NOT NULL) AS turmas
      FROM encarregados e
@@ -271,7 +272,7 @@ router.get("/school/comunicar/audiencia", schoolAuth, async (req: any, res) => {
      JOIN students s ON s.id = ea.aluno_id
      LEFT JOIN turmas t ON t.id = s.turma_id
      WHERE s.school_id = $1 AND s.estado = 'activo'${extraWhere}
-     GROUP BY e.id, e.nome, e.telefone ORDER BY e.nome`,
+     GROUP BY e.id, e.nome, e.telefone, e.email ORDER BY e.nome`,
     params
   );
 
@@ -300,6 +301,71 @@ router.get("/school/comunicar/audiencia", schoolAuth, async (req: any, res) => {
     nao_registados: naoRegistados.rows,
     total: registados.rows.length + naoRegistados.rows.length,
   });
+});
+
+/* GET /school/comunicar/canais-config — which channels are configured */
+router.get("/school/comunicar/canais-config", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const r = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school.school_id]);
+  const comm = r.rows[0]?.settings?.comunicacao ?? {};
+  return res.json({
+    sms_ativo: !!(comm.sms_activo && comm.sms_provider && comm.sms_provider !== "mock"),
+    sms_provider: comm.sms_provider || "mock",
+    email_ativo: !!(comm.email_activo && comm.smtp_host),
+    smtp_configurado: !!comm.smtp_host,
+  });
+});
+
+/* POST /school/comunicar/sms — dedicated SMS blast (Compor tab) */
+router.post("/school/comunicar/sms", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { mensagem, phones } = req.body;
+  if (!mensagem?.trim() || !Array.isArray(phones) || phones.length === 0) {
+    return res.status(400).json({ error: "mensagem e phones são obrigatórios." });
+  }
+  const config = await getSchoolSMSConfig(school.school_id);
+  const recipients = (phones as string[]).map(p => ({ phone: p, name: "" }));
+  const result = await sendBulkSMS(recipients, mensagem.trim(), config, school.school_id);
+  return res.json({ ok: true, sent: result.sent, failed: result.failed });
+});
+
+/* POST /school/comunicar/email — email blast (Compor tab) */
+router.post("/school/comunicar/email", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const { assunto, corpo, emails } = req.body;
+  if (!assunto?.trim() || !corpo?.trim() || !Array.isArray(emails) || emails.length === 0) {
+    return res.status(400).json({ error: "assunto, corpo e emails são obrigatórios." });
+  }
+  const r = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school.school_id]);
+  const comm = r.rows[0]?.settings?.comunicacao ?? {};
+  if (!comm.smtp_host || !comm.smtp_user || !comm.smtp_pass) {
+    return res.status(400).json({ error: "Configuração SMTP não encontrada. Configure nas definições da escola." });
+  }
+  const transporter = createTransport({
+    host: comm.smtp_host,
+    port: parseInt(comm.smtp_port ?? "587"),
+    secure: String(comm.smtp_port) === "465",
+    auth: { user: comm.smtp_user, pass: comm.smtp_pass },
+  });
+  let sent = 0, failed = 0;
+  const errors: string[] = [];
+  for (const email of emails as string[]) {
+    if (!email?.includes("@")) { failed++; continue; }
+    try {
+      await transporter.sendMail({
+        from: comm.smtp_from || `"${school.school_name}" <${comm.smtp_user}>`,
+        to: email,
+        subject: assunto.trim(),
+        html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${corpo.trim().replace(/\n/g, "<br>")}</div>`,
+        text: corpo.trim(),
+      });
+      sent++;
+    } catch (e: any) { failed++; errors.push(e.message); }
+  }
+  return res.json({ ok: true, sent, failed, errors: errors.slice(0, 5) });
 });
 
 /* ════════════════════════════════════
