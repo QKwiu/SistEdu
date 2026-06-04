@@ -6414,127 +6414,401 @@ function ComunicadosEscolaView({ token }: { token: string }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DDCancelamentosView — direct debit management for school portal
+   DDCancelamentosView — Motor de Débito Directo (School Portal)
    ═══════════════════════════════════════════════════════════════ */
 interface DDSub {
   id: number; encarregado_id: number; encarregado_nome: string; encarregado_telefone: string;
   status: string; created_at: string; cancelled_at?: string; cancellation_requested_at?: string;
 }
+interface DDMandate {
+  id: number; reference: string; encarregado_nome: string; telefone: string;
+  status: string; iban: string; debit_day: number; created_at: string;
+  susp_reason?: string; canc_reason?: string; last_collection_at?: string;
+  cobranças_ok: number; cobranças_rejeitadas: number; total_cobrado: number;
+}
+interface DDStats { activos: string; suspensos: string; cancelados: string; expirados: string; pendentes: string; total_cobrado_aoa: string; total_rejeitadas: string; }
+interface DDReconReport { id: number; report_date: string; total_enviado: number; total_aceite: number; total_rejeitado: number; total_pendente: number; total_devolvido: number; }
+
+const DD_STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  ACTV:    { label: "Activo",          cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  SUSP:    { label: "Suspenso",        cls: "bg-amber-100 text-amber-700 border-amber-200" },
+  CANC:    { label: "Cancelado",       cls: "bg-red-100 text-red-600 border-red-200" },
+  EXPRD:   { label: "Expirado",        cls: "bg-slate-100 text-slate-400 border-slate-200" },
+  PENDING: { label: "Pendente",        cls: "bg-blue-100 text-blue-600 border-blue-200" },
+  active:  { label: "Activo",          cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  cancellation_requested: { label: "Canc. Pedido", cls: "bg-amber-100 text-amber-700 border-amber-200" },
+  cancelled: { label: "Cancelado",     cls: "bg-slate-100 text-slate-500 border-slate-200" },
+};
+function DDStatusBadge({ s }: { s: string }) {
+  const cfg = DD_STATUS_MAP[s] ?? { label: s, cls: "bg-slate-100 text-slate-500 border-slate-200" };
+  return <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${cfg.cls}`}>{cfg.label}</span>;
+}
 
 function DDCancelamentosView({ token }: { token: string }) {
-  const [list, setList] = useState<DDSub[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [actioning, setActioning] = useState<number | null>(null);
-  const [filter, setFilter] = useState<"todos" | "active" | "cancellation_requested" | "cancelled">("todos");
+  const [ddTab, setDdTab]       = useState<"mandatos"|"pain008"|"pain002"|"reconciliacao">("mandatos");
+  const [mandates, setMandates] = useState<DDMandate[]>([]);
+  const [stats, setStats]       = useState<DDStats | null>(null);
+  const [loadingM, setLoadingM] = useState(true);
+  const [filterS, setFilterS]   = useState("todos");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // PAIN.008
+  const [p8Date, setP8Date]         = useState(() => { const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().slice(0,10); });
+  const [p8MaxBatch, setP8MaxBatch] = useState("500");
+  const [p8Loading, setP8Loading]   = useState(false);
+  const [p8Result, setP8Result]     = useState<any>(null);
+
+  // PAIN.002
+  const [p2Json, setP2Json]       = useState("");
+  const [p2Date, setP2Date]       = useState(() => new Date().toISOString().slice(0,10));
+  const [p2Loading, setP2Loading] = useState(false);
+  const [p2Result, setP2Result]   = useState<any>(null);
+
+  // Reconciliação
+  const [recon, setRecon]         = useState<DDReconReport[]>([]);
+  const [reconLoading, setReconLoading] = useState(false);
+
+  const loadMandates = useCallback(async () => {
+    setLoadingM(true);
     try {
-      const r = await fetch(`${API}/school/direct-debit/subscriptions`, { headers: { Authorization: `Bearer ${token}` } });
-      setList(await r.json());
+      const [mR, sR] = await Promise.all([
+        fetch(`${API}/school/dd/mandates?per_page=100`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API}/school/dd/stats`,                  { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (mR.ok) { const d = await mR.json(); setMandates(d.mandates ?? []); }
+      if (sR.ok) setStats(await sR.json());
     } catch { /* ignore */ }
-    finally { setLoading(false); }
+    finally { setLoadingM(false); }
   }, [token]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const doAction = async (id: number, action: "approve-cancellation" | "reject-cancellation") => {
-    setActioning(id);
+  const loadRecon = useCallback(async () => {
+    setReconLoading(true);
     try {
-      await fetch(`${API}/school/direct-debit/subscriptions/${id}/${action}`, {
-        method: "PUT", headers: { Authorization: `Bearer ${token}` },
+      const r = await fetch(`${API}/school/dd/reconciliation`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) setRecon(await r.json());
+    } catch { /* ignore */ }
+    finally { setReconLoading(false); }
+  }, [token]);
+
+  useEffect(() => { loadMandates(); }, [loadMandates]);
+  useEffect(() => { if (ddTab === "reconciliacao") loadRecon(); }, [ddTab, loadRecon]);
+
+  const genPain008 = async () => {
+    setP8Loading(true); setP8Result(null);
+    try {
+      const r = await fetch(`${API}/school/dd/pain008/generate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ collection_date: p8Date, max_batch: Number(p8MaxBatch) }),
       });
-      load();
-    } catch { alert("Erro ao processar a acção."); }
-    finally { setActioning(null); }
+      setP8Result(await r.json());
+    } catch (e: any) { setP8Result({ error: e.message }); }
+    finally { setP8Loading(false); }
   };
 
-  const statusBadge = (s: string) => {
-    const map: Record<string, { label: string; cls: string }> = {
-      active: { label: "Activo", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-      cancellation_requested: { label: "Cancelamento Pedido", cls: "bg-amber-100 text-amber-700 border-amber-200" },
-      cancelled: { label: "Cancelado", cls: "bg-slate-100 text-slate-500 border-slate-200" },
-    };
-    const cfg = map[s] ?? { label: s, cls: "bg-slate-100 text-slate-500 border-slate-200" };
-    return <span className={`px-2 py-0.5 rounded text-xs font-medium border ${cfg.cls}`}>{cfg.label}</span>;
+  const processPain002 = async () => {
+    setP2Loading(true); setP2Result(null);
+    try {
+      let entries: any[];
+      try { entries = JSON.parse(p2Json); } catch { setP2Result({ error: "JSON inválido. Verifique o formato." }); setP2Loading(false); return; }
+      const r = await fetch(`${API}/school/dd/pain002/process`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ entries, report_date: p2Date }),
+      });
+      setP2Result(await r.json());
+    } catch (e: any) { setP2Result({ error: e.message }); }
+    finally { setP2Loading(false); loadMandates(); }
   };
 
-  const filtered = filter === "todos" ? list : list.filter(d => d.status === filter);
-  const pendingCount = list.filter(d => d.status === "cancellation_requested").length;
+  const transitionMandate = async (id: number, newStatus: string, motivo: string) => {
+    await fetch(`${API}/school/dd/mandates/${id}/transition`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ new_status: newStatus, motivo }),
+    });
+    loadMandates();
+  };
+
+  const filtered = filterS === "todos" ? mandates : mandates.filter(m => m.status === filterS);
+
+  const SUB_TABS = [
+    { key: "mandatos",      label: "Mandatos",     icon: <ArrowLeftRight className="w-3.5 h-3.5"/> },
+    { key: "pain008",       label: "PAIN.008",     icon: <FileText className="w-3.5 h-3.5"/> },
+    { key: "pain002",       label: "PAIN.002",     icon: <FileCheck className="w-3.5 h-3.5"/> },
+    { key: "reconciliacao", label: "Reconciliação",icon: <BarChart3 className="w-3.5 h-3.5"/> },
+  ] as const;
 
   return (
-    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-6 max-w-3xl mx-auto w-full">
-      <div className="flex items-center justify-between mb-6">
+    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-6 max-w-4xl mx-auto w-full">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-primary"/> Débito Direto
+            <ArrowLeftRight className="w-5 h-5 text-primary"/> Débito Directo — EMIS SDD
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Subscrições e pedidos de cancelamento</p>
+          <p className="text-sm text-slate-500 mt-0.5">Motor ISO 20022 · PAIN.008 / PAIN.002</p>
         </div>
-        {pendingCount > 0 && (
-          <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold border border-amber-200">
-            {pendingCount} pedido{pendingCount > 1 ? "s" : ""} pendente{pendingCount > 1 ? "s" : ""}
-          </span>
-        )}
+        <button onClick={loadMandates} className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
+          <RefreshCw className={`w-4 h-4 ${loadingM ? "animate-spin" : ""}`}/>
+        </button>
       </div>
 
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {(["todos","active","cancellation_requested","cancelled"] as const).map(f => {
-          const labels: Record<string, string> = { todos: "Todos", active: "Activos", cancellation_requested: "Pedidos Cancelamento", cancelled: "Cancelados" };
-          return (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${filter === f ? "bg-primary text-white border-primary" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-              {labels[f]}
-            </button>
-          );
-        })}
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400">
-          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
-          <CreditCard className="w-8 h-8 opacity-40"/>
-          <p className="text-sm">Nenhuma subscrição encontrada.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map(d => (
-            <div key={d.id} className={`bg-white border rounded-2xl p-5 shadow-sm ${d.status === "cancellation_requested" ? "border-amber-200" : "border-slate-200"}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    {statusBadge(d.status)}
-                    <span className="text-xs text-slate-400">Subscrito em {new Date(d.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                  </div>
-                  <p className="font-semibold text-slate-900 text-sm">{d.encarregado_nome}</p>
-                  <p className="text-xs text-slate-500">{d.encarregado_telefone}</p>
-                  {d.cancellation_requested_at && (
-                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                      <Info className="w-3.5 h-3.5"/> Cancelamento pedido em {new Date(d.cancellation_requested_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}
-                    </p>
-                  )}
-                  {d.cancelled_at && (
-                    <p className="text-xs text-slate-400 mt-1">Cancelado em {new Date(d.cancelled_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" })}</p>
-                  )}
-                </div>
-                {d.status === "cancellation_requested" && (
-                  <div className="flex flex-col gap-2 flex-shrink-0">
-                    <button onClick={() => doAction(d.id, "approve-cancellation")} disabled={actioning === d.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors">
-                      <XCircle className="w-3.5 h-3.5"/> Confirmar Cancelamento
-                    </button>
-                    <button onClick={() => doAction(d.id, "reject-cancellation")} disabled={actioning === d.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 disabled:opacity-50 transition-colors">
-                      <CheckCheck className="w-3.5 h-3.5"/> Manter Activo
-                    </button>
-                  </div>
-                )}
-              </div>
+      {/* Stats bar */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          {[
+            { label: "Activos",    val: stats.activos,    cls: "text-emerald-600" },
+            { label: "Suspensos",  val: stats.suspensos,  cls: "text-amber-600" },
+            { label: "Cancelados", val: stats.cancelados, cls: "text-red-500" },
+            { label: "Total cobrado", val: `${Number(stats.total_cobrado_aoa ?? 0).toLocaleString("pt-AO")} AOA`, cls: "text-blue-600" },
+          ].map(s => (
+            <div key={s.label} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <p className="text-xs text-slate-400 mb-0.5">{s.label}</p>
+              <p className={`text-lg font-bold ${s.cls}`}>{s.val}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 mb-5 border-b border-slate-200">
+        {SUB_TABS.map(t => (
+          <button key={t.key} onClick={() => setDdTab(t.key as any)}
+            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-b-2 transition-all -mb-px ${
+              ddTab === t.key ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}>
+            {t.icon}{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB: MANDATOS ── */}
+      {ddTab === "mandatos" && (
+        <div className="space-y-4">
+          <div className="flex gap-2 flex-wrap">
+            {["todos","ACTV","SUSP","CANC","EXPRD"].map(f => (
+              <button key={f} onClick={() => setFilterS(f)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${filterS === f ? "bg-primary text-white border-primary" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                {f === "todos" ? "Todos" : f}
+              </button>
+            ))}
+          </div>
+
+          {loadingM ? (
+            <div className="flex items-center justify-center py-20 text-slate-400">
+              <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
+              <ArrowLeftRight className="w-8 h-8 opacity-30"/>
+              <p className="text-sm">Nenhum mandato encontrado.</p>
+              <p className="text-xs">Os encarregados aderem no portal do encarregado.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map(m => (
+                <div key={m.id} className={`bg-white border rounded-2xl p-4 shadow-sm ${m.status === "SUSP" ? "border-amber-200" : m.status === "CANC" ? "border-red-100" : "border-slate-200"}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <DDStatusBadge s={m.status}/>
+                        <span className="font-mono text-xs text-slate-400">{m.reference}</span>
+                        <span className="text-xs text-slate-400">{new Date(m.created_at).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"})}</span>
+                      </div>
+                      <p className="font-semibold text-slate-900 text-sm">{m.encarregado_nome}</p>
+                      <p className="text-xs text-slate-500">{m.telefone}</p>
+                      <div className="flex gap-4 mt-2 text-xs text-slate-400">
+                        <span>IBAN: <span className="font-mono text-slate-600">···{m.iban?.slice(-4)}</span></span>
+                        <span>Dia {m.debit_day}</span>
+                        <span className="text-emerald-600 font-medium">{m.cobranças_ok ?? 0} cobranças OK</span>
+                        {Number(m.total_cobrado) > 0 && <span className="text-emerald-600">{Number(m.total_cobrado).toLocaleString("pt-AO")} AOA</span>}
+                        {Number(m.cobranças_rejeitadas) > 0 && <span className="text-red-500">{m.cobranças_rejeitadas} rejeit.</span>}
+                      </div>
+                      {m.susp_reason && <p className="text-xs text-amber-600 mt-1">Suspenso: {m.susp_reason}</p>}
+                      {m.canc_reason && <p className="text-xs text-red-500 mt-1">Motivo: {m.canc_reason}</p>}
+                    </div>
+                    {m.status === "SUSP" && (
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button onClick={() => transitionMandate(m.id, "ACTV", "Reactivado pelo colégio")}
+                          className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 transition-colors">
+                          Reactivar
+                        </button>
+                        <button onClick={() => transitionMandate(m.id, "CANC", "Cancelado pelo colégio")}
+                          className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 transition-colors">
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: PAIN.008 ── */}
+      {ddTab === "pain008" && (
+        <div className="space-y-5">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 leading-relaxed">
+            <p className="font-bold mb-1 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5"/> Gerador PAIN.008 — ISO 20022</p>
+            Gera o ficheiro XML de inicialização de débito directo para submeter à EMIS. Valida automaticamente IBANs angolanos, BICs, pré-notificações obrigatórias e janela de submissão.
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Débito <span className="text-red-500">*</span></label>
+                <input type="date" value={p8Date} onChange={e => setP8Date(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                <p className="text-xs text-slate-400 mt-1">Deve ser dia útil (sem fins de semana ou feriados angolanos)</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Máximo por batch</label>
+                <input type="number" min={1} max={500} value={p8MaxBatch} onChange={e => setP8MaxBatch(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                <p className="text-xs text-slate-400 mt-1">Máximo 500 instruções por ficheiro PAIN.008</p>
+              </div>
+            </div>
+
+            <button onClick={genPain008} disabled={p8Loading || !p8Date}
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
+              {p8Loading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <FileText className="w-4 h-4"/>}
+              {p8Loading ? "A gerar ficheiro..." : "Gerar PAIN.008"}
+            </button>
+
+            {p8Result && (
+              <div className={`border rounded-xl p-4 ${p8Result.error ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
+                {p8Result.error ? (
+                  <p className="text-xs text-red-700 font-semibold">{p8Result.error}</p>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mb-3">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600"/>
+                      <p className="text-sm font-bold text-emerald-800">PAIN.008 gerado com sucesso</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+                      <div><p className="text-slate-500">Registos</p><p className="font-bold text-slate-800">{p8Result.total_records}</p></div>
+                      <div><p className="text-slate-500">Total</p><p className="font-bold text-slate-800">{Number(p8Result.total_amount ?? 0).toLocaleString("pt-AO")} AOA</p></div>
+                      <div><p className="text-slate-500">Batch Ref.</p><p className="font-mono text-slate-600 text-[10px]">{p8Result.batch_ref}</p></div>
+                    </div>
+                    {p8Result.validation_errors?.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+                        <p className="text-xs font-semibold text-amber-700 mb-1">Avisos de validação ({p8Result.validation_errors.length}):</p>
+                        {p8Result.validation_errors.slice(0,5).map((e: string, i: number) => (
+                          <p key={i} className="text-xs text-amber-600">• {e}</p>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={() => {
+                      const blob = new Blob([p8Result.xml ?? ""], { type: "application/xml" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a"); a.href = url; a.download = `${p8Result.batch_ref}.xml`; a.click();
+                      URL.revokeObjectURL(url);
+                    }} className="flex items-center gap-2 px-4 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-xl text-xs font-semibold hover:bg-emerald-50 transition-colors">
+                      <Download className="w-3.5 h-3.5"/> Descarregar XML
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: PAIN.002 ── */}
+      {ddTab === "pain002" && (
+        <div className="space-y-5">
+          <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-xs text-violet-800 leading-relaxed">
+            <p className="font-bold mb-1 flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5"/> Reconciliação PAIN.002 — Resultado EMIS</p>
+            Cole abaixo o array JSON com os resultados da EMIS (ACSC = aceite, RJCT = rejeitado, RTRN = devolvido). O motor actualiza automaticamente o estado dos mandatos, propinas e dispara notificações.
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Data do Relatório</label>
+              <input type="date" value={p2Date} onChange={e => setP2Date(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"/>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Entradas PAIN.002 <span className="text-slate-400 font-normal">(array JSON)</span>
+              </label>
+              <textarea value={p2Json} onChange={e => setP2Json(e.target.value)} rows={8}
+                placeholder={`[\n  { "end_to_end_id": "E2E-...", "status": "ACSC" },\n  { "end_to_end_id": "E2E-...", "status": "RJCT", "rejection_code": "AM04", "rejection_reason": "Fundos insuficientes" }\n]`}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"/>
+              <p className="text-xs text-slate-400 mt-1">Campos: end_to_end_id, status (ACSC/RJCT/RTRN), rejection_code (opcional), rejection_reason (opcional)</p>
+            </div>
+
+            <button onClick={processPain002} disabled={p2Loading || !p2Json.trim()}
+              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
+              {p2Loading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCheck className="w-4 h-4"/>}
+              {p2Loading ? "A processar..." : "Processar PAIN.002"}
+            </button>
+
+            {p2Result && (
+              <div className={`border rounded-xl p-4 ${p2Result.error ? "bg-red-50 border-red-200" : "bg-violet-50 border-violet-200"}`}>
+                {p2Result.error ? (
+                  <p className="text-xs text-red-700 font-semibold">{p2Result.error}</p>
+                ) : (
+                  <>
+                    <p className="text-sm font-bold text-violet-800 mb-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-violet-600"/> Reconciliação concluída</p>
+                    <div className="grid grid-cols-4 gap-3 text-xs">
+                      <div className="text-center"><p className="text-emerald-600 font-bold text-lg">{p2Result.aceite}</p><p className="text-slate-500">ACSC</p></div>
+                      <div className="text-center"><p className="text-red-500 font-bold text-lg">{p2Result.rejeitado}</p><p className="text-slate-500">RJCT</p></div>
+                      <div className="text-center"><p className="text-amber-500 font-bold text-lg">{p2Result.devolvido}</p><p className="text-slate-500">RTRN</p></div>
+                      <div className="text-center"><p className="text-slate-500 font-bold text-lg">{p2Result.pendente}</p><p className="text-slate-500">Pendente</p></div>
+                    </div>
+                    {p2Result.erros?.length > 0 && (
+                      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                        <p className="text-xs font-semibold text-amber-700 mb-1">Erros ({p2Result.erros.length}):</p>
+                        {p2Result.erros.slice(0,5).map((e: string, i: number) => <p key={i} className="text-xs text-amber-600">• {e}</p>)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: RECONCILIAÇÃO ── */}
+      {ddTab === "reconciliacao" && (
+        <div className="space-y-4">
+          {reconLoading ? (
+            <div className="flex items-center justify-center py-20 text-slate-400"><RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…</div>
+          ) : recon.length === 0 ? (
+            <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
+              <BarChart3 className="w-8 h-8 opacity-30"/>
+              <p className="text-sm">Nenhum relatório de reconciliação disponível.</p>
+              <p className="text-xs">Os relatórios são gerados automaticamente após processamento PAIN.002.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    {["Data","Enviado","Aceite","Rejeitado","Devolvido","Pendente"].map(h => (
+                      <th key={h} className="px-4 py-3 text-left font-semibold text-slate-500">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {recon.map(r => (
+                    <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-slate-800">{new Date(r.report_date).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"})}</td>
+                      <td className="px-4 py-3 text-slate-600">{r.total_enviado}</td>
+                      <td className="px-4 py-3 text-emerald-600 font-semibold">{r.total_aceite}</td>
+                      <td className="px-4 py-3 text-red-500 font-semibold">{r.total_rejeitado}</td>
+                      <td className="px-4 py-3 text-amber-500">{r.total_devolvido}</td>
+                      <td className="px-4 py-3 text-slate-400">{r.total_pendente}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </motion.div>

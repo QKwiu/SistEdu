@@ -9,7 +9,7 @@ const router = Router();
 async function getGuardianFromToken(token: string) {
   // 🔒 SEGURANÇA: selecção explícita — exclui campo 'password' (bcrypt hash) da resposta
   const res = await pool.query(
-    `SELECT e.id, e.nome, e.telefone, e.bi, e.email, e.escola_id, e.first_login, e.created_at
+    `SELECT e.id, e.nome, e.telefone, e.email, e.escola_id, e.first_login, e.created_at
      FROM encarregados e
      JOIN guardian_sessions gs ON gs.encarregado_id = e.id
      WHERE gs.token = $1 AND gs.expires_at > NOW()`,

@@ -178,7 +178,94 @@ export class DebitoDiretoDriver implements PaymentDriver {
   }
 
   async testConnectivity(cfg: Record<string, unknown>): Promise<ConnectivityResult> {
-    const url = cfg?.ws_url as string;
+    const protocol  = String(cfg?.protocol  ?? "SOAP").toUpperCase();
+    const authType  = String(cfg?.auth_type ?? "basic");
+    const timeoutMs = Math.min(Number(cfg?.timeout ?? 30) * 1000, 15_000);
+    const start     = Date.now();
+
+    // ── SOAP ────────────────────────────────────────────────────────
+    const trySOAP = async (): Promise<ConnectivityResult> => {
+      const soapUrl = String(cfg?.soap_url ?? cfg?.ws_url ?? "");
+      if (!soapUrl) return { ok: false, message: "URL SOAP não configurada (soap_url)." };
+
+      const envelope = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Header/><soapenv:Body/>
+</soapenv:Envelope>`;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "text/xml;charset=UTF-8",
+        "SOAPAction": '""',
+      };
+      if (authType === "basic" || authType === "cert") {
+        const user = String(cfg?.ws_username ?? "");
+        const pass = String(cfg?.ws_password ?? "");
+        if (user) headers["Authorization"] = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+      }
+
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), timeoutMs);
+        const resp = await fetch(soapUrl, { method: "POST", headers, body: envelope, signal: ctrl.signal });
+        clearTimeout(t);
+        const ms = Date.now() - start;
+        return {
+          ok: resp.status < 500,
+          status: resp.status,
+          message: resp.status < 500
+            ? `SOAP: HTTP ${resp.status} — servidor respondeu (${ms} ms)`
+            : `SOAP: HTTP ${resp.status} — erro no servidor`,
+          latency_ms: ms,
+        };
+      } catch (e: any) {
+        return { ok: false, message: `SOAP: ${e.name === "AbortError" ? "timeout" : e.message}`, latency_ms: Date.now() - start };
+      }
+    };
+
+    // ── REST / OAuth2 ────────────────────────────────────────────────
+    const tryREST = async (): Promise<ConnectivityResult> => {
+      const oauthUrl  = String(cfg?.oauth_url  ?? "");
+      const restUrl   = String(cfg?.rest_url   ?? "");
+      const clientId  = String(cfg?.client_id  ?? "");
+      const clientSec = String(cfg?.client_secret ?? "");
+
+      if (oauthUrl && clientId) {
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), timeoutMs);
+          const resp = await fetch(oauthUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSec }),
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          const ms = Date.now() - start;
+          if (resp.ok) {
+            const data = await resp.json() as Record<string, unknown>;
+            return data.access_token
+              ? { ok: true, status: resp.status, message: `OAuth2: access_token obtido com sucesso (${ms} ms)`, latency_ms: ms }
+              : { ok: false, status: resp.status, message: `OAuth2: resposta sem access_token (${ms} ms)`, latency_ms: ms };
+          }
+          return { ok: false, status: resp.status, message: `OAuth2: HTTP ${resp.status} (${ms} ms)`, latency_ms: ms };
+        } catch (e: any) {
+          return { ok: false, message: `OAuth2: ${e.name === "AbortError" ? "timeout" : e.message}`, latency_ms: Date.now() - start };
+        }
+      }
+      if (restUrl) return pingUrl(restUrl);
+      return { ok: false, message: "URL REST ou OAuth2 não configurada." };
+    };
+
+    if (protocol === "SOAP")  return trySOAP();
+    if (protocol === "REST")  return tryREST();
+    if (protocol === "AMBOS") {
+      const soap = await trySOAP();
+      if (soap.ok) return { ...soap, message: `SOAP+REST — ${soap.message}` };
+      const rest = await tryREST();
+      return rest.ok ? { ...rest, message: `SOAP+REST — SOAP falhou, REST OK: ${rest.message}` } : soap;
+    }
+    // backward compat: ws_url
+    const url = String(cfg?.ws_url ?? "");
     if (!url) return { ok: false, message: "URL do Web Service DD não configurada." };
     return pingUrl(url);
   }

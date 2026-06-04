@@ -4,3 +4,5 @@
 - [Security hardening](security-hardening.md) — bcrypt staff passwords, HMAC webhook, rate limiters, helmet, env-var-enforced admin creds. express-rate-limit v8 must not use custom keyGenerator with IP.
 - [Staff Portal](staff-portal.md) — portal separado /staff para atendentes/tesoureiros; staff_sessions table; staffAuth exported from rbac.ts; staff-portal.ts para propinas+baixa-manual.
 - [FCM native implementation](fcm-native.md) — firebase-admin bloqueado pelo package firewall (502); implementar FCM via crypto+fetch Node.js nativamente: JWT RS256 → Google OAuth2 token → FCM HTTP v1 API.
+- [Débito Directo DD engine](dd-engine.md) — motor ISO 20022 completo; testConnectivity suporta SOAP/REST/OAuth2/AMBOS; painel escola 4 tabs; estados encarregado ACTV/SUSP/CANC/EXPRD.
+- [Guardian portal e.bi bug](guardian-bi-fix.md) — tabela encarregados não tem coluna `bi`; getGuardianFromToken linha 12 causava 500 em todas as rotas guardian; remover e.bi do SELECT.

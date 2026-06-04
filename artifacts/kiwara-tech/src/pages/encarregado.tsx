@@ -1306,15 +1306,26 @@ function DDSubscriptionCard({ sub, token, onCancelled }: {
   };
 
   const isCancelRequested = sub.status === "cancellation_requested";
+  const isSusp  = sub.status === "SUSP";
+  const isCanc  = sub.status === "CANC" || sub.status === "cancelled";
+  const isExprd = sub.status === "EXPRD";
+
+  const headerCfg = isCancelRequested
+    ? { bg: "bg-amber-50 border-b border-amber-200",    icon: <Clock size={14} className="text-amber-600"/>,   label: "Pedido de cancelamento em análise pelo colégio", textCls: "text-amber-800" }
+    : isSusp
+    ? { bg: "bg-orange-50 border-b border-orange-200",  icon: <AlertCircle size={14} className="text-orange-500"/>, label: "Mandato suspenso — contacte o colégio",        textCls: "text-orange-800" }
+    : isCanc
+    ? { bg: "bg-red-50 border-b border-red-200",        icon: <XCircle size={14} className="text-red-500"/>,   label: "Débito Direto cancelado",                       textCls: "text-red-800" }
+    : isExprd
+    ? { bg: "bg-slate-50 border-b border-slate-200",    icon: <Clock size={14} className="text-slate-400"/>,   label: "Mandato expirado — renove a adesão",             textCls: "text-slate-600" }
+    : { bg: "bg-violet-50 border-b border-violet-200",  icon: <BadgeCheck size={14} className="text-violet-700"/>, label: "Débito Direto Activo",                       textCls: "text-violet-800" };
 
   return (
     <div className="bg-white rounded-2xl border-2 border-violet-200 shadow-sm overflow-hidden">
       {/* Status header */}
-      <div className={`px-4 py-3 flex items-center gap-2 ${isCancelRequested ? "bg-amber-50 border-b border-amber-200" : "bg-violet-50 border-b border-violet-200"}`}>
-        {isCancelRequested
-          ? <><Clock size={14} className="text-amber-600"/><span className="text-amber-800 text-xs font-semibold">Pedido de cancelamento em análise pelo colégio</span></>
-          : <><BadgeCheck size={14} className="text-violet-700"/><span className="text-violet-800 text-xs font-semibold">Débito Direto Activo</span></>
-        }
+      <div className={`px-4 py-3 flex items-center gap-2 ${headerCfg.bg}`}>
+        {headerCfg.icon}
+        <span className={`text-xs font-semibold ${headerCfg.textCls}`}>{headerCfg.label}</span>
       </div>
 
       <div className="p-4 space-y-3">
