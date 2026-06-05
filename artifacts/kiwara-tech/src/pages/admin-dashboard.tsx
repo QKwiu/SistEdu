@@ -7299,6 +7299,21 @@ type EmisSection = "gpo" | "mcx" | "debito_direto" | "split_payment";
 
 interface ConnResult { ok: boolean; status?: number; message: string; latency_ms?: number }
 
+interface MerchantCfg {
+  school_id: number; name: string; school_iban: string;
+  override_global: boolean; taxa_comissao_pct: number;
+  irt_activo: boolean; irt_taxa_pct: number;
+  conta_comerciante_iban: string; agenda_liquidacao: string;
+  kyc_status: string; kyc_notas: string | null; atualizado_em: string | null;
+}
+interface SimResultMerchant {
+  escola: { id: number; nome: string }; kyc_status: string; kyc_bloqueado: boolean;
+  agenda_liquidacao: string; conta_comerciante_iban: string | null; fonte_regras: string;
+  regras_aplicadas: { taxa_comissao_pct: number; irt_activo: boolean; irt_taxa_pct: number };
+  simulacao: { valor_total_kz: number; comissao_plataforma_kz: number; retencao_irt_kz: number; liquido_comerciante_kz: number; integridade_ok: boolean };
+  aviso: string | null;
+}
+
 function ConfiguracoesTecnicasView() {
   const [tab, setTab] = useState<EmisSection>("gpo");
   const [config, setConfig] = useState<Record<string, Record<string, unknown>>>({ gpo: {}, mcx: {}, debito_direto: {}, split_payment: {} });
@@ -7309,20 +7324,6 @@ function ConfiguracoesTecnicasView() {
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
 
   /* ── Per-merchant state ── */
-  type MerchantCfg = {
-    school_id: number; name: string; school_iban: string;
-    override_global: boolean; taxa_comissao_pct: number;
-    irt_activo: boolean; irt_taxa_pct: number;
-    conta_comerciante_iban: string; agenda_liquidacao: string;
-    kyc_status: string; kyc_notas: string | null; atualizado_em: string | null;
-  };
-  type SimResultMerchant = {
-    escola: { id: number; nome: string }; kyc_status: string; kyc_bloqueado: boolean;
-    agenda_liquidacao: string; conta_comerciante_iban: string | null; fonte_regras: string;
-    regras_aplicadas: { taxa_comissao_pct: number; irt_activo: boolean; irt_taxa_pct: number };
-    simulacao: { valor_total_kz: number; comissao_plataforma_kz: number; retencao_irt_kz: number; liquido_comerciante_kz: number; integridade_ok: boolean };
-    aviso: string | null;
-  };
   const [merchants, setMerchants] = useState<MerchantCfg[]>([]);
   const [merchantsLoading, setMerchantsLoading] = useState(false);
   const [merchantExpanded, setMerchantExpanded] = useState<number | null>(null);
