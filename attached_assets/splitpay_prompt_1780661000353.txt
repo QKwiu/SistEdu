@@ -1,0 +1,262 @@
+O objectivo é adicionar no motor ou gateway de pagamento, regras para a definiçºao do split payment
+que permitirá realizar um único débito ao pagador e distribuir automaticamente os fundos por vários beneficiários (comerciante + plataforma + reserva fiscal). 
+
+1.2 Modelo de negócio pretendido
+
+Cada transacção na plataforma tem a seguinte estrutura:
+
+Participante
+Papel
+Valor
+Cliente
+Débito único via EMIS/Multicaixa
+100% do valor da propina
+Comerciante
+Crédito principal (conta bancária)
+Propina − comissão
+Plataforma
+Crédito da comissão retida
+% definida por contrato
+Reserva fiscal
+Retenção na fonte (IRT/IS)
+Calculado pelo engine
+
+através de uma arquitectura de conta de trânsito (escrow bancário) combinada com um engine de split interno. O processo divide-se em duas fases independentes: captação e liquidação.
+
+O débito ao cliente é uma instrução normal 1:1 — compatível com o protocolo EMIS:
+Cliente
+Multicaixa 
+→
+EMIS / Multicaixa
+1 débito · 1 ref.
+→
+Conta de trânsito
+banco parceiro
+
+
+O valor total da propina é creditado numa conta de trânsito (escrow) detida pelo banco parceiro. A plataforma não toca directamente nos fundos — actua como agente de liquidação.
+
+2.2 Fase 2 — Liquidação (engine interno + SPTR)
+
+Após confirmação do débito, o split engine calcula a distribuição e emite instruções SPTR individuais dentro das janelas bancárias (8h, 12h, 17h nos dias úteis):
+
+Split engine
+ledger interno
+→
+TBI / SPTR
+interbancário
+→
+Conta comerciante
+valor líquido
+
+
+Paralelamente, a comissão é creditada na conta da plataforma e a retenção fiscal é reservada para entrega à AGT (Agência Geral Tributária).
+3. Arquitectura Técnica
+
+3.1 Componentes principais
+
+API de pagamentos
+Recebe a instrução de pagamento com os parâmetros: conta_comerciante, valor_propina, taxa_comissao_pct. Gera uma idempotency key única por pedido.
+
+3.2 Parâmetros da API de criação de transacção
+
+Campo
+Descrição
+Exemplo
+valor_total
+Valor debitado ao pagador/cliente (em AOA, cêntimos)
+10000000 (= AOA 100.000)
+taxa_comissao_pct
+Percentagem retida pela plataforma
+5 (= 5%)
+conta_destino
+IBAN angolano do comerciante
+AO06.0006.0000.…
+retencao_irt
+Retenção IRT calculada pelo engine
+32500 (AOA 325)
+valor_liquido_comerciante
+= total − comissão − retenção
+9467500 (AOA 94.675)
+idempotency_key
+UUID único por instrução (gerado pelo cliente)
+uuid-v4
+
+3.3 Estados do ledger interno
+
+Estado
+Descrição
+PENDING
+Débito EMIS confirmado. Fundos na conta trânsito. Split calculado e registado. Instrução SPTR ainda não emitida.
+CLEARING
+Instrução SPTR emitida ao banco parceiro. A aguardar confirmação (janelas: 8h, 12h, 17h nos dias úteis).
+SETTLED
+Banco confirmou o crédito nas contas de destino. Webhook enviado. Entrada no ledger fechada.
+FAILED
+SPTR rejeitado (IBAN inválido, conta bloqueada, etc.). Fundos retornam à conta trânsito. Notificação e reprocessamento.
+
+4. Regras de Negócio e Cálculo do Split
+
+4.1 Fórmula de cálculo
+
+Para cada transacção, o split engine aplica a seguinte lógica sequencial:
+
+Cálculo
+Fórmula
+Exemplo (AOA 100.000)
+1. Comissão plataforma
+valor_total × taxa_comissao_pct
+100.000 × 5% = 5.000 AOA
+2. Retenção IRT (se aplicável)
+comissão × taxa_IRT
+5.000 × 6,5% = 325 AOA
+3. Valor líquido comerciante
+total − comissão − IRT
+100.000 − 5.000 − 325 = 94.675 AOA
+4. Instruções TBI emitidas
+2 ou 3 TBIs independentes
+Comerciante + Plataforma + AGT
+
+
+Regra crítica de integridade
+A soma de todos os créditos emitidos deve ser igual ao débito original.
+O ledger valida esta condição antes de emitir qualquer instrução TBI.
+Se a validação falhar, a transacção fica em estado FAILED e o valor permanece na conta de trânsito.
+
+
+4.2 Gestão de falhas e reversões
+
+Ao contrário do Stripe Connect, não existe reversão automática no TBI angolano. A plataforma deve implementar os seguintes mecanismos:
+
+Retry: Retry automático com backoff exponencial para TBIs rejeitados por indisponibilidade bancária
+IBAN inválido: Notificação ao comerciante em caso de IBAN inválido ou conta bloqueada, com prazo de 48h para correcção
+Devolução: Devolução ao pagador via TBI se a liquidação não for possível após 5 tentativas
+Reconciliação: Recon ciliação automática D+1 comparando extractos bancários com entradas do ledger
+
+
+5. Compliance e Regulação BNA
+
+5.1 Enquadramento legal
+
+O quadro regulatório angolano para sistemas de pagamento é definido pelo Banco Nacional de Angola (BNA). Os principais instrumentos legais que enquadram esta solução são:
+
+Lei 05/2022: Lei 05/2022 — Lei dos Sistemas de Pagamentos: regula os prestadores de serviços de pagamento (PSP), os instrumentos e as infra-estruturas.
+Aviso 04/2021: Aviso n.º 04/2021 do BNA: requisitos de licenciamento e capital mínimo para PSPs.
+Instrução 04/2020: Instrução n.º 04/2020: formato de reporte de transacções suspeitas e acima do limiar de USD 5.000.
+IRT: Código Geral Tributário e Lei do IRT: base legal para retenções na fonte sobre comissões.
+
+5.2 Modelo de licenciamento
+
+Existem dois caminhos para operar legalmente. A escolha depende do timeline e da estratégia:
+
+Modelo
+Descrição
+Timeline / Considerações
+Licença PSP própria
+A plataforma obtém licença de PSP junto do BNA. Controlo total, autonomia operacional.
+6–18 meses. Capital mínimo exigido. Auditoria anual BNA.
+Parceria BaaS com banco
+Um banco licenciado (BAI, BFA, BIC) detém a conta trânsito e emite as instruções TBI em nome da plataforma.
+2–6 meses. Partilha de receita com banco. Recomendado para lançamento rápido.
+
+
+Recomendação
+Para um lançamento rápido (< 6 meses), a parceria BaaS com o BAI Directo ou BFA é o caminho
+mais prático. A plataforma actua como tecnologia; o banco actua como entidade regulada.
+O acordo deve definir: SLA de execução TBI, API de acesso programático, modelo de partilha de custos.
+
+
+5.3 KYC dos comerciantes
+
+Cada comerciante receptor deve completar o processo de verificação antes de receber qualquer pagamento. Este processo é análogo ao modelo Stripe Connect Custom:
+
+NIF (Número de Identificação Fiscal) activo e verificado junto da AGT
+Certidão comercial actualizada (Conservatória do Registo Comercial)
+IBAN angolano verificado por micro-depósito ou confirmação bancária
+Represent antes legais identificados (BI/passaporte + semelhança facial)
+
+Bloqueio automático
+Sem KYC completo, o settlement fica bloqueado no estado PENDING indefinidamente.
+O comerciante recebe notificação e tem 30 dias para completar a verificação.
+
+
+5.4 Obrigações fiscais e de reporte
+
+Obrigação
+Base legal
+Acção da plataforma
+Retenção IRT
+Cód. IRT, Art. 67º
+Reter 6,5%–25% sobre comissões a singulares e entregar à AGT mensalmente
+Imposto de Selo
+Lei do I. Selo
+0,4% sobre operações de crédito acima do limiar definido
+Reporte BNA
+Instrução 04/2020
+Transacções > USD 5.000 equivalente reportadas ao BNA em 24h
+Anti-branqueamento
+Lei 34/11
+Sistema de monitoring de padrões suspeitos com alerta automático
+
+
+
+6. Comparação: Stripe Connect vs Solução Angola
+
+A tabela seguinte mapeia cada capacidade do Stripe Connect para o equivalente na arquitectura proposta para Angola, evidenciando onde a solução é equivalente e onde existem diferenças estruturais:
+
+Aspecto
+Stripe Connect
+Solução Angola
+Split nativo na rede
+Sim (destination charges)
+Não — emulado via escrow + TBI
+Timing do crédito
+Imediato (captura)
+D+0 a D+1 (janelas TBI)
+Idempotency
+Idempotency-Key no header HTTP
+UUID por instrução TBI no ledger
+Reversão automática
+Transfer Reversal API
+Manual via banco ou job de retry
+Multi-comerciante/tx
+Separate charges & transfers
+N instruções TBI do mesmo PENDING
+KYC integrado
+Stripe Identity + onboarding
+KYC próprio + verificação IBAN
+Licença necessária
+Stripe detém licenças globais
+Banco parceiro BaaS ou licença PSP BNA
+Gestão de chargebacks
+Dispute API automática
+Processo manual via banco parceiro
+Compliance fiscal
+Stripe Tax (algumas jurisdições)
+Engine de IRT/IS integrado no split
+
+
+
+7. Roadmap de Implementação
+
+Fase 1 — Fundações (Mês 1–2)
+
+Acordo BaaS com banco parceiro (BAI, BFA ou BIC) — SLA, API TBI, conta trânsito
+Implementação do ledger de dupla entrada com estados PENDING/CLEARING/SETTLED/FAILED
+API de criação de transacção com validação de integridade (soma créditos = débito)
+Processo de KYC básico para comerciantes (NIF + IBAN)
+
+Fase 2 — Motor de liquidação (Mês 3–4)
+
+Settlement worker com idempotency keys e retry exponencial
+Integração com API SPTR do banco parceiro (batch + individual)
+Motor de cálculo IRT/Imposto de Selo integrado no split engine
+Reconciliação automática D+1 com extractos bancários
+
+Fase 3 — Compliance e escala (Mês 5–6)
+
+Sistema de reporte BNA (Instrução 04/2020) para transacções > USD 5.000
+Dashboard de monitorização de padrões suspeitos (anti-branqueamento)
+Integração Multicaixa Express como canal adicional de débito
+Processo de onboarding de comerciantes automatizado com verificação facial
+

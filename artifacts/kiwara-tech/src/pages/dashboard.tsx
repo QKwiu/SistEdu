@@ -59,7 +59,7 @@ interface Propina {
 interface GeneratedRef { entidade: string; referencia: string; valor: number; validade: string; total_base?: number; total_multa?: number; total_emolumentos?: number; }
 interface EmolItem { key: number; emolumento_id: number | null; emolumento_nome: string; emolumento_tipo: string; student_id: number | null; aluno_nome: string; descricao: string; montante: number; quantidade: number; }
 
-type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil" | "caixa" | "partilhar_portal";
+type DashView = "inicio" | "alunos" | "propinas" | "ocorrencias" | "reconciliacao" | "comunicar" | "debito_direto" | "emolumentos" | "relatorios" | "gestao_acessos" | "avaliacoes" | "modulo_infantil" | "caixa" | "partilhar_portal" | "splitpay";
 
 /* ─── Store Interfaces ─── */
 interface StoreItemDB { id: number; school_id: number; nome: string; descricao?: string; preco: number; stock: number | null; visivel_portal: boolean; ativo: boolean; categoria?: string; }
@@ -6251,6 +6251,537 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   SplitPayView — Middleware de Pagamentos (Split Engine)
+   ═══════════════════════════════════════════════════════════════ */
+type SpEstado = "PENDING" | "CLEARING" | "SETTLED" | "FAILED";
+interface SpConfig {
+  taxa_comissao_pct: number; taxa_irt_pct: number;
+  conta_transito: string | null; conta_plataforma_iban: string | null; ativo: boolean;
+}
+interface SpTransacao {
+  id: number; idempotency_key: string; valor_total: number;
+  taxa_comissao_pct: number; taxa_irt_pct: number;
+  comissao_plataforma: number; retencao_irt: number; valor_liquido_comerciante: number;
+  conta_destino: string; estado: SpEstado; referencia_emis: string | null;
+  descricao: string | null; aluno_nome: string | null; tentativas: number;
+  erro_descricao: string | null; criado_em: string; liquidado_em: string | null;
+}
+interface SpLedger {
+  por_estado: { estado: string; num_transacoes: string; total_captado: string; total_comissao: string; total_irt: string; total_liquido: string }[];
+  global: { num_transacoes: string; total_captado: string; total_comissao: string; total_irt: string; total_liquido: string };
+}
+
+const ESTADO_META: Record<SpEstado, { label: string; color: string; bg: string }> = {
+  PENDING:  { label: "Pendente",   color: "text-amber-700",   bg: "bg-amber-100" },
+  CLEARING: { label: "Em Clearing", color: "text-blue-700",   bg: "bg-blue-100" },
+  SETTLED:  { label: "Liquidado",  color: "text-emerald-700", bg: "bg-emerald-100" },
+  FAILED:   { label: "Falhado",    color: "text-red-700",     bg: "bg-red-100" },
+};
+
+function fmtKz(v: number | string) {
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return isNaN(n) ? "— Kz" : n.toLocaleString("pt-PT") + " Kz";
+}
+
+function SplitPayView({ token }: { token: string }) {
+  const [spTab, setSpTab] = useState<"config" | "simular" | "transacoes" | "ledger">("transacoes");
+  const [cfg, setCfg] = useState<SpConfig | null>(null);
+  const [cfgSaving, setCfgSaving] = useState(false);
+  const [cfgSaved, setCfgSaved] = useState(false);
+  const [cfgEdit, setCfgEdit] = useState({ taxa_comissao_pct: "5.00", taxa_irt_pct: "6.50", conta_transito: "", conta_plataforma_iban: "" });
+
+  const [simValor, setSimValor] = useState("");
+  const [simResult, setSimResult] = useState<any>(null);
+  const [simLoading, setSimLoading] = useState(false);
+
+  const [txs, setTxs] = useState<SpTransacao[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
+  const [txFilter, setTxFilter] = useState<SpEstado | "">("");
+  const [txSelected, setTxSelected] = useState<SpTransacao | null>(null);
+
+  const [newTx, setNewTx] = useState({ valor_total: "", conta_destino: "", descricao: "", aluno_nome: "" });
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState("");
+  const [showCreateForm, setShowCreateForm] = useState(false);
+
+  const [ledger, setLedger] = useState<SpLedger | null>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+
+  const h = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  const loadConfig = async () => {
+    const r = await fetch(`${API}/school/splitpay/config`, { headers: h });
+    if (r.ok) {
+      const d = await r.json();
+      setCfg(d);
+      setCfgEdit({
+        taxa_comissao_pct: String(d.taxa_comissao_pct),
+        taxa_irt_pct: String(d.taxa_irt_pct),
+        conta_transito: d.conta_transito ?? "",
+        conta_plataforma_iban: d.conta_plataforma_iban ?? "",
+      });
+    }
+  };
+  const loadTxs = async () => {
+    setTxLoading(true);
+    try {
+      const qs = txFilter ? `?estado=${txFilter}` : "";
+      const r = await fetch(`${API}/school/splitpay/transacoes${qs}`, { headers: h });
+      if (r.ok) { const d = await r.json(); setTxs(d.transacoes); }
+    } finally { setTxLoading(false); }
+  };
+  const loadLedger = async () => {
+    setLedgerLoading(true);
+    try {
+      const r = await fetch(`${API}/school/splitpay/ledger`, { headers: h });
+      if (r.ok) setLedger(await r.json());
+    } finally { setLedgerLoading(false); }
+  };
+
+  useEffect(() => { loadConfig(); }, []);
+  useEffect(() => { if (spTab === "transacoes") loadTxs(); }, [spTab, txFilter]);
+  useEffect(() => { if (spTab === "ledger") loadLedger(); }, [spTab]);
+
+  const handleSaveConfig = async () => {
+    setCfgSaving(true); setCfgSaved(false);
+    try {
+      const r = await fetch(`${API}/school/splitpay/config`, { method: "PUT", headers: h, body: JSON.stringify({
+        taxa_comissao_pct: parseFloat(cfgEdit.taxa_comissao_pct),
+        taxa_irt_pct: parseFloat(cfgEdit.taxa_irt_pct),
+        conta_transito: cfgEdit.conta_transito || null,
+        conta_plataforma_iban: cfgEdit.conta_plataforma_iban || null,
+      })});
+      if (r.ok) { setCfg(await r.json()); setCfgSaved(true); setTimeout(() => setCfgSaved(false), 3000); }
+    } finally { setCfgSaving(false); }
+  };
+
+  const handleSimular = async () => {
+    if (!simValor || isNaN(parseFloat(simValor))) return;
+    setSimLoading(true); setSimResult(null);
+    try {
+      const r = await fetch(`${API}/school/splitpay/simular`, { method: "POST", headers: h, body: JSON.stringify({ valor_total: parseFloat(simValor) * 100 }) });
+      if (r.ok) setSimResult(await r.json());
+    } finally { setSimLoading(false); }
+  };
+
+  const handleCreateTx = async () => {
+    setCreating(true); setCreateErr("");
+    try {
+      if (!newTx.valor_total || !newTx.conta_destino) { setCreateErr("Valor e IBAN destino são obrigatórios."); return; }
+      const r = await fetch(`${API}/school/splitpay/transacoes`, { method: "POST", headers: h, body: JSON.stringify({
+        valor_total: parseFloat(newTx.valor_total) * 100,
+        conta_destino: newTx.conta_destino,
+        descricao: newTx.descricao || null,
+        aluno_nome: newTx.aluno_nome || null,
+      })});
+      if (r.ok) {
+        setShowCreateForm(false); setNewTx({ valor_total: "", conta_destino: "", descricao: "", aluno_nome: "" }); loadTxs(); loadLedger();
+      } else { const d = await r.json(); setCreateErr(d.error ?? "Erro ao criar transacção."); }
+    } finally { setCreating(false); }
+  };
+
+  const handleAdvance = async (tx: SpTransacao) => {
+    const r = await fetch(`${API}/school/splitpay/transacoes/${tx.id}/liquidar`, { method: "POST", headers: h });
+    if (r.ok) { loadTxs(); loadLedger(); if (txSelected?.id === tx.id) setTxSelected(await r.json()); }
+  };
+  const handleFail = async (tx: SpTransacao) => {
+    const r = await fetch(`${API}/school/splitpay/transacoes/${tx.id}/falhar`, { method: "POST", headers: h, body: JSON.stringify({ motivo: "Marcado manualmente como falhado" }) });
+    if (r.ok) { loadTxs(); loadLedger(); if (txSelected?.id === tx.id) setTxSelected(await r.json()); }
+  };
+  const handleReprocess = async (tx: SpTransacao) => {
+    const r = await fetch(`${API}/school/splitpay/transacoes/${tx.id}/reprocessar`, { method: "POST", headers: h });
+    if (r.ok) { loadTxs(); loadLedger(); if (txSelected?.id === tx.id) setTxSelected(await r.json()); }
+  };
+
+  const TABS = [
+    { k: "transacoes" as const, label: "Transacções", icon: <ArrowLeftRight className="w-4 h-4"/> },
+    { k: "ledger" as const,     label: "Ledger",      icon: <Landmark className="w-4 h-4"/> },
+    { k: "simular" as const,    label: "Simulador",   icon: <BarChart3 className="w-4 h-4"/> },
+    { k: "config" as const,     label: "Configuração",icon: <Settings className="w-4 h-4"/> },
+  ];
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="p-2 bg-indigo-100 rounded-xl"><ArrowLeftRight className="w-5 h-5 text-indigo-600"/></div>
+          <div>
+            <h2 className="font-bold text-slate-900">Split Payment Engine</h2>
+            <p className="text-xs text-slate-500">Intermediação e liquidação automática por múltiplos beneficiários</p>
+          </div>
+          {cfg && (
+            <div className={`ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ${cfg.ativo ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${cfg.ativo ? "bg-emerald-500" : "bg-slate-400"}`}/>
+              {cfg.ativo ? "Activo" : "Inactivo"}
+            </div>
+          )}
+        </div>
+        {/* Tabs */}
+        <div className="flex gap-1 mt-3">
+          {TABS.map(t => (
+            <button key={t.k} onClick={() => setSpTab(t.k)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${spTab === t.k ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+        {/* ── Transacções ── */}
+        {spTab === "transacoes" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex gap-2">
+                {(["", "PENDING", "CLEARING", "SETTLED", "FAILED"] as const).map(st => (
+                  <button key={st} onClick={() => setTxFilter(st)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${txFilter === st ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                    {st === "" ? "Todas" : ESTADO_META[st as SpEstado]?.label ?? st}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setShowCreateForm(v => !v)}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors">
+                <Plus className="w-4 h-4"/>Nova Transacção
+              </button>
+            </div>
+
+            {/* Create form */}
+            {showCreateForm && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 space-y-4">
+                <h3 className="font-semibold text-indigo-900 flex items-center gap-2"><Plus className="w-4 h-4"/>Registar Nova Transacção</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Valor Total (AOA) *</label>
+                    <input value={newTx.valor_total} onChange={e => setNewTx(p => ({...p, valor_total: e.target.value}))}
+                      placeholder="Ex: 150000" type="number" min="0"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">IBAN Comerciante (Destino) *</label>
+                    <input value={newTx.conta_destino} onChange={e => setNewTx(p => ({...p, conta_destino: e.target.value}))}
+                      placeholder="AO06.0006.0000.…"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Aluno (opcional)</label>
+                    <input value={newTx.aluno_nome} onChange={e => setNewTx(p => ({...p, aluno_nome: e.target.value}))}
+                      placeholder="Nome do aluno"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Descrição (opcional)</label>
+                    <input value={newTx.descricao} onChange={e => setNewTx(p => ({...p, descricao: e.target.value}))}
+                      placeholder="Ex: Propina Março 2026"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  </div>
+                </div>
+                {cfg && newTx.valor_total && !isNaN(parseFloat(newTx.valor_total)) && (() => {
+                  const v = parseFloat(newTx.valor_total);
+                  const com = Math.floor(v * Number(cfg.taxa_comissao_pct) / 100);
+                  const irt = Math.floor(com * Number(cfg.taxa_irt_pct) / 100);
+                  const liq = v - com - irt;
+                  return (
+                    <div className="grid grid-cols-4 gap-3 p-4 bg-white rounded-xl border border-indigo-100">
+                      <div className="text-center"><p className="text-lg font-bold text-slate-900">{fmtKz(v)}</p><p className="text-xs text-slate-400">Total debitado</p></div>
+                      <div className="text-center"><p className="text-lg font-bold text-indigo-600">{fmtKz(com)}</p><p className="text-xs text-slate-400">Comissão ({cfg.taxa_comissao_pct}%)</p></div>
+                      <div className="text-center"><p className="text-lg font-bold text-amber-600">{fmtKz(irt)}</p><p className="text-xs text-slate-400">Retenção IRT ({cfg.taxa_irt_pct}%)</p></div>
+                      <div className="text-center"><p className="text-lg font-bold text-emerald-600">{fmtKz(liq)}</p><p className="text-xs text-slate-400">Líquido comerciante</p></div>
+                    </div>
+                  );
+                })()}
+                {createErr && <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{createErr}</p>}
+                <div className="flex gap-3 justify-end">
+                  <button onClick={() => { setShowCreateForm(false); setCreateErr(""); }} className="px-4 py-2 rounded-xl text-sm border border-slate-200 text-slate-600 hover:bg-slate-50">Cancelar</button>
+                  <button onClick={handleCreateTx} disabled={creating}
+                    className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                    {creating ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4"/>}
+                    {creating ? "A criar…" : "Criar Transacção"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Transactions list */}
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              {txLoading ? (
+                <div className="flex justify-center py-12"><RefreshCw className="w-6 h-6 animate-spin text-indigo-500"/></div>
+              ) : txs.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <ArrowLeftRight className="w-10 h-10 mx-auto mb-3 opacity-30"/>
+                  <p className="font-medium">Nenhuma transacção{txFilter ? ` no estado ${ESTADO_META[txFilter as SpEstado]?.label}` : ""}.</p>
+                  <p className="text-sm mt-1">Crie uma transacção para iniciar o split.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {txs.map(tx => {
+                    const meta = ESTADO_META[tx.estado] ?? { label: tx.estado, color: "text-slate-700", bg: "bg-slate-100" };
+                    const isSelected = txSelected?.id === tx.id;
+                    return (
+                      <div key={tx.id}>
+                        <div
+                          className={`flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors ${isSelected ? "bg-indigo-50" : ""}`}
+                          onClick={() => setTxSelected(isSelected ? null : tx)}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${meta.bg} ${meta.color}`}>{meta.label}</span>
+                              <span className="font-semibold text-slate-800 text-sm">{fmtKz(tx.valor_total / 100)}</span>
+                              {tx.aluno_nome && <span className="text-xs text-slate-500">· {tx.aluno_nome}</span>}
+                              {tx.descricao && <span className="text-xs text-slate-400 truncate max-w-[200px]">{tx.descricao}</span>}
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5 font-mono truncate">{tx.conta_destino}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-semibold text-emerald-700">{fmtKz(tx.valor_liquido_comerciante / 100)}</p>
+                            <p className="text-[11px] text-slate-400">{new Date(tx.criado_em).toLocaleDateString("pt-PT")}</p>
+                          </div>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isSelected ? "rotate-180" : ""}`}/>
+                        </div>
+                        {isSelected && (
+                          <div className="bg-slate-50 border-t border-slate-100 px-5 py-4 space-y-4">
+                            <div className="grid grid-cols-4 gap-3">
+                              <div className="bg-white rounded-xl p-3 border border-slate-100 text-center">
+                                <p className="text-base font-bold text-slate-900">{fmtKz(tx.valor_total / 100)}</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">Total captado</p>
+                              </div>
+                              <div className="bg-white rounded-xl p-3 border border-indigo-100 text-center">
+                                <p className="text-base font-bold text-indigo-600">{fmtKz(tx.comissao_plataforma / 100)}</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">Comissão ({tx.taxa_comissao_pct}%)</p>
+                              </div>
+                              <div className="bg-white rounded-xl p-3 border border-amber-100 text-center">
+                                <p className="text-base font-bold text-amber-600">{fmtKz(tx.retencao_irt / 100)}</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">IRT ({tx.taxa_irt_pct}%)</p>
+                              </div>
+                              <div className="bg-white rounded-xl p-3 border border-emerald-100 text-center">
+                                <p className="text-base font-bold text-emerald-600">{fmtKz(tx.valor_liquido_comerciante / 100)}</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">Líquido comerciante</p>
+                              </div>
+                            </div>
+                            {tx.erro_descricao && (
+                              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                                <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0"/>
+                                <p className="text-sm text-red-700">{tx.erro_descricao}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
+                              <span className="font-mono bg-slate-100 px-2 py-1 rounded">ID: {tx.idempotency_key.slice(0,8)}…</span>
+                              <span>Tentativas: {tx.tentativas}</span>
+                              {tx.liquidado_em && <span>Liquidado: {new Date(tx.liquidado_em).toLocaleString("pt-PT")}</span>}
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              {(tx.estado === "PENDING" || tx.estado === "CLEARING") && (
+                                <button onClick={() => handleAdvance(tx)}
+                                  className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-indigo-700 transition-colors">
+                                  <ArrowRight className="w-3.5 h-3.5"/>
+                                  {tx.estado === "PENDING" ? "Emitir TBI (→ CLEARING)" : "Confirmar Liquidação (→ SETTLED)"}
+                                </button>
+                              )}
+                              {(tx.estado === "PENDING" || tx.estado === "CLEARING") && (
+                                <button onClick={() => handleFail(tx)}
+                                  className="flex items-center gap-1.5 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors">
+                                  <XCircle className="w-3.5 h-3.5"/>Marcar FAILED
+                                </button>
+                              )}
+                              {tx.estado === "FAILED" && tx.tentativas < 5 && (
+                                <button onClick={() => handleReprocess(tx)}
+                                  className="flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-amber-100 transition-colors">
+                                  <RefreshCw className="w-3.5 h-3.5"/>Reprocessar (tentativa {tx.tentativas + 1}/5)
+                                </button>
+                              )}
+                              {tx.estado === "SETTLED" && (
+                                <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-semibold"><CheckCircle2 className="w-4 h-4"/>Liquidação concluída</span>
+                              )}
+                              {tx.estado === "FAILED" && tx.tentativas >= 5 && (
+                                <span className="flex items-center gap-1.5 text-red-600 text-xs font-semibold"><AlertCircle className="w-4 h-4"/>Limite de tentativas atingido — requer intervenção manual</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Ledger ── */}
+        {spTab === "ledger" && (
+          <div className="space-y-5">
+            {ledgerLoading ? (
+              <div className="flex justify-center py-12"><RefreshCw className="w-6 h-6 animate-spin text-indigo-500"/></div>
+            ) : ledger ? (<>
+              {/* Global summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: "Total Captado",      value: parseFloat(ledger.global.total_captado) / 100,  color: "text-slate-900",   icon: <Banknote className="w-5 h-5 text-slate-500"/> },
+                  { label: "Comissão Plataforma", value: parseFloat(ledger.global.total_comissao) / 100, color: "text-indigo-600",  icon: <BadgePercent className="w-5 h-5 text-indigo-400"/> },
+                  { label: "Retenção IRT (AGT)",  value: parseFloat(ledger.global.total_irt) / 100,     color: "text-amber-600",   icon: <Landmark className="w-5 h-5 text-amber-400"/> },
+                  { label: "Líquido Comerciantes",value: parseFloat(ledger.global.total_liquido) / 100, color: "text-emerald-600", icon: <CheckCircle2 className="w-5 h-5 text-emerald-400"/> },
+                ].map(({ label, value, color, icon }) => (
+                  <div key={label} className="bg-white rounded-2xl border border-slate-200 p-5">
+                    <div className="flex items-center gap-2 mb-2">{icon}<p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</p></div>
+                    <p className={`text-xl font-bold ${color}`}>{fmtKz(value)}</p>
+                    <p className="text-xs text-slate-400 mt-1">{ledger.global.num_transacoes} transacções</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* By state */}
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-semibold text-slate-900">Distribuição por Estado do Ledger</h3></div>
+                {ledger.por_estado.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-8">Sem dados ainda.</p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {ledger.por_estado.map(row => {
+                      const meta = ESTADO_META[row.estado as SpEstado] ?? { label: row.estado, color: "text-slate-600", bg: "bg-slate-100" };
+                      return (
+                        <div key={row.estado} className="px-5 py-4 flex items-center gap-4">
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-full w-28 text-center ${meta.bg} ${meta.color}`}>{meta.label}</span>
+                          <div className="flex-1 grid grid-cols-4 gap-4 text-sm">
+                            <div><p className="font-semibold text-slate-800">{parseInt(row.num_transacoes)}</p><p className="text-xs text-slate-400">transacções</p></div>
+                            <div><p className="font-semibold text-slate-800">{fmtKz(parseFloat(row.total_captado) / 100)}</p><p className="text-xs text-slate-400">captado</p></div>
+                            <div><p className="font-semibold text-indigo-600">{fmtKz(parseFloat(row.total_comissao) / 100)}</p><p className="text-xs text-slate-400">comissão</p></div>
+                            <div><p className="font-semibold text-emerald-600">{fmtKz(parseFloat(row.total_liquido) / 100)}</p><p className="text-xs text-slate-400">líquido</p></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Regulatory callout */}
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-3">
+                <Landmark className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"/>
+                <div>
+                  <p className="font-semibold text-amber-900 text-sm">Obrigações Fiscais (BNA / AGT)</p>
+                  <p className="text-xs text-amber-700 mt-1">A retenção IRT acumulada deve ser entregue mensalmente à AGT. Transacções acima de USD 5.000 equivalente requerem reporte ao BNA nos termos da Instrução 04/2020.</p>
+                </div>
+              </div>
+            </>) : (
+              <p className="text-center text-slate-400 py-12">Sem dados de ledger.</p>
+            )}
+          </div>
+        )}
+
+        {/* ── Simulador ── */}
+        {spTab === "simular" && (
+          <div className="max-w-xl space-y-5">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-indigo-500"/>Calculadora de Split</h3>
+              <p className="text-sm text-slate-500">Introduza o valor da propina para ver como o split é distribuído com base nas taxas configuradas.</p>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Valor Total da Propina (AOA)</label>
+                <div className="flex gap-3">
+                  <input value={simValor} onChange={e => setSimValor(e.target.value)} type="number" min="0"
+                    placeholder="Ex: 150000"
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    onKeyDown={e => e.key === "Enter" && handleSimular()}/>
+                  <button onClick={handleSimular} disabled={simLoading || !simValor}
+                    className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                    {simLoading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <BarChart3 className="w-4 h-4"/>}
+                    Calcular
+                  </button>
+                </div>
+              </div>
+              {cfg && (
+                <p className="text-xs text-slate-400">Taxas activas: comissão {cfg.taxa_comissao_pct}% · IRT {cfg.taxa_irt_pct}%</p>
+              )}
+            </div>
+
+            {simResult && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-900">Resultado do Split</h3>
+                  {simResult.integridade_ok
+                    ? <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 className="w-4 h-4"/>Integridade OK</span>
+                    : <span className="flex items-center gap-1 text-xs font-semibold text-red-600"><AlertCircle className="w-4 h-4"/>Falha de integridade</span>}
+                </div>
+                {[
+                  { label: "Débito ao cliente (EMIS/Multicaixa)", value: simResult.valor_total / 100, color: "bg-slate-50 border-slate-200", text: "text-slate-900", sub: "100% do valor — crédito na conta trânsito" },
+                  { label: `Comissão plataforma (${simResult.taxa_comissao_pct}%)`, value: simResult.comissao_plataforma / 100, color: "bg-indigo-50 border-indigo-200", text: "text-indigo-700", sub: "TBI → conta da plataforma" },
+                  { label: `Retenção IRT / AGT (${simResult.taxa_irt_pct}% sobre comissão)`, value: simResult.retencao_irt / 100, color: "bg-amber-50 border-amber-200", text: "text-amber-700", sub: "Retido para entrega mensal à AGT" },
+                  { label: "Valor líquido comerciante", value: simResult.valor_liquido_comerciante / 100, color: "bg-emerald-50 border-emerald-200", text: "text-emerald-700", sub: "TBI → conta IBAN do comerciante (D+0/D+1)" },
+                ].map(({ label, value, color, text, sub }) => (
+                  <div key={label} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${color}`}>
+                    <div><p className={`text-sm font-medium ${text}`}>{label}</p><p className="text-xs text-slate-400 mt-0.5">{sub}</p></div>
+                    <p className={`text-base font-bold ${text}`}>{fmtKz(value)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Configuração ── */}
+        {spTab === "config" && (
+          <div className="max-w-xl space-y-5">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Settings className="w-4 h-4 text-slate-500"/>Parâmetros do Split Engine</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Taxa de Comissão Plataforma (%)</label>
+                  <input value={cfgEdit.taxa_comissao_pct} onChange={e => setCfgEdit(p => ({...p, taxa_comissao_pct: e.target.value}))}
+                    type="number" min="0" max="50" step="0.01"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  <p className="text-xs text-slate-400 mt-1">Percentagem retida pela plataforma por transacção</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Taxa IRT — Retenção na Fonte (%)</label>
+                  <input value={cfgEdit.taxa_irt_pct} onChange={e => setCfgEdit(p => ({...p, taxa_irt_pct: e.target.value}))}
+                    type="number" min="0" max="100" step="0.01"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                  <p className="text-xs text-slate-400 mt-1">Cód. IRT Art. 67º — padrão BNA: 6,5%</p>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Conta Trânsito (Escrow — banco parceiro)</label>
+                <input value={cfgEdit.conta_transito} onChange={e => setCfgEdit(p => ({...p, conta_transito: e.target.value}))}
+                  placeholder="AO06.0006.0000.… (IBAN escrow)"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">IBAN da Plataforma (crédito de comissão)</label>
+                <input value={cfgEdit.conta_plataforma_iban} onChange={e => setCfgEdit(p => ({...p, conta_plataforma_iban: e.target.value}))}
+                  placeholder="AO06.0006.0000.… (conta da plataforma)"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+              </div>
+              <button onClick={handleSaveConfig} disabled={cfgSaving}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                {cfgSaving ? <RefreshCw className="w-4 h-4 animate-spin"/> : cfgSaved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                {cfgSaved ? "Guardado!" : cfgSaving ? "A guardar…" : "Guardar Configuração"}
+              </button>
+            </div>
+
+            {/* Legal framework */}
+            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-3">
+              <h4 className="font-semibold text-slate-700 text-sm flex items-center gap-2"><Landmark className="w-4 h-4"/>Enquadramento Legal BNA</h4>
+              {[
+                { lei: "Lei 05/2022", desc: "Lei dos Sistemas de Pagamentos — regula os PSPs e infra-estruturas" },
+                { lei: "Aviso 04/2021", desc: "Requisitos de licenciamento e capital mínimo para PSPs" },
+                { lei: "Instrução 04/2020", desc: "Reporte de transacções > USD 5.000 ao BNA em 24h" },
+                { lei: "Cód. IRT, Art. 67º", desc: "Base legal para retenção IRT na fonte sobre comissões" },
+              ].map(({ lei, desc }) => (
+                <div key={lei} className="flex items-start gap-2">
+                  <span className="text-[11px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded shrink-0 mt-0.5">{lei}</span>
+                  <p className="text-xs text-slate-600">{desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    ComunicacaoView — DEPRECATED (kept for reference, not used)
    ═══════════════════════════════════════════════════════════════ */
 function ComunicacaoView({ token }: { token: string }) {
@@ -11276,7 +11807,7 @@ export default function Dashboard() {
   type NavEntry = NavLeaf | NavGroup;
 
   /* Views that belong to each accordion group */
-  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios", "caixa"];
+  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios", "caixa", "splitpay"];
   const COMUNICAR_VIEWS: DashView[] = ["comunicar", "ocorrencias"];
 
   /* ── Structured NAV ── */
@@ -11291,6 +11822,7 @@ export default function Dashboard() {
         { type: "item", key: "caixa",         icon: <Receipt className="w-4 h-4"/>,     label: "Fatura de Caixa" },
         { type: "item", key: "reconciliacao", icon: <ShieldCheck className="w-4 h-4"/>, label: "Reconciliação" },
         { type: "item", key: "relatorios",    icon: <BarChart3 className="w-4 h-4"/>,   label: "Relatórios" },
+        { type: "item", key: "splitpay",      icon: <ArrowLeftRight className="w-4 h-4"/>, label: "Split Payment" },
       ],
     },
     { type: "item",  key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>,     label: "Débito Direto", badge: ddPendingCount },
@@ -11572,6 +12104,11 @@ export default function Dashboard() {
             )}
             {view === "partilhar_portal" && token && (
               <PartilharPortalView key="partilhar_portal" token={token}/>
+            )}
+            {view === "splitpay" && token && (
+              <motion.div key="splitpay" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
+                <SplitPayView token={token}/>
+              </motion.div>
             )}
           </AnimatePresence>
         )}
