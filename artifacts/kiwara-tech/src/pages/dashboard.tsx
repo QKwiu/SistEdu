@@ -3129,6 +3129,164 @@ function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
   );
 }
 
+function printSituacaoFinanceira(situacao: any, mode: "thermal" | "a4") {
+  const fmtN = (v: number) => Number(v).toLocaleString("pt-AO");
+  const aluno = situacao.aluno ?? {};
+  const escola = situacao.escola ?? {};
+  const propinas: any[] = situacao.propinas ?? [];
+  const bolsa = situacao.bolsa_activa;
+  const multa_regra = situacao.multa_regra;
+  const pagas = propinas.filter((p: any) => p.status === "pago");
+  const pendentes = propinas.filter((p: any) => p.status !== "pago");
+  const vencidas = pendentes.filter((p: any) => p.status === "vencido");
+  const totalPago = pagas.reduce((s: number, p: any) => s + Number(p.montante) - Number(p.desconto ?? 0), 0);
+  const totalDivida = pendentes.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0), 0);
+  const totalMultas = propinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
+  const dataStr = new Date().toLocaleDateString("pt-AO");
+  const horaStr = new Date().toLocaleTimeString("pt-AO", { hour: "2-digit", minute: "2-digit" });
+  const MESES_ARR = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+  if (mode === "thermal") {
+    const rows = propinas.map((p: any) => {
+      const st = p.status === "pago" ? "PAG" : p.status === "vencido" ? "VEN" : "PEN";
+      const total = Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0);
+      return `<div class="row"><span>${p.mes.substring(0,3)} ${p.ano}</span><span style="font-size:9px;padding:0 4px">[${st}]</span><span>${fmtN(total)}</span></div>`;
+    }).join("");
+    const html = `<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"/>
+<title>Situação Financeira - ${aluno.nome}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Courier New',monospace;font-size:11px;width:80mm;padding:6px;color:#000;background:#fff}
+  .c{text-align:center} .b{font-weight:bold} .lg{font-size:13px}
+  hr{border:none;border-top:1px dashed #000;margin:5px 0}
+  .row{display:flex;justify-content:space-between;gap:2px}
+  .row span:last-child{white-space:nowrap;font-weight:bold}
+</style></head><body>
+<div class="c b lg">${escola.nome ?? ""}</div>
+${escola.nif ? `<div class="c">NIF: ${escola.nif}</div>` : ""}
+${escola.phone ? `<div class="c">${escola.phone}</div>` : ""}
+<hr/>
+<div class="c b">SITUAÇÃO FINANCEIRA DO ALUNO</div>
+<div class="c">${dataStr} ${horaStr}</div>
+<hr/>
+<div><span class="b">Aluno: </span>${aluno.nome}</div>
+${aluno.numero_processo ? `<div>Proc: ${aluno.numero_processo}</div>` : ""}
+${aluno.turma ? `<div>Turma: ${aluno.turma}</div>` : ""}
+${aluno.nome_encarregado ? `<div>Enc: ${aluno.nome_encarregado}</div>` : ""}
+${bolsa ? `<div>Bolsa: ${bolsa.bolsa_nome} (${bolsa.tipo_desconto === "percentagem" ? bolsa.bolsa_valor + "%" : fmtN(bolsa.bolsa_valor) + " Kz"})</div>` : ""}
+<hr/>
+<div class="row b"><span>RESUMO</span><span></span></div>
+<div class="row"><span>Propinas Pagas</span><span>${fmtN(totalPago)} Kz</span></div>
+<div class="row"><span>Em Dívida</span><span>${fmtN(totalDivida)} Kz</span></div>
+${totalMultas > 0 ? `<div class="row"><span>Multas</span><span>${fmtN(totalMultas)} Kz</span></div>` : ""}
+<hr/>
+<div class="row b"><span>HISTÓRICO</span><span>(${propinas.length} reg.)</span></div>
+${rows}
+<hr/>
+${multa_regra && totalMultas > 0 ? `<div style="font-size:9px">Multa: ${multa_regra.modelo === 1 ? multa_regra.percentagem + "%" : fmtN(multa_regra.valor_fixo) + " Kz"} · Dia ${multa_regra.dia_limite}</div><hr/>` : ""}
+<div class="c" style="margin-top:4px;font-size:9px">Emitido em ${dataStr} ${horaStr}</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}</script>
+</body></html>`;
+    const w = window.open("", "_blank", "width=340,height=600");
+    if (!w) { alert("Permita popups para imprimir."); return; }
+    w.document.write(html); w.document.close(); w.focus();
+  } else {
+    const rows = propinas.map((p: any) => {
+      const stColor = p.status === "pago" ? "#16a34a" : p.status === "vencido" ? "#dc2626" : "#d97706";
+      const stLabel = p.status === "pago" ? "Pago" : p.status === "vencido" ? "Vencido" : "Pendente";
+      const total = Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0);
+      const descStr = Number(p.desconto ?? 0) > 0 ? ` <span style="color:#7c3aed;font-size:10px">(-${fmtN(Number(p.desconto))} desc.)</span>` : "";
+      const multaStr = Number(p.multa) > 0 ? ` <span style="color:#dc2626;font-size:10px">(+${fmtN(Number(p.multa))} multa)</span>` : "";
+      const pagoEm = p.pago_em ? new Date(p.pago_em).toLocaleDateString("pt-AO") : "—";
+      return `<tr>
+        <td>${p.mes} ${p.ano}</td>
+        <td style="text-align:right;font-family:'Courier New',monospace">${fmtN(Number(p.montante))}${multaStr}${descStr}</td>
+        <td style="text-align:right;font-family:'Courier New',monospace;font-weight:700">${fmtN(total)}</td>
+        <td style="text-align:center"><span style="color:${stColor};font-weight:700;font-size:11px">${stLabel}</span></td>
+        <td style="text-align:right;font-size:11px;color:#64748b">${pagoEm}</td>
+      </tr>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"/>
+<title>Situação Financeira - ${aluno.nome}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:12px;margin:0;padding:32px;color:#111}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1e293b;padding-bottom:16px;margin-bottom:20px}
+  .school-name{font-size:20px;font-weight:700;margin-bottom:3px}
+  .tag{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b}
+  .aluno-hdr{margin-bottom:20px;padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0}
+  .aluno-nome{font-size:18px;font-weight:700;margin-bottom:4px}
+  .bolsa-badge{display:inline-block;background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;margin-left:8px}
+  .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+  .sum-card{padding:12px;border-radius:8px;border:1px solid #e2e8f0}
+  .sum-label{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:4px}
+  .sum-val{font-size:17px;font-weight:700}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#f1f5f9;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#64748b}
+  td{padding:9px 10px;border-bottom:1px solid #e2e8f0;font-size:12px}
+  .ftr{font-size:11px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between}
+  @media print{@page{margin:16mm}body{padding:0}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    <div class="school-name">${escola.nome ?? ""}</div>
+    ${escola.nif ? `<div style="color:#64748b;font-size:11px">NIF: ${escola.nif}</div>` : ""}
+    ${escola.phone ? `<div style="color:#64748b;font-size:11px">${escola.phone}</div>` : ""}
+  </div>
+  <div style="text-align:right">
+    <div class="tag">Situação Financeira do Aluno</div>
+    <div style="font-size:20px;font-weight:700;color:#1e293b;margin-top:4px">DECLARAÇÃO</div>
+    <div style="color:#64748b;font-size:11px">${dataStr} ${horaStr}</div>
+  </div>
+</div>
+<div class="aluno-hdr">
+  <div class="aluno-nome">${aluno.nome}${bolsa ? `<span class="bolsa-badge">🎓 ${bolsa.bolsa_nome}</span>` : ""}</div>
+  <div style="color:#64748b;font-size:12px">
+    ${aluno.turma ? `Turma: <b>${aluno.turma}</b>` : ""}
+    ${aluno.numero_processo ? ` &nbsp;·&nbsp; Proc: <b>${aluno.numero_processo}</b>` : ""}
+    ${aluno.nome_encarregado ? ` &nbsp;·&nbsp; Enc: <b>${aluno.nome_encarregado}</b>` : ""}
+  </div>
+  ${aluno.pacote_nome ? `<div style="margin-top:4px;font-size:11px;color:#64748b">Pacote: <b>${aluno.pacote_nome}</b> · ${fmtN(aluno.pacote_valor ?? 0)} Kz/mês</div>` : ""}
+  ${bolsa ? `<div style="margin-top:4px;font-size:11px;color:#7c3aed">Bolsa de Estudos: ${bolsa.bolsa_nome} · Desconto ${bolsa.tipo_desconto === "percentagem" ? bolsa.bolsa_valor + "%" : fmtN(bolsa.bolsa_valor) + " Kz"}</div>` : ""}
+</div>
+<div class="summary">
+  <div class="sum-card" style="border-color:#bbf7d0">
+    <div class="sum-label">Total Pago</div>
+    <div class="sum-val" style="color:#16a34a">${fmtN(totalPago)} Kz</div>
+    <div style="font-size:10px;color:#64748b;margin-top:2px">${pagas.length} propina(s) liquidada(s)</div>
+  </div>
+  <div class="sum-card" style="border-color:${totalDivida > 0 ? "#fecaca" : "#bbf7d0"}">
+    <div class="sum-label">Em Dívida</div>
+    <div class="sum-val" style="color:${totalDivida > 0 ? "#dc2626" : "#16a34a"}">${fmtN(totalDivida)} Kz</div>
+    <div style="font-size:10px;color:#64748b;margin-top:2px">${pendentes.length} propina(s) por pagar (${vencidas.length} vencida(s))</div>
+  </div>
+  <div class="sum-card" style="border-color:${totalMultas > 0 ? "#fecaca" : "#e2e8f0"}">
+    <div class="sum-label">Multas Acumuladas</div>
+    <div class="sum-val" style="color:${totalMultas > 0 ? "#dc2626" : "#94a3b8"}">${fmtN(totalMultas)} Kz</div>
+    <div style="font-size:10px;color:#64748b;margin-top:2px">${totalMultas > 0 ? propinas.filter((p:any) => Number(p.multa)>0).length + " propina(s) com multa" : "Sem multas aplicadas"}</div>
+  </div>
+</div>
+<table>
+  <thead><tr><th>Período</th><th style="text-align:right">Propina / Desc.</th><th style="text-align:right">Total</th><th style="text-align:center">Estado</th><th style="text-align:right">Data Pagamento</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+${multa_regra && totalMultas > 0 ? `<div style="font-size:11px;color:#64748b;margin-bottom:12px;padding:8px 12px;background:#fef2f2;border-radius:6px;border:1px solid #fecaca">
+  <b>Regra de Multa:</b> ${multa_regra.modelo === 1 ? "Percentagem fixa" : multa_regra.modelo === 2 ? "Progressiva" : "Valor fixo"}
+  ${multa_regra.percentagem > 0 ? ` · ${multa_regra.percentagem}%` : ""}${multa_regra.valor_fixo > 0 ? ` · ${fmtN(multa_regra.valor_fixo)} Kz` : ""}${multa_regra.dia_limite ? ` · Dia limite: ${multa_regra.dia_limite}` : ""}
+</div>` : ""}
+<div class="ftr">
+  <div>Emitido em ${dataStr} às ${horaStr}</div>
+  <div style="font-style:italic">Documento gerado pelo sistema Kiwara Escolar</div>
+</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}</script>
+</body></html>`;
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("Permita popups para imprimir."); return; }
+    w.document.write(html); w.document.close(); w.focus();
+  }
+}
+
 function ConsultaFinanceiraView({ token, alunos, turmas }: {
   token: string | null; alunos: Aluno[]; turmas: Turma[];
 }) {
@@ -3138,6 +3296,7 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
   const [situacao, setSituacao] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [sfPrintMode, setSfPrintMode] = useState<"thermal" | "a4">("a4");
 
   const filteredAlunos = alunos.filter(a => {
     const q = searchQ.trim().toLowerCase();
@@ -3274,7 +3433,7 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
                   {selected.nome_encarregado && <p className="text-xs text-slate-400">Enc: {selected.nome_encarregado}</p>}
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-1.5">
+              <div className="flex flex-col items-end gap-2">
                 {situacao?.aluno?.pacote_nome && (
                   <div className="text-right">
                     <p className="text-xs text-slate-500">Pacote de Propinas</p>
@@ -3290,6 +3449,27 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
                     {bolsaActiva.data_fim && (
                       <p className="text-[10px] text-slate-400">Válida até {new Date(bolsaActiva.data_fim).toLocaleDateString("pt-AO")}</p>
                     )}
+                  </div>
+                )}
+                {situacao && !loading && (
+                  <div className="flex flex-col items-end gap-1.5 pt-1 border-t border-slate-100 mt-1">
+                    <div className="flex gap-1">
+                      {(["thermal", "a4"] as const).map(m => (
+                        <button key={m} onClick={() => setSfPrintMode(m)}
+                          className={`px-2 py-1 text-[10px] font-semibold rounded-lg border transition-colors ${
+                            sfPrintMode === m
+                              ? "bg-primary text-white border-primary"
+                              : "bg-white text-slate-500 border-slate-200 hover:border-primary/40"
+                          }`}>
+                          {m === "thermal" ? "🧾 80mm" : "📄 A4"}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => printSituacaoFinanceira(situacao, sfPrintMode)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl transition-colors">
+                      <Printer className="w-3.5 h-3.5"/> Imprimir Situação Financeira
+                    </button>
                   </div>
                 )}
               </div>

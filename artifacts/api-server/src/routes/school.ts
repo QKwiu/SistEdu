@@ -1607,12 +1607,19 @@ router.get("/school/alunos/:id/situacao-financeira", schoolAuth, async (req: any
 
     if (!studentR.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
 
+    /* School branding for the print receipt header */
+    const escolaR = await pool.query(
+      `SELECT name AS nome, nif, phone, logo_url, institution_type FROM schools WHERE id = $1`,
+      [school.school_id]
+    );
+
     return res.json({
       aluno: studentR.rows[0],
       propinas: propinasR.rows,
       multa_regra: multaR.rows[0] ?? null,
       bolsa_activa: bolsaR.rows[0] ?? null,
       emolumentos: caixaR.rows,
+      escola: escolaR.rows[0] ?? null,
     });
   } catch (err: any) {
     console.error("[situacao-financeira]", err?.message ?? err);
