@@ -3154,10 +3154,12 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
       const r = await fetch(`${API}/school/alunos/${alunoId}/situacao-financeira`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const d = await r.json();
-      if (!r.ok) { setErr(d.error ?? "Erro ao carregar dados."); return; }
+      let d: any = null;
+      try { d = await r.json(); } catch { d = null; }
+      if (!r.ok) { setErr(d?.error ?? `Erro ${r.status} ao carregar dados.`); return; }
+      if (!d) { setErr("Resposta inválida do servidor."); return; }
       setSituacao(d);
-    } catch { setErr("Erro de ligação."); }
+    } catch { setErr("Erro de ligação ao servidor."); }
     finally { setLoading(false); }
   };
 
@@ -3165,10 +3167,13 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
   const clearSelected = () => { setSelected(null); setSituacao(null); setErr(""); };
 
   const propinas: any[] = situacao?.propinas ?? [];
+  const bolsaActiva = situacao?.bolsa_activa ?? null;
+  const emolumentos: any[] = situacao?.emolumentos ?? [];
   const pagas = propinas.filter((p: any) => p.status === "pago");
   const pendentes = propinas.filter((p: any) => p.status !== "pago");
-  const totalPago = pagas.reduce((s: number, p: any) => s + Number(p.montante), 0);
-  const totalDivida = pendentes.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
+  const vencidas = pendentes.filter((p: any) => p.status === "vencido");
+  const totalPago = pagas.reduce((s: number, p: any) => s + Number(p.montante) - Number(p.desconto ?? 0), 0);
+  const totalDivida = pendentes.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0), 0);
   const totalMultas = propinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
   const proxima = pendentes[0] ?? null;
 
@@ -3257,18 +3262,37 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
                   <span className="text-lg font-bold text-primary">{selected.nome.charAt(0)}</span>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">{selected.nome}</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-lg font-bold text-slate-900">{selected.nome}</h3>
+                    {bolsaActiva && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold border border-violet-200 bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">
+                        🎓 Bolseiro · {bolsaActiva.bolsa_nome}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-slate-500">{selected.turma}{selected.numero_processo ? ` · ${selected.numero_processo}` : ""}</p>
                   {selected.nome_encarregado && <p className="text-xs text-slate-400">Enc: {selected.nome_encarregado}</p>}
                 </div>
               </div>
-              {situacao?.aluno?.pacote_nome && (
-                <div className="text-right">
-                  <p className="text-xs text-slate-500">Pacote de Propinas</p>
-                  <p className="text-sm font-bold text-slate-900">{situacao.aluno.pacote_nome}</p>
-                  <p className="text-xs text-primary font-semibold">{fmt(situacao.aluno.pacote_valor ?? 0)} Kz / mês</p>
-                </div>
-              )}
+              <div className="flex flex-col items-end gap-1.5">
+                {situacao?.aluno?.pacote_nome && (
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Pacote de Propinas</p>
+                    <p className="text-sm font-bold text-slate-900">{situacao.aluno.pacote_nome}</p>
+                    <p className="text-xs text-primary font-semibold">{fmt(situacao.aluno.pacote_valor ?? 0)} Kz / mês</p>
+                  </div>
+                )}
+                {bolsaActiva && (
+                  <div className="text-right">
+                    <p className="text-xs text-violet-600 font-semibold">
+                      Desconto: {bolsaActiva.tipo_desconto === "percentagem" ? `${bolsaActiva.bolsa_valor}%` : `${fmt(bolsaActiva.bolsa_valor)} Kz`}
+                    </p>
+                    {bolsaActiva.data_fim && (
+                      <p className="text-[10px] text-slate-400">Válida até {new Date(bolsaActiva.data_fim).toLocaleDateString("pt-AO")}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
 
@@ -3402,11 +3426,51 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
                 )}
               </Card>
 
+              {/* Bolsa activa detail */}
+              {bolsaActiva && (
+                <Card className="p-5 border-violet-200 bg-violet-50/40">
+                  <h4 className="text-sm font-bold text-violet-900 flex items-center gap-2 mb-3">
+                    🎓 Bolsa de Estudos Activa
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Designação</p>
+                      <p className="font-semibold text-slate-800 mt-0.5">{bolsaActiva.bolsa_nome}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Desconto</p>
+                      <p className="font-bold text-violet-700 mt-0.5">
+                        {bolsaActiva.tipo_desconto === "percentagem" ? `${bolsaActiva.bolsa_valor}%` : `${fmt(bolsaActiva.bolsa_valor)} Kz`}
+                        <span className="text-xs font-normal text-slate-500 ml-1">({bolsaActiva.tipo_desconto === "percentagem" ? "percentagem" : "valor fixo"})</span>
+                      </p>
+                    </div>
+                    {bolsaActiva.abrangencia && (
+                      <div>
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Abrangência</p>
+                        <p className="font-semibold text-slate-800 mt-0.5 capitalize">{bolsaActiva.abrangencia}</p>
+                      </div>
+                    )}
+                    {bolsaActiva.data_inicio && (
+                      <div>
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Início</p>
+                        <p className="font-semibold text-slate-800 mt-0.5">{new Date(bolsaActiva.data_inicio).toLocaleDateString("pt-AO")}</p>
+                      </div>
+                    )}
+                    {bolsaActiva.data_fim && (
+                      <div>
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Validade</p>
+                        <p className="font-semibold text-slate-800 mt-0.5">{new Date(bolsaActiva.data_fim).toLocaleDateString("pt-AO")}</p>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
+
               {/* Multas detail */}
               {totalMultas > 0 && (
                 <Card className="p-5">
                   <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-3">
-                    <AlertTriangle className="w-4 h-4 text-red-500"/> Detalhe de Multas Pendentes
+                    <AlertTriangle className="w-4 h-4 text-red-500"/> Detalhe de Multas
                   </h4>
                   {situacao.multa_regra && (
                     <div className="text-xs text-slate-500 mb-3 bg-slate-50 rounded-lg px-3 py-2">
@@ -3422,11 +3486,50 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
                   <div className="space-y-2">
                     {propinas.filter((p: any) => Number(p.multa) > 0).map((p: any) => (
                       <div key={p.id} className="flex items-center justify-between text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                        <span className="text-slate-700 font-medium">{p.mes} {p.ano}</span>
+                        <div>
+                          <span className="text-slate-700 font-medium">{p.mes} {p.ano}</span>
+                          {p.status === "pago" && <span className="ml-2 text-[10px] text-emerald-600 font-semibold">(Pago)</span>}
+                        </div>
                         <span className="font-bold text-red-700 font-mono">+{fmt(p.multa)} Kz</span>
                       </div>
                     ))}
                   </div>
+                </Card>
+              )}
+
+              {/* Emolumentos / outros pagamentos */}
+              {emolumentos.length > 0 && (
+                <Card className="p-0 overflow-hidden">
+                  <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+                    <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-slate-400"/> Emolumentos & Outros Pagamentos
+                    </h4>
+                    <span className="text-xs text-slate-400">{emolumentos.length} registo(s)</span>
+                  </div>
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
+                      <tr>
+                        <th className="px-4 py-2.5">Fatura</th>
+                        <th className="px-4 py-2.5">Descrição</th>
+                        <th className="px-4 py-2.5">Montante</th>
+                        <th className="px-4 py-2.5 hidden sm:table-cell">Método</th>
+                        <th className="px-4 py-2.5 hidden md:table-cell">Data</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {emolumentos.map((e: any) => (
+                        <tr key={e.id} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-2.5 font-mono text-xs text-primary font-semibold whitespace-nowrap">{e.numero_fatura ?? `#${e.id}`}</td>
+                          <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[200px] truncate">{e.descricao}</td>
+                          <td className="px-4 py-2.5 font-bold text-sm whitespace-nowrap">{fmt(e.montante)} Kz</td>
+                          <td className="px-4 py-2.5 text-xs text-slate-500 hidden sm:table-cell whitespace-nowrap">{e.metodo_pagamento ?? "—"}</td>
+                          <td className="px-4 py-2.5 text-xs text-slate-500 hidden md:table-cell whitespace-nowrap">
+                            {e.created_at ? new Date(e.created_at).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </Card>
               )}
             </>

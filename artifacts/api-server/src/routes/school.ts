@@ -1535,48 +1535,89 @@ router.get("/school/caixa/aluno-propinas/:student_id", schoolAuth, async (req: a
 
 /* ─── GET /school/alunos/:id/situacao-financeira ─── */
 router.get("/school/alunos/:id/situacao-financeira", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const studentId = Number(req.params.id);
+  try {
+    const school = await getSchoolFromToken(req.schoolToken);
+    if (!school) return res.status(401).json({ error: "Sessão inválida." });
+    const studentId = Number(req.params.id);
+    if (!studentId || isNaN(studentId)) return res.status(400).json({ error: "ID de aluno inválido." });
 
-  const studentR = await pool.query(
-    `SELECT s.id, s.nome, s.numero_processo, s.bilhete, s.sexo, s.data_nascimento,
-            s.nome_encarregado, s.telefone_encarregado, s.estado,
-            COALESCE(t.nome, 'Sem turma') AS turma, t.turno,
-            pe.id AS pacote_id, pe.nome AS pacote_nome, pe.valor AS pacote_valor,
-            pe.itens AS pacote_itens
-     FROM students s
-     LEFT JOIN turmas t ON t.id = s.turma_id
-     LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
-     LEFT JOIN pacotes_emolumentos pe ON pe.id = m.pacote_id
-     WHERE s.id = $1 AND s.school_id = $2`,
-    [studentId, school.school_id]
-  );
-  if (!studentR.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+    /* Apply fines before fetching so status/multa values are up to date */
+    await applyFinesForSchool(school.school_id).catch(() => {});
 
-  const propinasR = await pool.query(
-    `SELECT p.id, p.mes, p.ano, p.montante, COALESCE(p.multa,0) AS multa,
-            COALESCE(p.desconto,0) AS desconto, p.status, p.data_vencimento,
-            p.metodo_pagamento, p.pago_em, p.pagamento_origem,
-            p.baixa_manual, p.internal_reference, p.ref_numero, p.entidade
-     FROM propinas p
-     WHERE p.student_id = $1 AND p.school_id = $2
-     ORDER BY p.ano ASC,
-              ARRAY_POSITION(ARRAY['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-                                   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']::text[], p.mes)`,
-    [studentId, school.school_id]
-  );
+    const [studentR, propinasR, multaR, bolsaR, caixaR] = await Promise.all([
+      /* Student info with turma and active package */
+      pool.query(
+        `SELECT s.id, s.nome, s.numero_processo, s.bilhete, s.sexo, s.data_nascimento,
+                s.nome_encarregado, s.telefone_encarregado, s.estado,
+                COALESCE(t.nome, 'Sem turma') AS turma, t.turno, t.ano AS turma_ano,
+                pe.id AS pacote_id, pe.nome AS pacote_nome, pe.valor AS pacote_valor
+         FROM students s
+         LEFT JOIN turmas t ON t.id = s.turma_id
+         LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
+         LEFT JOIN pacotes_emolumentos pe ON pe.id = m.pacote_id
+         WHERE s.id = $1 AND s.school_id = $2`,
+        [studentId, school.school_id]
+      ),
+      /* All propinas with bolsa attribution info */
+      pool.query(
+        `SELECT p.id, p.mes, p.ano, p.montante, COALESCE(p.multa,0) AS multa,
+                COALESCE(p.desconto,0) AS desconto,
+                COALESCE(p.partially_paid_amount,0) AS partially_paid_amount,
+                p.status, p.data_vencimento, p.metodo_pagamento, p.pago_em,
+                p.pagamento_origem, p.baixa_manual, p.baixa_manual_por,
+                p.baixa_manual_em, p.baixa_manual_obs, p.referencia,
+                p.internal_reference, p.bolsa_atribuicao_id,
+                bt.nome AS bolsa_nome, bt.tipo_desconto AS bolsa_tipo_desconto,
+                bt.valor AS bolsa_valor
+         FROM propinas p
+         LEFT JOIN bolsa_atribuicoes ba ON ba.id = p.bolsa_atribuicao_id
+         LEFT JOIN bolsa_tipos bt ON bt.id = ba.bolsa_tipo_id
+         WHERE p.student_id = $1 AND p.school_id = $2
+         ORDER BY p.ano ASC,
+                  ARRAY_POSITION(ARRAY['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                                       'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']::text[], p.mes)`,
+        [studentId, school.school_id]
+      ),
+      /* School's fine rule */
+      pool.query("SELECT * FROM multa_regras WHERE school_id = $1", [school.school_id]),
+      /* Active bolsa for this student */
+      pool.query(
+        `SELECT ba.id, ba.estado, ba.data_inicio, ba.data_fim,
+                bt.nome AS bolsa_nome, bt.tipo_desconto, bt.valor AS bolsa_valor,
+                bt.abrangencia, bt.descricao
+         FROM bolsa_atribuicoes ba
+         JOIN bolsa_tipos bt ON bt.id = ba.bolsa_tipo_id
+         WHERE ba.student_id = $1 AND ba.school_id = $2
+           AND ba.estado = 'activa'
+           AND (ba.data_fim IS NULL OR ba.data_fim >= CURRENT_DATE)
+         ORDER BY ba.created_at DESC LIMIT 1`,
+        [studentId, school.school_id]
+      ),
+      /* Emolumentos/other payments from caixa */
+      pool.query(
+        `SELECT cf.id, cf.numero_fatura, cf.descricao, cf.montante,
+                cf.metodo_pagamento, cf.status, cf.created_at, cf.operador_nome
+         FROM caixa_faturas cf
+         WHERE cf.student_id = $1 AND cf.escola_id = $2
+         ORDER BY cf.created_at DESC
+         LIMIT 50`,
+        [studentId, school.school_id]
+      ),
+    ]);
 
-  const multaR = await pool.query(
-    "SELECT * FROM multa_regras WHERE school_id = $1",
-    [school.school_id]
-  );
+    if (!studentR.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
 
-  return res.json({
-    aluno: studentR.rows[0],
-    propinas: propinasR.rows,
-    multa_regra: multaR.rows[0] ?? null,
-  });
+    return res.json({
+      aluno: studentR.rows[0],
+      propinas: propinasR.rows,
+      multa_regra: multaR.rows[0] ?? null,
+      bolsa_activa: bolsaR.rows[0] ?? null,
+      emolumentos: caixaR.rows,
+    });
+  } catch (err: any) {
+    console.error("[situacao-financeira]", err?.message ?? err);
+    return res.status(500).json({ error: "Erro ao carregar situação financeira." });
+  }
 });
 
 /* ─── POST /school/caixa/emitir ─── */
