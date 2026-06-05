@@ -1533,6 +1533,52 @@ router.get("/school/caixa/aluno-propinas/:student_id", schoolAuth, async (req: a
   return res.json(r.rows);
 });
 
+/* ─── GET /school/alunos/:id/situacao-financeira ─── */
+router.get("/school/alunos/:id/situacao-financeira", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  const studentId = Number(req.params.id);
+
+  const studentR = await pool.query(
+    `SELECT s.id, s.nome, s.numero_processo, s.bilhete, s.sexo, s.data_nascimento,
+            s.nome_encarregado, s.telefone_encarregado, s.estado,
+            COALESCE(t.nome, 'Sem turma') AS turma, t.turno,
+            pe.id AS pacote_id, pe.nome AS pacote_nome, pe.valor AS pacote_valor,
+            pe.itens AS pacote_itens
+     FROM students s
+     LEFT JOIN turmas t ON t.id = s.turma_id
+     LEFT JOIN matriculas m ON m.student_id = s.id AND m.estado = 'activa'
+     LEFT JOIN pacotes_emolumentos pe ON pe.id = m.pacote_id
+     WHERE s.id = $1 AND s.school_id = $2`,
+    [studentId, school.school_id]
+  );
+  if (!studentR.rows.length) return res.status(404).json({ error: "Aluno não encontrado." });
+
+  const propinasR = await pool.query(
+    `SELECT p.id, p.mes, p.ano, p.montante, COALESCE(p.multa,0) AS multa,
+            COALESCE(p.desconto,0) AS desconto, p.status, p.data_vencimento,
+            p.metodo_pagamento, p.pago_em, p.pagamento_origem,
+            p.baixa_manual, p.internal_reference, p.ref_numero, p.entidade
+     FROM propinas p
+     WHERE p.student_id = $1 AND p.school_id = $2
+     ORDER BY p.ano ASC,
+              ARRAY_POSITION(ARRAY['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                                   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']::text[], p.mes)`,
+    [studentId, school.school_id]
+  );
+
+  const multaR = await pool.query(
+    "SELECT * FROM multa_regras WHERE school_id = $1",
+    [school.school_id]
+  );
+
+  return res.json({
+    aluno: studentR.rows[0],
+    propinas: propinasR.rows,
+    multa_regra: multaR.rows[0] ?? null,
+  });
+});
+
 /* ─── POST /school/caixa/emitir ─── */
 router.post("/school/caixa/emitir", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);

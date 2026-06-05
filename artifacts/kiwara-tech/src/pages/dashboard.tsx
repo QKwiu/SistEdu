@@ -3129,6 +3129,314 @@ function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
   );
 }
 
+function ConsultaFinanceiraView({ token, alunos, turmas }: {
+  token: string | null; alunos: Aluno[]; turmas: Turma[];
+}) {
+  const [searchQ, setSearchQ] = useState("");
+  const [filterTurma, setFilterTurma] = useState("");
+  const [selected, setSelected] = useState<Aluno | null>(null);
+  const [situacao, setSituacao] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const filteredAlunos = alunos.filter(a => {
+    const q = searchQ.trim().toLowerCase();
+    return (
+      (!q || a.nome.toLowerCase().includes(q) || (a.numero_processo ?? "").toLowerCase().includes(q)) &&
+      (!filterTurma || a.turma === filterTurma)
+    );
+  });
+
+  const fetchSituacao = async (alunoId: number) => {
+    if (!token) return;
+    setLoading(true); setErr(""); setSituacao(null);
+    try {
+      const r = await fetch(`${API}/school/alunos/${alunoId}/situacao-financeira`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (!r.ok) { setErr(d.error ?? "Erro ao carregar dados."); return; }
+      setSituacao(d);
+    } catch { setErr("Erro de ligação."); }
+    finally { setLoading(false); }
+  };
+
+  const handleSelect = (a: Aluno) => { setSelected(a); fetchSituacao(a.id); };
+  const clearSelected = () => { setSelected(null); setSituacao(null); setErr(""); };
+
+  const propinas: any[] = situacao?.propinas ?? [];
+  const pagas = propinas.filter((p: any) => p.status === "pago");
+  const pendentes = propinas.filter((p: any) => p.status !== "pago");
+  const totalPago = pagas.reduce((s: number, p: any) => s + Number(p.montante), 0);
+  const totalDivida = pendentes.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
+  const totalMultas = propinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
+  const proxima = pendentes[0] ?? null;
+
+  const stCls: Record<string, string> = {
+    pago: "text-emerald-700 bg-emerald-50 border-emerald-200",
+    pendente: "text-amber-700 bg-amber-50 border-amber-200",
+    vencido: "text-red-700 bg-red-50 border-red-200",
+  };
+  const stLabel: Record<string, string> = { pago: "Pago", pendente: "Pendente", vencido: "Vencido" };
+
+  return (
+    <div className="space-y-5">
+      {!selected ? (
+        <Card className="p-5">
+          <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <Search className="w-4 h-4 text-primary"/> Pesquisar Aluno
+          </h3>
+          <div className="flex flex-wrap gap-3 mb-4">
+            <div className="flex-1 min-w-[220px] relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+              <input
+                type="text"
+                placeholder="Nome, sobrenome ou nº processo..."
+                value={searchQ}
+                onChange={e => setSearchQ(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <select
+              value={filterTurma}
+              onChange={e => setFilterTurma(e.target.value)}
+              className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[150px]"
+            >
+              <option value="">Todas as turmas</option>
+              {turmas.map(t => <option key={t.id} value={t.nome}>{t.nome}</option>)}
+            </select>
+          </div>
+          {!searchQ.trim() && !filterTurma ? (
+            <div className="text-center py-10 text-slate-400">
+              <Users className="w-10 h-10 mx-auto mb-3 text-slate-200"/>
+              <p className="text-sm">Introduza o nome ou número de processo do aluno para consultar a situação financeira.</p>
+            </div>
+          ) : filteredAlunos.length === 0 ? (
+            <div className="text-center py-10">
+              <Search className="w-8 h-8 mx-auto mb-2 text-slate-200"/>
+              <p className="text-sm text-slate-400">Nenhum aluno encontrado.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
+              {filteredAlunos.slice(0, 20).map(a => (
+                <button key={a.id} onClick={() => handleSelect(a)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-primary/5 text-left transition-colors">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-primary">{a.nome.charAt(0)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-slate-900 text-sm truncate">{a.nome}</div>
+                    <div className="text-xs text-slate-400">{a.turma}{a.numero_processo ? ` · ${a.numero_processo}` : ""}</div>
+                  </div>
+                  <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full shrink-0 ${
+                    a.estado === "activo" ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-slate-500 bg-slate-100 border-slate-200"
+                  }`}>{a.estado === "activo" ? "Activo" : a.estado ?? "—"}</span>
+                  <ChevronRight className="w-4 h-4 text-slate-300 shrink-0"/>
+                </button>
+              ))}
+              {filteredAlunos.length > 20 && (
+                <div className="px-4 py-2 text-xs text-slate-400 bg-slate-50 text-center">
+                  A mostrar 20 de {filteredAlunos.length} resultados — refine a pesquisa
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          <button onClick={clearSelected}
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary transition-colors font-medium">
+            <ChevronLeft className="w-4 h-4"/> Voltar à pesquisa
+          </button>
+
+          {/* Student header card */}
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <span className="text-lg font-bold text-primary">{selected.nome.charAt(0)}</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{selected.nome}</h3>
+                  <p className="text-sm text-slate-500">{selected.turma}{selected.numero_processo ? ` · ${selected.numero_processo}` : ""}</p>
+                  {selected.nome_encarregado && <p className="text-xs text-slate-400">Enc: {selected.nome_encarregado}</p>}
+                </div>
+              </div>
+              {situacao?.aluno?.pacote_nome && (
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Pacote de Propinas</p>
+                  <p className="text-sm font-bold text-slate-900">{situacao.aluno.pacote_nome}</p>
+                  <p className="text-xs text-primary font-semibold">{fmt(situacao.aluno.pacote_valor ?? 0)} Kz / mês</p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {loading && (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw className="w-6 h-6 animate-spin text-primary"/>
+            </div>
+          )}
+          {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{err}</div>}
+
+          {situacao && !loading && (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <Card className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0"/>
+                    <span className="text-xs text-slate-500 font-medium">Total Pago</span>
+                  </div>
+                  <p className="text-xl font-bold text-emerald-700">{fmt(totalPago)} Kz</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{pagas.length} propina(s) liquidada(s)</p>
+                </Card>
+                <Card className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="w-4 h-4 text-amber-500 shrink-0"/>
+                    <span className="text-xs text-slate-500 font-medium">Em Dívida</span>
+                  </div>
+                  <p className={`text-xl font-bold ${totalDivida > 0 ? "text-red-700" : "text-emerald-700"}`}>{fmt(totalDivida)} Kz</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{pendentes.length} propina(s) por pagar</p>
+                </Card>
+                <Card className="p-4 col-span-2 sm:col-span-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0"/>
+                    <span className="text-xs text-slate-500 font-medium">Multas Acumuladas</span>
+                  </div>
+                  <p className={`text-xl font-bold ${totalMultas > 0 ? "text-red-700" : "text-slate-400"}`}>{fmt(totalMultas)} Kz</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {totalMultas > 0 ? `${propinas.filter((p: any) => Number(p.multa) > 0).length} propina(s) com multa` : "Sem multas aplicadas"}
+                  </p>
+                </Card>
+              </div>
+
+              {/* Próxima propina */}
+              {proxima ? (
+                <Card className="p-4 border-amber-200 bg-amber-50/50">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                      <Clock className="w-4 h-4 text-amber-600"/>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-slate-900">Próxima Propina a Pagar</p>
+                      <p className="text-2xl font-bold text-amber-700 mt-0.5">{fmt(Number(proxima.montante) + Number(proxima.multa))} Kz</p>
+                      <p className="text-xs text-slate-600 mt-1">
+                        <span className="font-semibold">{proxima.mes} {proxima.ano}</span>
+                        {Number(proxima.multa) > 0 && (
+                          <span className="ml-2 text-red-600 font-semibold">Inclui multa: +{fmt(proxima.multa)} Kz</span>
+                        )}
+                      </p>
+                      {proxima.data_vencimento && (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Vencimento: {new Date(proxima.data_vencimento).toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" })}
+                        </p>
+                      )}
+                    </div>
+                    <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full shrink-0 ${stCls[proxima.status] ?? ""}`}>
+                      {stLabel[proxima.status] ?? proxima.status}
+                    </span>
+                  </div>
+                </Card>
+              ) : propinas.length > 0 ? (
+                <Card className="p-4 border-emerald-200 bg-emerald-50/50">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0"/>
+                    <p className="text-sm font-semibold text-emerald-800">Aluno em dia — sem propinas pendentes.</p>
+                  </div>
+                </Card>
+              ) : null}
+
+              {/* Payment history table */}
+              <Card className="p-0 overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    <Banknote className="w-4 h-4 text-slate-400"/> Histórico de Propinas
+                  </h4>
+                  <span className="text-xs text-slate-400">{propinas.length} registo(s)</span>
+                </div>
+                {propinas.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400">
+                    <Banknote className="w-8 h-8 mx-auto mb-2 text-slate-200"/>
+                    <p className="text-sm">Sem propinas registadas para este aluno.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
+                      <tr>
+                        <th className="px-4 py-2.5">Período</th>
+                        <th className="px-4 py-2.5">Propina</th>
+                        <th className="px-4 py-2.5">Multa</th>
+                        <th className="px-4 py-2.5">Total</th>
+                        <th className="px-4 py-2.5">Estado</th>
+                        <th className="px-4 py-2.5 hidden md:table-cell">Data Pagamento</th>
+                        <th className="px-4 py-2.5 hidden lg:table-cell">Método</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {propinas.map((p: any) => (
+                        <tr key={p.id} className={`${p.status !== "pago" ? "bg-amber-50/20" : ""} hover:bg-slate-50/50`}>
+                          <td className="px-4 py-2.5 font-medium text-slate-900 whitespace-nowrap">{p.mes} {p.ano}</td>
+                          <td className="px-4 py-2.5 font-mono text-xs text-slate-700 whitespace-nowrap">{fmt(p.montante)} Kz</td>
+                          <td className="px-4 py-2.5">
+                            {Number(p.multa) > 0
+                              ? <span className="font-mono text-xs text-red-600 font-semibold whitespace-nowrap">+{fmt(p.multa)} Kz</span>
+                              : <span className="text-slate-300 text-xs">—</span>}
+                          </td>
+                          <td className="px-4 py-2.5 font-bold text-sm whitespace-nowrap">{fmt(Number(p.montante) + Number(p.multa))} Kz</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full whitespace-nowrap ${stCls[p.status] ?? "text-slate-500 bg-slate-100 border-slate-200"}`}>
+                              {stLabel[p.status] ?? p.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-slate-500 hidden md:table-cell whitespace-nowrap">
+                            {p.pago_em ? new Date(p.pago_em).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-slate-500 hidden lg:table-cell whitespace-nowrap">
+                            {p.metodo_pagamento ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </Card>
+
+              {/* Multas detail */}
+              {totalMultas > 0 && (
+                <Card className="p-5">
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2 mb-3">
+                    <AlertTriangle className="w-4 h-4 text-red-500"/> Detalhe de Multas Pendentes
+                  </h4>
+                  {situacao.multa_regra && (
+                    <div className="text-xs text-slate-500 mb-3 bg-slate-50 rounded-lg px-3 py-2">
+                      Regra aplicada:{" "}
+                      <span className="font-semibold">
+                        {situacao.multa_regra.modelo === 1 ? "Percentagem fixa" : situacao.multa_regra.modelo === 2 ? "Progressiva" : "Valor fixo"}
+                      </span>
+                      {situacao.multa_regra.percentagem > 0 && ` · ${situacao.multa_regra.percentagem}%`}
+                      {situacao.multa_regra.valor_fixo > 0 && ` · ${fmt(situacao.multa_regra.valor_fixo)} Kz`}
+                      {situacao.multa_regra.dia_limite && ` · Dia limite: ${situacao.multa_regra.dia_limite}`}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {propinas.filter((p: any) => Number(p.multa) > 0).map((p: any) => (
+                      <div key={p.id} className="flex items-center justify-between text-sm bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        <span className="text-slate-700 font-medium">{p.mes} {p.ano}</span>
+                        <span className="font-bold text-red-700 font-mono">+{fmt(p.multa)} Kz</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpenGerarPropina, onOpenGerarRef, onOpenGerarLote }: {
   token: string | null; propinas: Propina[]; alunos: Aluno[]; turmas: Turma[];
   onOpenGerarPropina: () => void; onOpenGerarRef: () => void; onOpenGerarLote: () => void;
@@ -3156,6 +3464,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [bmResult, setBmResult] = useState<any>(null);
   const [bmError, setBmError] = useState("");
   const [bmPrintMode, setBmPrintMode] = useState<"thermal" | "a4">("thermal");
+  const [activeTab, setActiveTab] = useState<"listagem"|"consulta">("listagem");
 
   const openBaixa = (p: Propina) => {
     setBmPropina(p);
@@ -3218,15 +3527,30 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
 
   return (
     <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
         <div><h2 className="text-2xl font-bold text-slate-900">Propinas & Faturas</h2></div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Nova Propina</Button>
-          <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Massa</Button>
-          <Button className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
-        </div>
+        {activeTab === "listagem" && (
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Nova Propina</Button>
+            <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Massa</Button>
+            <Button className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
+          </div>
+        )}
       </div>
-      <div className="space-y-3 mb-5">
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-5">
+        <button onClick={() => setActiveTab("listagem")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${activeTab === "listagem" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+          <Banknote className="w-3.5 h-3.5"/> Listagem
+        </button>
+        <button onClick={() => setActiveTab("consulta")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${activeTab === "consulta" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+          <Search className="w-3.5 h-3.5"/> Consulta Financeira
+        </button>
+      </div>
+      {activeTab === "consulta" && (
+        <ConsultaFinanceiraView token={token} alunos={alunos} turmas={turmas} />
+      )}
+      {activeTab === "listagem" && (<><div className="space-y-3 mb-5">
         {/* Status tabs */}
         <div className="flex flex-wrap gap-3 items-center">
           <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
@@ -3611,6 +3935,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
           </motion.div>
         </div>
       )}
+      </>)}
 
       {/* Baixa Manual Modal (inline in PropinasView) */}
       {bmPropina && (
