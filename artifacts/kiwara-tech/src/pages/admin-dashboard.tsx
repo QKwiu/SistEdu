@@ -12,6 +12,7 @@ import {
   Zap, BarChart3, CheckSquare, ToggleLeft, Send, ChevronLeft, ToggleRight, ListFilter,
   Megaphone, CheckCheck, Tag, KeyRound, ShieldOff, UserCheck, UserX,
   Wifi, Server, Terminal, Network, Settings2, FlaskConical, Play, Copy,
+  Layers,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 
@@ -7294,17 +7295,17 @@ function AdminRBACView() {
    CONFIGURAÇÕES TÉCNICAS — EMIS (GPO, MCX, Débito Direto)
 ════════════════════════════════════════════════════════════════ */
 
-type EmisSection = "gpo" | "mcx" | "debito_direto";
+type EmisSection = "gpo" | "mcx" | "debito_direto" | "split_payment";
 
 interface ConnResult { ok: boolean; status?: number; message: string; latency_ms?: number }
 
 function ConfiguracoesTecnicasView() {
   const [tab, setTab] = useState<EmisSection>("gpo");
-  const [config, setConfig] = useState<Record<string, Record<string, unknown>>>({ gpo: {}, mcx: {}, debito_direto: {} });
+  const [config, setConfig] = useState<Record<string, Record<string, unknown>>>({ gpo: {}, mcx: {}, debito_direto: {}, split_payment: {} });
   const [saving, setSaving] = useState<EmisSection | null>(null);
   const [saved, setSaved] = useState<EmisSection | null>(null);
   const [testing, setTesting] = useState<EmisSection | null>(null);
-  const [testResult, setTestResult] = useState<Record<EmisSection, ConnResult | null>>({ gpo: null, mcx: null, debito_direto: null });
+  const [testResult, setTestResult] = useState<Record<EmisSection, ConnResult | null>>({ gpo: null, mcx: null, debito_direto: null, split_payment: null });
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -7387,9 +7388,10 @@ function ConfiguracoesTecnicasView() {
   };
 
   const TABS: { key: EmisSection; label: string; icon: React.ReactNode; color: string }[] = [
-    { key: "gpo",         label: "GPO — Webframe",        icon: <Globe className="w-4 h-4"/>,    color: "blue" },
-    { key: "mcx",         label: "Referências MCX",        icon: <CreditCard className="w-4 h-4"/>, color: "purple" },
-    { key: "debito_direto", label: "Débito Direto",       icon: <ArrowLeftRight className="w-4 h-4"/>, color: "emerald" },
+    { key: "gpo",           label: "GPO — Webframe",    icon: <Globe className="w-4 h-4"/>,        color: "blue" },
+    { key: "mcx",           label: "Referências MCX",   icon: <CreditCard className="w-4 h-4"/>,   color: "purple" },
+    { key: "debito_direto", label: "Débito Direto",      icon: <ArrowLeftRight className="w-4 h-4"/>, color: "emerald" },
+    { key: "split_payment", label: "Split Payment",      icon: <Layers className="w-4 h-4"/>,       color: "indigo" },
   ];
 
   return (
@@ -7939,6 +7941,373 @@ function ConfiguracoesTecnicasView() {
                   className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
                   {saving === "debito_direto" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "debito_direto" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
                   {saved === "debito_direto" ? "Guardado com sucesso!" : "Gravar Configurações DD"}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        );
+      })()}
+
+      {/* ── Split Payment Tab ── */}
+      {tab === "split_payment" && (() => {
+        const sp = config.split_payment ?? {};
+        const upd = (k: string, v: unknown) => update("split_payment", k, v);
+
+        const spField = (k: string, label: string, opts?: { placeholder?: string; hint?: string; secret?: boolean; type?: string; required?: boolean }) => {
+          const val = String(sp[k] ?? "");
+          const isSecret = opts?.secret;
+          const shown = showSecret[`sp.${k}`];
+          return (
+            <div key={k}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                {label}{opts?.required && <span className="text-red-500 ml-0.5">*</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type={isSecret && !shown ? "password" : opts?.type ?? "text"}
+                  value={val}
+                  onChange={e => upd(k, e.target.value)}
+                  placeholder={opts?.placeholder ?? ""}
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                />
+                {isSecret && (
+                  <button type="button" onClick={() => setShowSecret(p => ({ ...p, [`sp.${k}`]: !shown }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {shown ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                  </button>
+                )}
+              </div>
+              {opts?.hint && <p className="text-xs text-slate-400 mt-1">{opts.hint}</p>}
+            </div>
+          );
+        };
+
+        const spToggle = (k: string, label: string, hint?: string) => (
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <p className="text-xs font-semibold text-slate-700">{label}</p>
+              {hint && <p className="text-xs text-slate-400 leading-snug">{hint}</p>}
+            </div>
+            <button type="button" onClick={() => upd(k, !sp[k])}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sp[k] ? "bg-indigo-500" : "bg-slate-300"}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sp[k] ? "translate-x-4" : "translate-x-0"}`}/>
+            </button>
+          </div>
+        );
+
+        const spSecHeader = (letter: string, title: string, desc: string, color: string) => (
+          <div className="flex items-start gap-3 pb-4 mb-5 border-b border-slate-100">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${color}`}>{letter}</div>
+            <div>
+              <p className="text-sm font-bold text-slate-800">{title}</p>
+              <p className="text-xs text-slate-400">{desc}</p>
+            </div>
+          </div>
+        );
+
+        const isProducao = (sp.environment ?? "sandbox") === "producao";
+
+        return (
+          <div className="space-y-5">
+
+            {/* ─── A — Ambiente ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("A","Ambiente do Motor Split Payment","Controla se o motor opera em modo de testes ou em produção real","bg-indigo-100 text-indigo-700")}
+              <div className="flex gap-3 mb-4">
+                {(["sandbox","producao"] as const).map(env => (
+                  <button key={env} onClick={() => upd("environment", env)}
+                    className={`flex-1 flex flex-col items-center gap-1 px-4 py-4 rounded-xl border-2 transition-all font-bold text-sm ${
+                      (sp.environment ?? "sandbox") === env
+                        ? env === "producao"
+                          ? "bg-emerald-500 border-emerald-500 text-white shadow-md"
+                          : "bg-amber-400 border-amber-400 text-white shadow-md"
+                        : "border-slate-200 text-slate-500 hover:border-slate-300 bg-white"
+                    }`}>
+                    <span className="text-2xl">{env === "sandbox" ? "🧪" : "🚀"}</span>
+                    <span>{env === "sandbox" ? "Sandbox" : "Produção"}</span>
+                    <span className="font-normal text-xs opacity-80">{env === "sandbox" ? "Testes sem efeito real" : "Transacções reais EMIS"}</span>
+                  </button>
+                ))}
+              </div>
+              {isProducao && (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 font-medium">
+                  <AlertTriangle className="w-4 h-4 shrink-0"/>
+                  Ambiente de produção activo — todas as transacções processadas são reais e irreversíveis.
+                </div>
+              )}
+            </div>
+
+            {/* ─── B — Taxas e Comissões ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("B","Taxas e Comissões","Percentagens aplicadas globalmente a todas as transacções split — podem ser refinadas por escola","bg-violet-100 text-violet-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Taxa de Comissão da Plataforma <span className="text-red-500">*</span>
+                    <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">taxa_comissao_pct</code></span>
+                  </label>
+                  <div className="relative">
+                    <input type="number" min={0} max={100} step={0.01}
+                      value={String(sp.taxa_comissao_pct ?? "5.00")}
+                      onChange={e => upd("taxa_comissao_pct", e.target.value)}
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 pr-8"/>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Percentagem retida pela Kiwara sobre cada liquidação. Padrão: 5,00%</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Taxa IRT / AGT <span className="text-red-500">*</span>
+                    <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">taxa_irt_pct</code></span>
+                  </label>
+                  <div className="relative">
+                    <input type="number" min={0} max={100} step={0.01}
+                      value={String(sp.taxa_irt_pct ?? "6.50")}
+                      onChange={e => upd("taxa_irt_pct", e.target.value)}
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 pr-8"/>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Imposto sobre Rendimento do Trabalho (retenção na fonte). Padrão: 6,50%</p>
+                </div>
+
+                {/* Resumo calculado */}
+                {(() => {
+                  const comissao = parseFloat(String(sp.taxa_comissao_pct ?? 5));
+                  const irt = parseFloat(String(sp.taxa_irt_pct ?? 6.5));
+                  const exemplo = 10000; // 100,00 AOA em cêntimos / como referência: 10 000 Kz
+                  const comissaoVal = (exemplo * comissao / 100).toFixed(2);
+                  const irtVal = (exemplo * comissao / 100 * irt / 100).toFixed(2);
+                  const liquido = (exemplo - parseFloat(comissaoVal) - parseFloat(irtVal)).toFixed(2);
+                  return (
+                    <div className="sm:col-span-2 bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                      <p className="text-xs font-bold text-indigo-700 mb-2 flex items-center gap-1"><Zap className="w-3 h-3"/> Simulação para 10.000 Kz</p>
+                      <div className="grid grid-cols-3 gap-3 text-xs">
+                        <div className="text-center">
+                          <p className="text-slate-500">Comissão Plataforma</p>
+                          <p className="font-bold text-indigo-700 text-sm mt-0.5">{parseFloat(comissaoVal).toLocaleString("pt-AO")} Kz</p>
+                          <p className="text-slate-400">{comissao}%</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-slate-500">Retenção IRT</p>
+                          <p className="font-bold text-amber-600 text-sm mt-0.5">{parseFloat(irtVal).toLocaleString("pt-AO")} Kz</p>
+                          <p className="text-slate-400">{irt}% s/ comissão</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-slate-500">Líquido para Escola</p>
+                          <p className="font-bold text-emerald-600 text-sm mt-0.5">{parseFloat(liquido).toLocaleString("pt-AO")} Kz</p>
+                          <p className="text-slate-400">após deduções</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* ─── C — Contas de Liquidação ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("C","Contas de Liquidação","IBANs onde os fundos são creditados após clearing EMIS","bg-blue-100 text-blue-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    IBAN de Trânsito / Escrow <span className="text-red-500">*</span>
+                    <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">conta_transito</code></span>
+                  </label>
+                  <input value={String(sp.conta_transito ?? "")}
+                    onChange={e => upd("conta_transito", e.target.value)}
+                    placeholder="AO06 0044 0000 0000 0000 0000 0"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Conta intermediária onde os fundos ficam em quarentena até confirmação de liquidação. Obrigatória.</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    IBAN da Plataforma (Comissões) <span className="text-red-500">*</span>
+                    <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">conta_plataforma_iban</code></span>
+                  </label>
+                  <input value={String(sp.conta_plataforma_iban ?? "")}
+                    onChange={e => upd("conta_plataforma_iban", e.target.value)}
+                    placeholder="AO06 0040 0000 0000 0000 0000 0"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">IBAN da Kiwara para recebimento das comissões após split. Exigido pelo BNA para registos contabilísticos.</p>
+                </div>
+                {spField("bna_lei_referencia","Referência Legal BNA",{placeholder:"Lei n.º 12/2021 — Sistema de Pagamentos de Angola",hint:"Enquadramento regulatório exibido nos comprovativos de split"})}
+                {spField("cod_instituicao_financeira","Código da IF de Liquidação",{placeholder:"Ex: 0044 (BFA)",hint:"Código BIC/SWIFT da instituição financeira de liquidação"})}
+              </div>
+            </div>
+
+            {/* ─── D — Canais EMIS Activos ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("D","Canais EMIS Activados","Defina quais os canais disponíveis para as escolas","bg-teal-100 text-teal-700")}
+              <div className="space-y-3">
+                {spToggle("canal_gpo_activo","💳 GPO — Gateway de Pagamentos Online","Cartões Multicaixa, Visa e Mastercard via Webframe EMIS. Liquidação D+0 (imediata).")}
+                {spToggle("canal_referencia_activo","🏧 Referência Multicaixa","Pagamento em ATM ou Multicaixa Express com referência numérica. Fluxo: PENDING → CLEARING → SETTLED.")}
+                {spToggle("canal_sdd_activo","📋 Débito Direto (SDD)","Débito automático em conta bancária com mandato assinado. Fluxo: PENDING → CLEARING → SETTLED.")}
+              </div>
+
+              {/* Parâmetros por canal */}
+              <div className="mt-5 space-y-4">
+                {/* GPO */}
+                {sp.canal_gpo_activo && (
+                  <div className="border border-blue-100 bg-blue-50/50 rounded-xl p-4">
+                    <p className="text-xs font-bold text-blue-700 mb-3 flex items-center gap-1.5"><Globe className="w-3.5 h-3.5"/> Parâmetros GPO</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Modo de Captura</label>
+                        <select value={String(sp.gpo_capture_mode ?? "imediata")} onChange={e => upd("gpo_capture_mode", e.target.value)}
+                          className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30 bg-white">
+                          <option value="imediata">Imediata (D+0) — captura automática após autorização</option>
+                          <option value="manual">Manual — captura explícita via API</option>
+                        </select>
+                        <p className="text-xs text-slate-400 mt-1">Modo imediata recomendado para propinas</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Timeout de Captura (horas)</label>
+                        <input type="number" min={1} max={168}
+                          value={String(sp.gpo_captura_timeout_h ?? "24")}
+                          onChange={e => upd("gpo_captura_timeout_h", e.target.value)}
+                          className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30"/>
+                        <p className="text-xs text-slate-400 mt-1">Após este prazo a transacção expira automaticamente</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* REFERENCIA */}
+                {sp.canal_referencia_activo && (
+                  <div className="border border-purple-100 bg-purple-50/50 rounded-xl p-4">
+                    <p className="text-xs font-bold text-purple-700 mb-3 flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5"/> Parâmetros Referência Multicaixa</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Entidade Padrão</label>
+                        <input value={String(sp.ref_entidade_padrao ?? "")}
+                          onChange={e => upd("ref_entidade_padrao", e.target.value)}
+                          placeholder="Ex: 11111"
+                          className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30"/>
+                        <p className="text-xs text-slate-400 mt-1">Entidade Multicaixa usada se não configurada a nível da escola</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Prazo Padrão de Referências (dias)</label>
+                        <input type="number" min={1} max={365}
+                          value={String(sp.ref_prazo_dias ?? "3")}
+                          onChange={e => upd("ref_prazo_dias", e.target.value)}
+                          className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30"/>
+                        <p className="text-xs text-slate-400 mt-1">Dias antes de expirar (usados se escola não definir)</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SDD */}
+                {sp.canal_sdd_activo && (
+                  <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl p-4">
+                    <p className="text-xs font-bold text-emerald-700 mb-3 flex items-center gap-1.5"><ArrowLeftRight className="w-3.5 h-3.5"/> Parâmetros SDD</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-emerald-100">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-700">Pré-notificação D-1</p>
+                          <p className="text-xs text-slate-400">Notificar devedor 1 dia antes do débito (recomendado)</p>
+                        </div>
+                        <button type="button" onClick={() => upd("sdd_pre_notificacao_d1", !sp.sdd_pre_notificacao_d1)}
+                          className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${sp.sdd_pre_notificacao_d1 ? "bg-emerald-500" : "bg-slate-300"}`}>
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${sp.sdd_pre_notificacao_d1 ? "translate-x-4" : "translate-x-0"}`}/>
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-emerald-100">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-700">Confirmação D+0 Obrigatória</p>
+                          <p className="text-xs text-slate-400">Aguardar confirmação EMIS antes de marcar SETTLED</p>
+                        </div>
+                        <button type="button" onClick={() => upd("sdd_confirmacao_d0", !sp.sdd_confirmacao_d0)}
+                          className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${sp.sdd_confirmacao_d0 ? "bg-emerald-500" : "bg-slate-300"}`}>
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${sp.sdd_confirmacao_d0 ? "translate-x-4" : "translate-x-0"}`}/>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ─── E — Webhooks e Notificações ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("E","Webhooks e Notificações","URLs chamadas pelo motor quando uma transacção muda de estado","bg-orange-100 text-orange-700")}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  {spField("webhook_url","URL de Webhook de Liquidação",{placeholder:"https://plataforma.kiwara.tech/webhooks/splitpay",hint:"POST enviado com payload assinado em cada mudança de estado: PENDING→CLEARING→SETTLED"})}
+                </div>
+                {spField("webhook_secret","Segredo de Assinatura do Webhook",{secret:true,hint:"Chave HMAC-SHA256 para validar autenticidade do payload recebido"})}
+                {spField("webhook_retry_max","Nº Máximo de Retentativas",{type:"number",placeholder:"3",hint:"Tentativas antes de marcar webhook como falhado"})}
+                <div className="sm:col-span-2">
+                  {spField("notificacao_email_admin","E-mail de Alertas Operacionais",{placeholder:"ops@kiwara.tech",hint:"Recebe alertas de falhas de liquidação, certificados a expirar e erros críticos do motor"})}
+                </div>
+              </div>
+            </div>
+
+            {/* ─── F — Configurações Avançadas ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("F","Configurações Avançadas do Motor","Parâmetros de idempotência, retentativa e logging","bg-slate-100 text-slate-600")}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Janela de Idempotência (min)</label>
+                  <input type="number" min={1} max={1440}
+                    value={String(sp.idempotency_window_min ?? "60")}
+                    onChange={e => upd("idempotency_window_min", e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Pedidos duplicados dentro desta janela são rejeitados</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Máx. Tentativas por Transacção</label>
+                  <input type="number" min={1} max={10}
+                    value={String(sp.max_retry_attempts ?? "3")}
+                    onChange={e => upd("max_retry_attempts", e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Após este limite a transacção passa a FAILED</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nível de Logging</label>
+                  <select value={String(sp.log_level ?? "normal")} onChange={e => upd("log_level", e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 bg-white">
+                    <option value="off">Off — sem logs</option>
+                    <option value="normal">Normal — erros + estados</option>
+                    <option value="verbose">Verbose — payloads completos</option>
+                    <option value="debug">Debug — tudo (apenas sandbox)</option>
+                  </select>
+                  <p className="text-xs text-slate-400 mt-1">Verbose e Debug apenas em ambiente sandbox</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {spToggle("modo_manutencao","Modo de Manutenção","Suspende o processamento de novas transacções — as existentes continuam em curso")}
+                {spToggle("auto_settlement_enabled","Liquidação Automática","Avança automaticamente transacções em CLEARING para SETTLED após confirmação EMIS")}
+              </div>
+            </div>
+
+            {/* ─── G — Teste + Guardar ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("G","Validar e Guardar Configurações","Teste de conectividade ao motor e gravação dos parâmetros","bg-indigo-100 text-indigo-700")}
+
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-5">
+                <p className="text-xs font-bold text-indigo-700 mb-2 flex items-center gap-1.5"><Zap className="w-3 h-3"/> O que o teste valida:</p>
+                <ol className="text-xs text-indigo-800 space-y-1 list-decimal list-inside">
+                  <li>Verifica que os IBANs de trânsito e plataforma têm formato angolano válido (AO06…)</li>
+                  <li>Confirma que as taxas estão dentro dos limites regulatórios BNA (comissão ≤ 15%, IRT ≤ 50%)</li>
+                  <li>Valida que pelo menos um canal EMIS está activado</li>
+                  <li>Testa conectividade ao endpoint de liquidação configurado</li>
+                </ol>
+              </div>
+
+              <ConnBadge res={testResult.split_payment}/>
+
+              <div className="flex items-center justify-between mt-5 pt-5 border-t border-slate-100 gap-3">
+                <button onClick={() => test("split_payment")} disabled={!!testing}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
+                  {testing === "split_payment" ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
+                  {testing === "split_payment" ? "A validar motor..." : "Testar Motor Split Payment"}
+                </button>
+                <button onClick={() => save("split_payment")} disabled={!!saving}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
+                  {saving === "split_payment" ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved === "split_payment" ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                  {saved === "split_payment" ? "Guardado com sucesso!" : "Gravar Configurações Split Payment"}
                 </button>
               </div>
             </div>

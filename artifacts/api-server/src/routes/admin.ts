@@ -1734,7 +1734,7 @@ router.put("/admin/emis-config", adminAuth, async (req, res) => {
 /* ─── POST /admin/emis-config/test/:service ─── */
 router.post("/admin/emis-config/test/:service", adminAuth, async (req, res) => {
   const { service } = req.params;
-  const allowed = ["gpo", "mcx", "debito_direto"];
+  const allowed = ["gpo", "mcx", "debito_direto", "split_payment"];
   if (!allowed.includes(service))
     return res.status(400).json({ error: `Serviço inválido. Use: ${allowed.join(", ")}.` });
 
