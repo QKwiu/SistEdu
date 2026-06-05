@@ -8071,6 +8071,67 @@ function ConfiguracoesTecnicasView() {
                   <p className="text-xs text-slate-400 mt-1">Imposto sobre Rendimento do Trabalho (retenção na fonte). Padrão: 6,50%</p>
                 </div>
 
+                {/* ── Motor IRT — parâmetros configuráveis ── */}
+                <div className="sm:col-span-2 border border-amber-100 bg-amber-50/60 rounded-xl p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-amber-800">Motor IRT — Parâmetros Regulatórios</p>
+                      <p className="text-xs text-amber-600">Configurações de retenção na fonte conforme Código do IRT (Lei n.º 18/14 + DL n.º 5/11)</p>
+                    </div>
+                    <button type="button" onClick={() => upd("irt_activo", !sp.irt_activo)}
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${sp.irt_activo ? "bg-amber-500" : "bg-slate-300"}`}>
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${sp.irt_activo ? "translate-x-4" : "translate-x-0"}`}/>
+                    </button>
+                  </div>
+                  <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${!sp.irt_activo ? "opacity-40 pointer-events-none" : ""}`}>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Regime de Tributação</label>
+                      <select value={String(sp.irt_tipo ?? "retencao_fonte")} onChange={e => upd("irt_tipo", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white">
+                        <option value="retencao_fonte">Retenção na Fonte — artigo 67.º CIRT</option>
+                        <option value="isento">Isento — entidade sem fins lucrativos</option>
+                        <option value="diferido">Diferido — liquidação trimestral AGT</option>
+                      </select>
+                      <p className="text-xs text-slate-400 mt-1">Modalidade aplicada ao cálculo de IRT sobre comissões</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Periodicidade de Reporte AGT</label>
+                      <select value={String(sp.irt_periodicidade ?? "mensal")} onChange={e => upd("irt_periodicidade", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white">
+                        <option value="mensal">Mensal — até ao dia 10 do mês seguinte</option>
+                        <option value="trimestral">Trimestral — artigo 71.º CIRT</option>
+                      </select>
+                      <p className="text-xs text-slate-400 mt-1">Frequência de entrega da declaração Modelo 4 à AGT</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Código Contribuinte AGT <span className="text-red-500">*</span></label>
+                      <input value={String(sp.irt_codigo_agt ?? "")}
+                        onChange={e => upd("irt_codigo_agt", e.target.value)}
+                        placeholder="Ex: 5400123456"
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30"/>
+                      <p className="text-xs text-slate-400 mt-1">NIF da plataforma para emissão de Modelo 4 e Declaração de Retenção</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Limiar de Isenção (Kz)</label>
+                      <input type="number" min={0} step={100}
+                        value={String(sp.irt_threshold_isencao_kz ?? "0")}
+                        onChange={e => upd("irt_threshold_isencao_kz", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30"/>
+                      <p className="text-xs text-slate-400 mt-1">Comissões abaixo deste valor ficam isentas de retenção (0 = sempre retém)</p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Código de Rendimento AGT</label>
+                      <select value={String(sp.irt_codigo_rendimento ?? "prestacao_servicos")} onChange={e => upd("irt_codigo_rendimento", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white">
+                        <option value="prestacao_servicos">Prestação de Serviços — código 108</option>
+                        <option value="comissoes">Comissões e Corretagens — código 112</option>
+                        <option value="outros_rendimentos">Outros Rendimentos — código 199</option>
+                      </select>
+                      <p className="text-xs text-slate-400 mt-1">Natureza do rendimento para classificação fiscal na declaração AGT</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Resumo calculado */}
                 {(() => {
                   const comissao = parseFloat(String(sp.taxa_comissao_pct ?? 5));
@@ -8131,6 +8192,36 @@ function ConfiguracoesTecnicasView() {
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
                   <p className="text-xs text-slate-400 mt-1">IBAN da Kiwara para recebimento das comissões após split. Exigido pelo BNA para registos contabilísticos.</p>
                 </div>
+
+                {/* IBAN do Comerciante — destino principal após split */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    IBAN do Comerciante (Escola) <span className="text-red-500">*</span>
+                    <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">conta_comerciante_iban</code></span>
+                  </label>
+                  <input value={String(sp.conta_comerciante_iban ?? "")}
+                    onChange={e => upd("conta_comerciante_iban", e.target.value)}
+                    placeholder="AO06 0006 0000 0000 0000 0000 0"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Conta destino do comerciante (escola) após dedução da comissão e IRT. Corresponde ao nó "Comerciante" no fluxo de escrow EMIS/SPTR — crédito via instrução SPTR após clearing da conta de trânsito.</p>
+                </div>
+
+                {/* Diagrama de fluxo resumido */}
+                <div className="sm:col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Fluxo de Fundos (Fase 2 — Liquidação)</p>
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                    <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-800 font-medium border border-amber-200">Conta Trânsito</span>
+                    <span className="text-slate-400">→</span>
+                    <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-medium border border-emerald-200">Motor Split</span>
+                    <span className="text-slate-400">→</span>
+                    <span className="px-2 py-1 rounded-lg bg-blue-100 text-blue-800 font-medium border border-blue-200">🏫 Comerciante (Escola)</span>
+                    <span className="text-slate-300">+</span>
+                    <span className="px-2 py-1 rounded-lg bg-indigo-100 text-indigo-800 font-medium border border-indigo-200">💠 Plataforma (Comissão)</span>
+                    <span className="text-slate-300">+</span>
+                    <span className="px-2 py-1 rounded-lg bg-amber-100 text-amber-800 font-medium border border-amber-200">📋 IRT (AGT)</span>
+                  </div>
+                </div>
+
                 {spField("bna_lei_referencia","Referência Legal BNA",{placeholder:"Lei n.º 12/2021 — Sistema de Pagamentos de Angola",hint:"Enquadramento regulatório exibido nos comprovativos de split"})}
                 {spField("cod_instituicao_financeira","Código da IF de Liquidação",{placeholder:"Ex: 0044 (BFA)",hint:"Código BIC/SWIFT da instituição financeira de liquidação"})}
               </div>
@@ -8229,9 +8320,158 @@ function ConfiguracoesTecnicasView() {
               </div>
             </div>
 
-            {/* ─── E — Webhooks e Notificações ─── */}
+            {/* ─── E — Janelas de Liquidação SPTR ─── */}
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              {spSecHeader("E","Webhooks e Notificações","URLs chamadas pelo motor quando uma transacção muda de estado","bg-orange-100 text-orange-700")}
+              {spSecHeader("E","Janelas de Liquidação SPTR","Configuração dos ciclos de processamento do Sistema de Pagamentos em Tempo Real Angola","bg-cyan-100 text-cyan-700")}
+
+              {/* Toggle liquidação imediata */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between p-4 rounded-xl border-2 border-cyan-200 bg-cyan-50">
+                  <div>
+                    <p className="text-sm font-bold text-cyan-900 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5"/> Liquidação Imediata SPTR (Real-Time)</p>
+                    <p className="text-xs text-cyan-700 mt-0.5">Processa cada instrução imediatamente — apenas se o banco parceiro oferecer API SPTR com SLA garantido (latência {"<"} 5 s)</p>
+                  </div>
+                  <button type="button" onClick={() => upd("sptr_liquidacao_imediata", !sp.sptr_liquidacao_imediata)}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${sp.sptr_liquidacao_imediata ? "bg-cyan-500" : "bg-slate-300"}`}>
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${sp.sptr_liquidacao_imediata ? "translate-x-5" : "translate-x-0"}`}/>
+                  </button>
+                </div>
+                {sp.sptr_liquidacao_imediata && (
+                  <p className="text-xs text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2 mt-2 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0"/> Modo imediato activo — as janelas abaixo são ignoradas. Garanta que o SLA do banco parceiro está contratualmente assegurado.
+                  </p>
+                )}
+              </div>
+
+              {/* 3 Janelas de liquidação */}
+              <div className={`space-y-4 ${sp.sptr_liquidacao_imediata ? "opacity-40 pointer-events-none" : ""}`}>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Janelas de Processamento em Lote</p>
+
+                {/* Janela 1 */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+                    <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">1</div>
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-slate-700">Janela 1 — Madrugada / Manhã</p>
+                      <p className="text-[10px] text-slate-400">Instruções recebidas entre 00:00 e o corte da Janela 1</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 p-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Hora de Envio SPTR</label>
+                      <input type="time"
+                        value={String(sp.sptr_janela1_hora ?? "08:00")}
+                        onChange={e => upd("sptr_janela1_hora", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
+                      <p className="text-xs text-slate-400 mt-1">Hora de envio do lote de instruções ao SPTR</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Corte de Recepção (início)</label>
+                      <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50">
+                        <span className="text-xs font-mono text-slate-600">00:00</span>
+                        <span className="text-[10px] text-slate-400">— fixo (início do dia)</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">Instruções após 00:00 são capturadas para este lote</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Janela 2 */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+                    <div className="w-6 h-6 rounded-full bg-violet-100 text-violet-700 text-xs font-bold flex items-center justify-center flex-shrink-0">2</div>
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-slate-700">Janela 2 — Meio-dia</p>
+                      <p className="text-[10px] text-slate-400">Instruções recebidas entre o corte da Janela 1 e o corte da Janela 2</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 p-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Hora de Envio SPTR</label>
+                      <input type="time"
+                        value={String(sp.sptr_janela2_hora ?? "12:00")}
+                        onChange={e => upd("sptr_janela2_hora", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/30"/>
+                      <p className="text-xs text-slate-400 mt-1">Hora de envio do segundo lote ao SPTR</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Corte de Recepção (início)</label>
+                      <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50">
+                        <span className="text-xs font-mono text-slate-600">{String(sp.sptr_janela1_hora ?? "08:00")} + 1 min</span>
+                        <span className="text-[10px] text-slate-400">— calculado</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">Captura instruções recebidas após a Janela 1</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Janela 3 */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+                    <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center justify-center flex-shrink-0">3</div>
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-slate-700">Janela 3 — Tarde</p>
+                      <p className="text-[10px] text-slate-400">Instruções recebidas entre o corte da Janela 2 e o corte da Janela 3</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 p-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Hora de Envio SPTR</label>
+                      <input type="time"
+                        value={String(sp.sptr_janela3_hora ?? "17:00")}
+                        onChange={e => upd("sptr_janela3_hora", e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
+                      <p className="text-xs text-slate-400 mt-1">Hora de envio do terceiro lote ao SPTR (última janela do dia)</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Corte de Recepção (início)</label>
+                      <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50">
+                        <span className="text-xs font-mono text-slate-600">{String(sp.sptr_janela2_hora ?? "12:00")} + 1 min</span>
+                        <span className="text-[10px] text-slate-400">— calculado</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">Captura instruções recebidas após a Janela 2</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Instrução fora de janela */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <p className="text-xs font-bold text-slate-600 mb-3 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5"/> Comportamento Fora de Janelas e Dias Não Úteis</p>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">Processar nos Fins-de-Semana e Feriados</p>
+                        <p className="text-xs text-slate-400">Por omissão, fora de dias úteis as instruções ficam em estado QUEUED até ao próximo dia útil</p>
+                      </div>
+                      <button type="button" onClick={() => upd("sptr_processar_fds_feriados", !sp.sptr_processar_fds_feriados)}
+                        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ml-4 ${sp.sptr_processar_fds_feriados ? "bg-emerald-500" : "bg-slate-300"}`}>
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${sp.sptr_processar_fds_feriados ? "translate-x-4" : "translate-x-0"}`}/>
+                      </button>
+                    </div>
+                    {!sp.sptr_processar_fds_feriados && (
+                      <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs text-amber-700">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5"/>
+                        <span>Estado padrão: instruções recebidas fora de dias úteis ou após a Janela 3 ficam em <code className="bg-amber-100 px-1 rounded font-mono">QUEUED</code> e são processadas na Janela 1 do próximo dia útil.</span>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Feriados Nacionais (Angola)</label>
+                      <textarea
+                        value={String(sp.sptr_feriados_csv ?? "2026-01-01,2026-02-04,2026-03-08,2026-04-04,2026-05-01,2026-06-01,2026-09-17,2026-11-02,2026-11-11,2026-12-25")}
+                        onChange={e => upd("sptr_feriados_csv", e.target.value)}
+                        rows={3}
+                        placeholder="AAAA-MM-DD, separados por vírgula"
+                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-slate-400/30 resize-none"/>
+                      <p className="text-xs text-slate-400 mt-1">Datas em formato ISO 8601 separadas por vírgula — o motor não processa em SPTR nestes dias (salvo se o toggle acima estiver activo)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── F — Webhooks e Notificações ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("F","Webhooks e Notificações","URLs chamadas pelo motor quando uma transacção muda de estado","bg-orange-100 text-orange-700")}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   {spField("webhook_url","URL de Webhook de Liquidação",{placeholder:"https://plataforma.kiwara.tech/webhooks/splitpay",hint:"POST enviado com payload assinado em cada mudança de estado: PENDING→CLEARING→SETTLED"})}
@@ -8244,9 +8484,9 @@ function ConfiguracoesTecnicasView() {
               </div>
             </div>
 
-            {/* ─── F — Configurações Avançadas ─── */}
+            {/* ─── G — Configurações Avançadas ─── */}
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              {spSecHeader("F","Configurações Avançadas do Motor","Parâmetros de idempotência, retentativa e logging","bg-slate-100 text-slate-600")}
+              {spSecHeader("G","Configurações Avançadas do Motor","Parâmetros de idempotência, retentativa e logging","bg-slate-100 text-slate-600")}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Janela de Idempotência (min)</label>
@@ -8282,9 +8522,9 @@ function ConfiguracoesTecnicasView() {
               </div>
             </div>
 
-            {/* ─── G — Teste + Guardar ─── */}
+            {/* ─── H — Teste + Guardar ─── */}
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              {spSecHeader("G","Validar e Guardar Configurações","Teste de conectividade ao motor e gravação dos parâmetros","bg-indigo-100 text-indigo-700")}
+              {spSecHeader("H","Validar e Guardar Configurações","Teste de conectividade ao motor e gravação dos parâmetros","bg-indigo-100 text-indigo-700")}
 
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-5">
                 <p className="text-xs font-bold text-indigo-700 mb-2 flex items-center gap-1.5"><Zap className="w-3 h-3"/> O que o teste valida:</p>
