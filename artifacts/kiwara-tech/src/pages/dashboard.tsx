@@ -12328,7 +12328,7 @@ export default function Dashboard() {
   type NavEntry = NavLeaf | NavGroup;
 
   /* Views that belong to each accordion group */
-  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios", "caixa", "splitpay"];
+  const FINANCIAL_VIEWS: DashView[] = ["reconciliacao", "relatorios", "caixa"];
   const COMUNICAR_VIEWS: DashView[] = ["comunicar", "ocorrencias"];
 
   /* ── Structured NAV ── */
@@ -12343,7 +12343,6 @@ export default function Dashboard() {
         { type: "item", key: "caixa",         icon: <Receipt className="w-4 h-4"/>,     label: "Fatura de Caixa" },
         { type: "item", key: "reconciliacao", icon: <ShieldCheck className="w-4 h-4"/>, label: "Reconciliação" },
         { type: "item", key: "relatorios",    icon: <BarChart3 className="w-4 h-4"/>,   label: "Relatórios" },
-        { type: "item", key: "splitpay",      icon: <ArrowLeftRight className="w-4 h-4"/>, label: "Split Payment" },
       ],
     },
     { type: "item",  key: "debito_direto", icon: <CreditCard className="w-5 h-5"/>,     label: "Débito Direto", badge: ddPendingCount },
