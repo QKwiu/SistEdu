@@ -4,6 +4,9 @@ import { randomUUID } from "crypto";
 
 const router = Router();
 
+/* ─── Canal EMIS Types ─── */
+type CanalEMIS = "GPO" | "REFERENCIA" | "SDD";
+
 /* ─── DB Migration ─── */
 export async function runSplitPayMigration(): Promise<void> {
   await pool.query(`
@@ -23,6 +26,7 @@ export async function runSplitPayMigration(): Promise<void> {
       id                        SERIAL PRIMARY KEY,
       school_id                 INTEGER REFERENCES schools(id) ON DELETE CASCADE,
       idempotency_key           TEXT UNIQUE NOT NULL,
+      canal_pagamento           TEXT NOT NULL DEFAULT 'REFERENCIA',
       valor_total               BIGINT NOT NULL,
       taxa_comissao_pct         DECIMAL(5,2) NOT NULL,
       taxa_irt_pct              DECIMAL(5,2) NOT NULL,
@@ -31,22 +35,56 @@ export async function runSplitPayMigration(): Promise<void> {
       valor_liquido_comerciante BIGINT NOT NULL,
       conta_destino             TEXT NOT NULL,
       estado                    TEXT NOT NULL DEFAULT 'PENDING',
-      referencia_emis           TEXT,
       descricao                 TEXT,
       aluno_nome                TEXT,
       propina_id                INTEGER,
       tentativas                INTEGER NOT NULL DEFAULT 0,
       erro_descricao            TEXT,
+      -- REFERENCIA fields
+      entidade                  TEXT,
+      referencia_multicaixa     TEXT,
+      data_limite_pagamento     DATE,
+      -- GPO fields
+      referencia_gpo            TEXT,
+      cartao_tipo               TEXT,
+      -- SDD fields
+      mandato_id                INTEGER,
+      nib_devedor               TEXT,
+      -- legacy (kept for compat)
+      referencia_emis           TEXT,
       criado_em                 TIMESTAMP NOT NULL DEFAULT NOW(),
       atualizado_em             TIMESTAMP NOT NULL DEFAULT NOW(),
       liquidado_em              TIMESTAMP,
-      CONSTRAINT chk_estado CHECK (estado IN ('PENDING','CLEARING','SETTLED','FAILED')),
+      CONSTRAINT chk_canal    CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD')),
+      CONSTRAINT chk_estado   CHECK (estado IN ('PENDING','CLEARING','SETTLED','FAILED')),
       CONSTRAINT chk_integridade CHECK (comissao_plataforma + retencao_irt + valor_liquido_comerciante = valor_total)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_school ON splitpay_transacoes(school_id);
-    CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_estado ON splitpay_transacoes(estado);
+    CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_school  ON splitpay_transacoes(school_id);
+    CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_estado  ON splitpay_transacoes(estado);
+    CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_canal   ON splitpay_transacoes(canal_pagamento);
   `);
+
+  /* ── Idempotent ALTER for existing installs ── */
+  const alters = [
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS canal_pagamento TEXT NOT NULL DEFAULT 'REFERENCIA'`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS entidade TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS referencia_multicaixa TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS data_limite_pagamento DATE`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS referencia_gpo TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS cartao_tipo TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS mandato_id INTEGER`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS nib_devedor TEXT`,
+  ];
+  for (const sql of alters) {
+    try { await pool.query(sql); } catch { /* column may already exist */ }
+  }
+
+  /* Add canal CHECK constraint if missing */
+  try {
+    await pool.query(`ALTER TABLE splitpay_transacoes ADD CONSTRAINT chk_canal CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD'))`);
+  } catch { /* already exists */ }
+
   console.log("[splitpay] migration ok");
 }
 
@@ -77,14 +115,34 @@ function calcularSplit(valorTotal: bigint, taxaComissaoPct: number, taxaIrtPct: 
   return { comissao, retencaoIrt, valorLiquido, integridadeOk };
 }
 
+/* ─── Canal-specific validation ─── */
+function validarCamposCanal(canal: CanalEMIS, body: any): string | null {
+  if (canal === "REFERENCIA") {
+    if (!body.entidade?.trim()) return "Canal REFERENCIA requer o campo entidade (ex: '001').";
+    if (!body.referencia_multicaixa?.trim()) return "Canal REFERENCIA requer referencia_multicaixa.";
+  }
+  if (canal === "GPO") {
+    /* referencia_gpo pode chegar depois do redirect do gateway — não obrigatório na criação */
+  }
+  if (canal === "SDD") {
+    if (!body.mandato_id && !body.nib_devedor?.trim())
+      return "Canal SDD requer mandato_id ou nib_devedor.";
+  }
+  return null;
+}
+
+/* ─── Canal metadata (for display) ─── */
+const CANAL_INFO: Record<CanalEMIS, { label: string; descricao: string }> = {
+  GPO:       { label: "GPO",                descricao: "Gateway de Pagamentos Online (EMIS) — cartão VISA/Mastercard" },
+  REFERENCIA:{ label: "Ref. Multicaixa",    descricao: "Pagamento por Referência EMIS — ATM / Internet Banking / App" },
+  SDD:       { label: "Débito Direto (SDD)",descricao: "Sistema de Débito Directo BNA — mandato pré-autorizado" },
+};
+
 /* ─── Helpers ─── */
 async function getOrCreateConfig(schoolId: number) {
   let r = await pool.query("SELECT * FROM splitpay_config WHERE school_id=$1", [schoolId]);
   if (!r.rows.length) {
-    r = await pool.query(
-      `INSERT INTO splitpay_config (school_id) VALUES ($1) RETURNING *`,
-      [schoolId]
-    );
+    r = await pool.query(`INSERT INTO splitpay_config (school_id) VALUES ($1) RETURNING *`, [schoolId]);
   }
   return r.rows[0];
 }
@@ -97,7 +155,7 @@ router.get("/school/splitpay/config", schoolAuth, async (req: any, res) => {
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
     const cfg = await getOrCreateConfig(school.school_id);
-    res.json(cfg);
+    res.json({ ...cfg, canais_disponiveis: Object.entries(CANAL_INFO).map(([k, v]) => ({ canal: k, ...v })) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -145,9 +203,13 @@ router.post("/school/splitpay/simular", schoolAuth, async (req: any, res) => {
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-    const { valor_total, taxa_comissao_pct, taxa_irt_pct } = req.body;
+    const { valor_total, taxa_comissao_pct, taxa_irt_pct, canal_pagamento = "REFERENCIA" } = req.body;
     if (!valor_total || valor_total <= 0)
       return res.status(400).json({ error: "valor_total inválido." });
+
+    const canal = canal_pagamento as CanalEMIS;
+    if (!["GPO","REFERENCIA","SDD"].includes(canal))
+      return res.status(400).json({ error: "canal_pagamento inválido. Use: GPO, REFERENCIA, SDD." });
 
     const cfg = await getOrCreateConfig(school.school_id);
     const comissaoPct = Number(taxa_comissao_pct ?? cfg.taxa_comissao_pct);
@@ -157,6 +219,8 @@ router.post("/school/splitpay/simular", schoolAuth, async (req: any, res) => {
     const { comissao, retencaoIrt, valorLiquido, integridadeOk } = calcularSplit(vTotal, comissaoPct, irtPct);
 
     res.json({
+      canal_pagamento: canal,
+      canal_info: CANAL_INFO[canal],
       valor_total: Number(vTotal),
       taxa_comissao_pct: comissaoPct,
       taxa_irt_pct: irtPct,
@@ -164,6 +228,11 @@ router.post("/school/splitpay/simular", schoolAuth, async (req: any, res) => {
       retencao_irt: Number(retencaoIrt),
       valor_liquido_comerciante: Number(valorLiquido),
       integridade_ok: integridadeOk,
+      fluxo: canal === "GPO"
+        ? ["Cliente paga online via GPO/EMIS","D+0: crédito conta trânsito","Split automático","TBI → plataforma + comerciante"]
+        : canal === "SDD"
+        ? ["Mandato SDD pré-autorizado pelo devedor","D-1: pré-notificação BNA","D+0: débito automático na conta","Split automático pós-captura","TBI → plataforma + comerciante"]
+        : ["Cliente paga via ATM/App referência","D+0: crédito conta trânsito","Split automático","TBI → plataforma + comerciante"],
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -178,10 +247,27 @@ router.post("/school/splitpay/transacoes", schoolAuth, async (req: any, res) => 
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-    const { valor_total, conta_destino, descricao, aluno_nome, propina_id, referencia_emis, idempotency_key } = req.body;
+    const {
+      valor_total, conta_destino, descricao, aluno_nome, propina_id, idempotency_key,
+      /* canal */
+      canal_pagamento = "REFERENCIA",
+      /* REFERENCIA */
+      entidade, referencia_multicaixa, data_limite_pagamento,
+      /* GPO */
+      referencia_gpo, cartao_tipo,
+      /* SDD */
+      mandato_id, nib_devedor,
+    } = req.body;
 
     if (!valor_total || valor_total <= 0) return res.status(400).json({ error: "valor_total inválido." });
     if (!conta_destino?.trim()) return res.status(400).json({ error: "conta_destino (IBAN comerciante) é obrigatório." });
+
+    const canal = canal_pagamento as CanalEMIS;
+    if (!["GPO","REFERENCIA","SDD"].includes(canal))
+      return res.status(400).json({ error: "canal_pagamento inválido. Use: GPO, REFERENCIA, SDD." });
+
+    const canalErr = validarCamposCanal(canal, req.body);
+    if (canalErr) return res.status(400).json({ error: canalErr });
 
     const cfg = await getOrCreateConfig(school.school_id);
     const comissaoPct = Number(cfg.taxa_comissao_pct);
@@ -201,15 +287,24 @@ router.post("/school/splitpay/transacoes", schoolAuth, async (req: any, res) => 
 
     const r = await pool.query(
       `INSERT INTO splitpay_transacoes
-         (school_id, idempotency_key, valor_total, taxa_comissao_pct, taxa_irt_pct,
+         (school_id, idempotency_key, canal_pagamento,
+          valor_total, taxa_comissao_pct, taxa_irt_pct,
           comissao_plataforma, retencao_irt, valor_liquido_comerciante,
-          conta_destino, descricao, aluno_nome, propina_id, referencia_emis)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          conta_destino, descricao, aluno_nome, propina_id,
+          entidade, referencia_multicaixa, data_limite_pagamento,
+          referencia_gpo, cartao_tipo,
+          mandato_id, nib_devedor)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
-      [school.school_id, ikey, Number(vTotal), comissaoPct, irtPct,
-       Number(comissao), Number(retencaoIrt), Number(valorLiquido),
-       conta_destino.trim(), descricao ?? null, aluno_nome ?? null,
-       propina_id ?? null, referencia_emis ?? null]
+      [
+        school.school_id, ikey, canal,
+        Number(vTotal), comissaoPct, irtPct,
+        Number(comissao), Number(retencaoIrt), Number(valorLiquido),
+        conta_destino.trim(), descricao ?? null, aluno_nome ?? null, propina_id ?? null,
+        entidade ?? null, referencia_multicaixa ?? null, data_limite_pagamento ?? null,
+        referencia_gpo ?? null, cartao_tipo ?? null,
+        mandato_id ?? null, nib_devedor ?? null,
+      ]
     );
 
     res.status(201).json(r.rows[0]);
@@ -227,19 +322,19 @@ router.get("/school/splitpay/transacoes", schoolAuth, async (req: any, res) => {
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-    const { estado, limit = "50", offset = "0" } = req.query as any;
+    const { estado, canal, limit = "50", offset = "0" } = req.query as any;
     const params: any[] = [school.school_id, parseInt(limit), parseInt(offset)];
     let where = "WHERE school_id=$1";
     if (estado) { where += ` AND estado=$${params.length + 1}`; params.push(estado); }
+    if (canal)  { where += ` AND canal_pagamento=$${params.length + 1}`; params.push(canal); }
 
     const r = await pool.query(
       `SELECT * FROM splitpay_transacoes ${where} ORDER BY criado_em DESC LIMIT $2 OFFSET $3`,
       params
     );
-    const total = await pool.query(
-      `SELECT COUNT(*) FROM splitpay_transacoes ${where}`,
-      params.slice(0, estado ? 4 : 1).concat(estado ? [] : [])
-    );
+    const totalParams = [school.school_id, ...(estado ? [estado] : []), ...(canal ? [canal] : [])];
+    const totalWhere = "WHERE school_id=$1" + (estado ? ` AND estado=$2` : "") + (canal && estado ? ` AND canal_pagamento=$3` : canal ? ` AND canal_pagamento=$2` : "");
+    const total = await pool.query(`SELECT COUNT(*) FROM splitpay_transacoes ${totalWhere}`, totalParams);
     res.json({ transacoes: r.rows, total: parseInt((total.rows[0] as any).count) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -266,7 +361,8 @@ router.get("/school/splitpay/transacoes/:id", schoolAuth, async (req: any, res) 
 
 /* ═══════════════════════════════════════════
    POST /school/splitpay/transacoes/:id/liquidar
-   Advance: PENDING → CLEARING → SETTLED
+   PENDING → CLEARING → SETTLED
+   GPO: PENDING→SETTLED (captura imediata, sem clearing intermédio)
    ═══════════════════════════════════════════ */
 router.post("/school/splitpay/transacoes/:id/liquidar", schoolAuth, async (req: any, res) => {
   try {
@@ -280,14 +376,20 @@ router.post("/school/splitpay/transacoes/:id/liquidar", schoolAuth, async (req: 
     if (!r.rows.length) return res.status(404).json({ error: "Transacção não encontrada." });
     const tx = r.rows[0];
 
-    const transitions: Record<string, string> = { PENDING: "CLEARING", CLEARING: "SETTLED" };
+    /* GPO: captura imediata — PENDING → SETTLED (sem clearing intermédio) */
+    const transitions: Record<string, string> =
+      tx.canal_pagamento === "GPO"
+        ? { PENDING: "SETTLED" }
+        : { PENDING: "CLEARING", CLEARING: "SETTLED" };
+
     const next = transitions[tx.estado];
-    if (!next) return res.status(400).json({ error: `Não é possível avançar do estado ${tx.estado}.` });
+    if (!next) return res.status(400).json({ error: `Não é possível avançar do estado ${tx.estado} para o canal ${tx.canal_pagamento}.` });
 
     const updated = await pool.query(
-      `UPDATE splitpay_transacoes SET estado=$1, atualizado_em=NOW(),
-        liquidado_em = CASE WHEN $1='SETTLED' THEN NOW() ELSE liquidado_em END,
-        tentativas = tentativas + 1
+      `UPDATE splitpay_transacoes SET
+         estado=$1, atualizado_em=NOW(),
+         liquidado_em = CASE WHEN $1='SETTLED' THEN NOW() ELSE liquidado_em END,
+         tentativas = tentativas + 1
        WHERE id=$2 RETURNING *`,
       [next, tx.id]
     );
@@ -299,7 +401,6 @@ router.post("/school/splitpay/transacoes/:id/liquidar", schoolAuth, async (req: 
 
 /* ═══════════════════════════════════════════
    POST /school/splitpay/transacoes/:id/falhar
-   Mark as FAILED with reason
    ═══════════════════════════════════════════ */
 router.post("/school/splitpay/transacoes/:id/falhar", schoolAuth, async (req: any, res) => {
   try {
@@ -328,7 +429,7 @@ router.post("/school/splitpay/transacoes/:id/falhar", schoolAuth, async (req: an
 
 /* ═══════════════════════════════════════════
    POST /school/splitpay/transacoes/:id/reprocessar
-   FAILED → PENDING (retry)
+   FAILED → PENDING (retry, max 5)
    ═══════════════════════════════════════════ */
 router.post("/school/splitpay/transacoes/:id/reprocessar", schoolAuth, async (req: any, res) => {
   try {
@@ -357,39 +458,54 @@ router.post("/school/splitpay/transacoes/:id/reprocessar", schoolAuth, async (re
 
 /* ═══════════════════════════════════════════
    GET /school/splitpay/ledger
-   Aggregated stats per state
+   Aggregated stats: by state + by canal
    ═══════════════════════════════════════════ */
 router.get("/school/splitpay/ledger", schoolAuth, async (req: any, res) => {
   try {
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-    const r = await pool.query(
-      `SELECT
-         estado,
-         COUNT(*)                         AS num_transacoes,
-         COALESCE(SUM(valor_total),0)     AS total_captado,
-         COALESCE(SUM(comissao_plataforma),0) AS total_comissao,
-         COALESCE(SUM(retencao_irt),0)    AS total_irt,
-         COALESCE(SUM(valor_liquido_comerciante),0) AS total_liquido
-       FROM splitpay_transacoes
-       WHERE school_id=$1
-       GROUP BY estado`,
-      [school.school_id]
-    );
+    const [porEstado, porCanal, global] = await Promise.all([
+      pool.query(
+        `SELECT estado,
+           COUNT(*) AS num_transacoes,
+           COALESCE(SUM(valor_total),0) AS total_captado,
+           COALESCE(SUM(comissao_plataforma),0) AS total_comissao,
+           COALESCE(SUM(retencao_irt),0) AS total_irt,
+           COALESCE(SUM(valor_liquido_comerciante),0) AS total_liquido
+         FROM splitpay_transacoes WHERE school_id=$1 GROUP BY estado`,
+        [school.school_id]
+      ),
+      pool.query(
+        `SELECT canal_pagamento,
+           COUNT(*) AS num_transacoes,
+           COALESCE(SUM(valor_total),0) AS total_captado,
+           COALESCE(SUM(comissao_plataforma),0) AS total_comissao,
+           COALESCE(SUM(retencao_irt),0) AS total_irt,
+           COALESCE(SUM(valor_liquido_comerciante),0) AS total_liquido
+         FROM splitpay_transacoes WHERE school_id=$1 GROUP BY canal_pagamento`,
+        [school.school_id]
+      ),
+      pool.query(
+        `SELECT
+           COUNT(*) AS num_transacoes,
+           COALESCE(SUM(valor_total),0) AS total_captado,
+           COALESCE(SUM(comissao_plataforma),0) AS total_comissao,
+           COALESCE(SUM(retencao_irt),0) AS total_irt,
+           COALESCE(SUM(valor_liquido_comerciante),0) AS total_liquido
+         FROM splitpay_transacoes WHERE school_id=$1`,
+        [school.school_id]
+      ),
+    ]);
 
-    const global = await pool.query(
-      `SELECT
-         COUNT(*)                         AS num_transacoes,
-         COALESCE(SUM(valor_total),0)     AS total_captado,
-         COALESCE(SUM(comissao_plataforma),0) AS total_comissao,
-         COALESCE(SUM(retencao_irt),0)    AS total_irt,
-         COALESCE(SUM(valor_liquido_comerciante),0) AS total_liquido
-       FROM splitpay_transacoes WHERE school_id=$1`,
-      [school.school_id]
-    );
-
-    res.json({ por_estado: r.rows, global: global.rows[0] });
+    res.json({
+      por_estado: porEstado.rows,
+      por_canal: porCanal.rows.map(r => ({
+        ...r,
+        canal_info: CANAL_INFO[r.canal_pagamento as CanalEMIS] ?? { label: r.canal_pagamento, descricao: "" },
+      })),
+      global: global.rows[0],
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

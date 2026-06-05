@@ -6254,22 +6254,34 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
    SplitPayView — Middleware de Pagamentos (Split Engine)
    ═══════════════════════════════════════════════════════════════ */
 type SpEstado = "PENDING" | "CLEARING" | "SETTLED" | "FAILED";
+type SpCanal = "GPO" | "REFERENCIA" | "SDD";
 interface SpConfig {
   taxa_comissao_pct: number; taxa_irt_pct: number;
   conta_transito: string | null; conta_plataforma_iban: string | null; ativo: boolean;
+  canais_disponiveis?: { canal: SpCanal; label: string; descricao: string }[];
 }
 interface SpTransacao {
   id: number; idempotency_key: string; valor_total: number;
   taxa_comissao_pct: number; taxa_irt_pct: number;
   comissao_plataforma: number; retencao_irt: number; valor_liquido_comerciante: number;
-  conta_destino: string; estado: SpEstado; referencia_emis: string | null;
+  conta_destino: string; estado: SpEstado; canal_pagamento: SpCanal;
   descricao: string | null; aluno_nome: string | null; tentativas: number;
   erro_descricao: string | null; criado_em: string; liquidado_em: string | null;
+  /* REFERENCIA */ entidade: string | null; referencia_multicaixa: string | null; data_limite_pagamento: string | null;
+  /* GPO */ referencia_gpo: string | null; cartao_tipo: string | null;
+  /* SDD */ mandato_id: number | null; nib_devedor: string | null;
 }
 interface SpLedger {
   por_estado: { estado: string; num_transacoes: string; total_captado: string; total_comissao: string; total_irt: string; total_liquido: string }[];
+  por_canal: { canal_pagamento: string; canal_info: { label: string; descricao: string }; num_transacoes: string; total_captado: string; total_comissao: string; total_irt: string; total_liquido: string }[];
   global: { num_transacoes: string; total_captado: string; total_comissao: string; total_irt: string; total_liquido: string };
 }
+
+const SP_CANAL_META: Record<SpCanal, { label: string; badge: string; icon: string; desc: string }> = {
+  REFERENCIA: { label: "Ref. Multicaixa", badge: "bg-blue-100 text-blue-700",    icon: "🏧", desc: "ATM / Internet Banking / App" },
+  GPO:        { label: "GPO Online",      badge: "bg-violet-100 text-violet-700", icon: "💳", desc: "Gateway de Pagamentos Online EMIS" },
+  SDD:        { label: "Débito Direto",   badge: "bg-teal-100 text-teal-700",     icon: "📋", desc: "Mandato pré-autorizado BNA/SDD" },
+};
 
 const ESTADO_META: Record<SpEstado, { label: string; color: string; bg: string }> = {
   PENDING:  { label: "Pendente",   color: "text-amber-700",   bg: "bg-amber-100" },
@@ -6291,6 +6303,7 @@ function SplitPayView({ token }: { token: string }) {
   const [cfgEdit, setCfgEdit] = useState({ taxa_comissao_pct: "5.00", taxa_irt_pct: "6.50", conta_transito: "", conta_plataforma_iban: "" });
 
   const [simValor, setSimValor] = useState("");
+  const [simCanal, setSimCanal] = useState<SpCanal>("REFERENCIA");
   const [simResult, setSimResult] = useState<any>(null);
   const [simLoading, setSimLoading] = useState(false);
 
@@ -6299,7 +6312,13 @@ function SplitPayView({ token }: { token: string }) {
   const [txFilter, setTxFilter] = useState<SpEstado | "">("");
   const [txSelected, setTxSelected] = useState<SpTransacao | null>(null);
 
-  const [newTx, setNewTx] = useState({ valor_total: "", conta_destino: "", descricao: "", aluno_nome: "" });
+  const [newTx, setNewTx] = useState({
+    valor_total: "", conta_destino: "", descricao: "", aluno_nome: "",
+    canal_pagamento: "REFERENCIA" as SpCanal,
+    /* REFERENCIA */ entidade: "", referencia_multicaixa: "", data_limite_pagamento: "",
+    /* GPO */ referencia_gpo: "", cartao_tipo: "VISA",
+    /* SDD */ nib_devedor: "",
+  });
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -6359,7 +6378,7 @@ function SplitPayView({ token }: { token: string }) {
     if (!simValor || isNaN(parseFloat(simValor))) return;
     setSimLoading(true); setSimResult(null);
     try {
-      const r = await fetch(`${API}/school/splitpay/simular`, { method: "POST", headers: h, body: JSON.stringify({ valor_total: parseFloat(simValor) * 100 }) });
+      const r = await fetch(`${API}/school/splitpay/simular`, { method: "POST", headers: h, body: JSON.stringify({ valor_total: parseFloat(simValor) * 100, canal_pagamento: simCanal }) });
       if (r.ok) setSimResult(await r.json());
     } finally { setSimLoading(false); }
   };
@@ -6368,14 +6387,28 @@ function SplitPayView({ token }: { token: string }) {
     setCreating(true); setCreateErr("");
     try {
       if (!newTx.valor_total || !newTx.conta_destino) { setCreateErr("Valor e IBAN destino são obrigatórios."); return; }
-      const r = await fetch(`${API}/school/splitpay/transacoes`, { method: "POST", headers: h, body: JSON.stringify({
+      const body: any = {
         valor_total: parseFloat(newTx.valor_total) * 100,
         conta_destino: newTx.conta_destino,
         descricao: newTx.descricao || null,
         aluno_nome: newTx.aluno_nome || null,
-      })});
+        canal_pagamento: newTx.canal_pagamento,
+      };
+      if (newTx.canal_pagamento === "REFERENCIA") {
+        body.entidade = newTx.entidade || null;
+        body.referencia_multicaixa = newTx.referencia_multicaixa || null;
+        body.data_limite_pagamento = newTx.data_limite_pagamento || null;
+      } else if (newTx.canal_pagamento === "GPO") {
+        body.referencia_gpo = newTx.referencia_gpo || null;
+        body.cartao_tipo = newTx.cartao_tipo || null;
+      } else if (newTx.canal_pagamento === "SDD") {
+        body.nib_devedor = newTx.nib_devedor || null;
+      }
+      const r = await fetch(`${API}/school/splitpay/transacoes`, { method: "POST", headers: h, body: JSON.stringify(body) });
       if (r.ok) {
-        setShowCreateForm(false); setNewTx({ valor_total: "", conta_destino: "", descricao: "", aluno_nome: "" }); loadTxs(); loadLedger();
+        setShowCreateForm(false);
+        setNewTx({ valor_total: "", conta_destino: "", descricao: "", aluno_nome: "", canal_pagamento: "REFERENCIA", entidade: "", referencia_multicaixa: "", data_limite_pagamento: "", referencia_gpo: "", cartao_tipo: "VISA", nib_devedor: "" });
+        loadTxs(); loadLedger();
       } else { const d = await r.json(); setCreateErr(d.error ?? "Erro ao criar transacção."); }
     } finally { setCreating(false); }
   };
@@ -6451,7 +6484,26 @@ function SplitPayView({ token }: { token: string }) {
             {/* Create form */}
             {showCreateForm && (
               <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 space-y-4">
-                <h3 className="font-semibold text-indigo-900 flex items-center gap-2"><Plus className="w-4 h-4"/>Registar Nova Transacção</h3>
+                <h3 className="font-semibold text-indigo-900 flex items-center gap-2"><Plus className="w-4 h-4"/>Registar Nova Transacção EMIS</h3>
+
+                {/* Canal selector */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-2">Canal de Pagamento EMIS *</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["REFERENCIA","GPO","SDD"] as SpCanal[]).map(c => {
+                      const m = SP_CANAL_META[c];
+                      return (
+                        <button key={c} type="button" onClick={() => setNewTx(p => ({...p, canal_pagamento: c}))}
+                          className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-semibold transition-all ${newTx.canal_pagamento === c ? "border-indigo-500 bg-white shadow-sm" : "border-transparent bg-white/60 hover:bg-white"}`}>
+                          <span className="text-xl">{m.icon}</span>
+                          <span className={newTx.canal_pagamento === c ? "text-indigo-700" : "text-slate-600"}>{m.label}</span>
+                          <span className="font-normal text-[10px] text-slate-400 text-center leading-tight">{m.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Valor Total (AOA) *</label>
@@ -6478,6 +6530,62 @@ function SplitPayView({ token }: { token: string }) {
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
                   </div>
                 </div>
+
+                {/* REFERENCIA-specific fields */}
+                {newTx.canal_pagamento === "REFERENCIA" && (
+                  <div className="grid grid-cols-3 gap-3 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                    <div>
+                      <label className="block text-xs font-medium text-blue-700 mb-1">Entidade *</label>
+                      <input value={newTx.entidade} onChange={e => setNewTx(p => ({...p, entidade: e.target.value}))}
+                        placeholder="Ex: 001"
+                        className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-blue-700 mb-1">Referência Multicaixa *</label>
+                      <input value={newTx.referencia_multicaixa} onChange={e => setNewTx(p => ({...p, referencia_multicaixa: e.target.value}))}
+                        placeholder="Ex: 123456789"
+                        className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-blue-700 mb-1">Data Limite (opcional)</label>
+                      <input value={newTx.data_limite_pagamento} onChange={e => setNewTx(p => ({...p, data_limite_pagamento: e.target.value}))}
+                        type="date"
+                        className="w-full px-3 py-2 rounded-xl border border-blue-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    </div>
+                  </div>
+                )}
+
+                {/* GPO-specific fields */}
+                {newTx.canal_pagamento === "GPO" && (
+                  <div className="grid grid-cols-2 gap-3 p-4 bg-violet-50 rounded-xl border border-violet-100">
+                    <div>
+                      <label className="block text-xs font-medium text-violet-700 mb-1">Referência GPO (opcional)</label>
+                      <input value={newTx.referencia_gpo} onChange={e => setNewTx(p => ({...p, referencia_gpo: e.target.value}))}
+                        placeholder="ID da transacção GPO/EMIS"
+                        className="w-full px-3 py-2 rounded-xl border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-violet-700 mb-1">Tipo de Cartão</label>
+                      <select value={newTx.cartao_tipo} onChange={e => setNewTx(p => ({...p, cartao_tipo: e.target.value}))}
+                        className="w-full px-3 py-2 rounded-xl border border-violet-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
+                        <option value="VISA">VISA</option>
+                        <option value="MASTERCARD">Mastercard</option>
+                        <option value="MULTICAIXA_EXPRESS">Multicaixa Express</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* SDD-specific fields */}
+                {newTx.canal_pagamento === "SDD" && (
+                  <div className="p-4 bg-teal-50 rounded-xl border border-teal-100">
+                    <label className="block text-xs font-medium text-teal-700 mb-1">NIB Devedor *</label>
+                    <input value={newTx.nib_devedor} onChange={e => setNewTx(p => ({...p, nib_devedor: e.target.value}))}
+                      placeholder="NIB da conta devedora (banco parceiro)"
+                      className="w-full px-3 py-2 rounded-xl border border-teal-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-300"/>
+                    <p className="text-[11px] text-teal-600 mt-1">O mandato SDD deve estar previamente autorizado pelo titular da conta no módulo Débito Direto.</p>
+                  </div>
+                )}
                 {cfg && newTx.valor_total && !isNaN(parseFloat(newTx.valor_total)) && (() => {
                   const v = parseFloat(newTx.valor_total);
                   const com = Math.floor(v * Number(cfg.taxa_comissao_pct) / 100);
@@ -6527,11 +6635,23 @@ function SplitPayView({ token }: { token: string }) {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${meta.bg} ${meta.color}`}>{meta.label}</span>
+                              {(() => { const cm = SP_CANAL_META[tx.canal_pagamento]; return cm ? <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cm.badge}`}>{cm.icon} {cm.label}</span> : null; })()}
                               <span className="font-semibold text-slate-800 text-sm">{fmtKz(tx.valor_total / 100)}</span>
                               {tx.aluno_nome && <span className="text-xs text-slate-500">· {tx.aluno_nome}</span>}
                               {tx.descricao && <span className="text-xs text-slate-400 truncate max-w-[200px]">{tx.descricao}</span>}
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5 font-mono truncate">{tx.conta_destino}</p>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              <p className="text-[11px] text-slate-400 font-mono truncate">{tx.conta_destino}</p>
+                              {tx.canal_pagamento === "REFERENCIA" && tx.referencia_multicaixa && (
+                                <span className="text-[11px] text-blue-500 font-mono">Ref: {tx.entidade}/{tx.referencia_multicaixa}</span>
+                              )}
+                              {tx.canal_pagamento === "GPO" && tx.referencia_gpo && (
+                                <span className="text-[11px] text-violet-500 font-mono">GPO: {tx.referencia_gpo}</span>
+                              )}
+                              {tx.canal_pagamento === "SDD" && tx.nib_devedor && (
+                                <span className="text-[11px] text-teal-500 font-mono">NIB: {tx.nib_devedor}</span>
+                              )}
+                            </div>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-sm font-semibold text-emerald-700">{fmtKz(tx.valor_liquido_comerciante / 100)}</p>
@@ -6565,6 +6685,30 @@ function SplitPayView({ token }: { token: string }) {
                                 <p className="text-sm text-red-700">{tx.erro_descricao}</p>
                               </div>
                             )}
+                            {/* Canal-specific metadata */}
+                            {tx.canal_pagamento === "REFERENCIA" && (tx.entidade || tx.referencia_multicaixa) && (
+                              <div className="flex items-center gap-3 flex-wrap text-xs bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                                <span className="font-semibold text-blue-700">🏧 Referência Multicaixa</span>
+                                {tx.entidade && <span className="font-mono text-blue-600">Entidade: {tx.entidade}</span>}
+                                {tx.referencia_multicaixa && <span className="font-mono text-blue-600">Ref: {tx.referencia_multicaixa}</span>}
+                                {tx.data_limite_pagamento && <span className="text-blue-500">Válida até: {new Date(tx.data_limite_pagamento).toLocaleDateString("pt-PT")}</span>}
+                              </div>
+                            )}
+                            {tx.canal_pagamento === "GPO" && (
+                              <div className="flex items-center gap-3 flex-wrap text-xs bg-violet-50 border border-violet-100 rounded-xl px-4 py-3">
+                                <span className="font-semibold text-violet-700">💳 Gateway de Pagamentos Online (GPO)</span>
+                                {tx.cartao_tipo && <span className="font-mono text-violet-600">{tx.cartao_tipo}</span>}
+                                {tx.referencia_gpo && <span className="font-mono text-violet-600">ID: {tx.referencia_gpo}</span>}
+                                <span className="text-violet-500">Captura imediata D+0 — sem fase CLEARING</span>
+                              </div>
+                            )}
+                            {tx.canal_pagamento === "SDD" && (
+                              <div className="flex items-center gap-3 flex-wrap text-xs bg-teal-50 border border-teal-100 rounded-xl px-4 py-3">
+                                <span className="font-semibold text-teal-700">📋 Débito Direto (SDD/BNA)</span>
+                                {tx.nib_devedor && <span className="font-mono text-teal-600">NIB: {tx.nib_devedor}</span>}
+                                {tx.mandato_id && <span className="text-teal-500">Mandato #{tx.mandato_id}</span>}
+                              </div>
+                            )}
                             <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
                               <span className="font-mono bg-slate-100 px-2 py-1 rounded">ID: {tx.idempotency_key.slice(0,8)}…</span>
                               <span>Tentativas: {tx.tentativas}</span>
@@ -6575,7 +6719,11 @@ function SplitPayView({ token }: { token: string }) {
                                 <button onClick={() => handleAdvance(tx)}
                                   className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-indigo-700 transition-colors">
                                   <ArrowRight className="w-3.5 h-3.5"/>
-                                  {tx.estado === "PENDING" ? "Emitir TBI (→ CLEARING)" : "Confirmar Liquidação (→ SETTLED)"}
+                                  {tx.canal_pagamento === "GPO" && tx.estado === "PENDING"
+                                    ? "Confirmar Captura GPO (→ SETTLED)"
+                                    : tx.estado === "PENDING"
+                                      ? "Emitir TBI (→ CLEARING)"
+                                      : "Confirmar Liquidação (→ SETTLED)"}
                                 </button>
                               )}
                               {(tx.estado === "PENDING" || tx.estado === "CLEARING") && (
@@ -6630,6 +6778,35 @@ function SplitPayView({ token }: { token: string }) {
                 ))}
               </div>
 
+              {/* By canal */}
+              {ledger.por_canal.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-semibold text-slate-900">Volume por Canal EMIS</h3></div>
+                  <div className="divide-y divide-slate-100">
+                    {ledger.por_canal.map(row => {
+                      const m = SP_CANAL_META[row.canal_pagamento as SpCanal];
+                      return (
+                        <div key={row.canal_pagamento} className="px-5 py-4 flex items-center gap-4">
+                          <div className="flex items-center gap-2 w-36 shrink-0">
+                            <span className="text-lg">{m?.icon ?? "💰"}</span>
+                            <div>
+                              <p className="text-xs font-bold text-slate-800">{m?.label ?? row.canal_pagamento}</p>
+                              <p className="text-[10px] text-slate-400">{parseInt(row.num_transacoes)} transacções</p>
+                            </div>
+                          </div>
+                          <div className="flex-1 grid grid-cols-4 gap-4 text-sm">
+                            <div><p className="font-semibold text-slate-800">{fmtKz(parseFloat(row.total_captado) / 100)}</p><p className="text-xs text-slate-400">captado</p></div>
+                            <div><p className="font-semibold text-indigo-600">{fmtKz(parseFloat(row.total_comissao) / 100)}</p><p className="text-xs text-slate-400">comissão</p></div>
+                            <div><p className="font-semibold text-amber-600">{fmtKz(parseFloat(row.total_irt) / 100)}</p><p className="text-xs text-slate-400">IRT</p></div>
+                            <div><p className="font-semibold text-emerald-600">{fmtKz(parseFloat(row.total_liquido) / 100)}</p><p className="text-xs text-slate-400">líquido</p></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* By state */}
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-semibold text-slate-900">Distribuição por Estado do Ledger</h3></div>
@@ -6673,8 +6850,27 @@ function SplitPayView({ token }: { token: string }) {
         {spTab === "simular" && (
           <div className="max-w-xl space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
-              <h3 className="font-semibold text-slate-900 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-indigo-500"/>Calculadora de Split</h3>
-              <p className="text-sm text-slate-500">Introduza o valor da propina para ver como o split é distribuído com base nas taxas configuradas.</p>
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-indigo-500"/>Calculadora de Split por Canal EMIS</h3>
+              <p className="text-sm text-slate-500">Seleccione o canal e introduza o valor para ver a distribuição e o fluxo de liquidação.</p>
+
+              {/* Canal selector */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-2">Canal de Pagamento EMIS</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["REFERENCIA","GPO","SDD"] as SpCanal[]).map(c => {
+                    const m = SP_CANAL_META[c];
+                    return (
+                      <button key={c} type="button" onClick={() => { setSimCanal(c); setSimResult(null); }}
+                        className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-semibold transition-all ${simCanal === c ? "border-indigo-500 bg-indigo-50 shadow-sm" : "border-slate-200 bg-slate-50 hover:bg-slate-100"}`}>
+                        <span className="text-xl">{m.icon}</span>
+                        <span className={simCanal === c ? "text-indigo-700" : "text-slate-600"}>{m.label}</span>
+                        <span className="font-normal text-[10px] text-slate-400 text-center leading-tight">{m.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Valor Total da Propina (AOA)</label>
                 <div className="flex gap-3">
@@ -6697,22 +6893,43 @@ function SplitPayView({ token }: { token: string }) {
             {simResult && (
               <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-slate-900">Resultado do Split</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{SP_CANAL_META[simCanal]?.icon}</span>
+                    <h3 className="font-semibold text-slate-900">Split — {simResult.canal_info?.label ?? simCanal}</h3>
+                  </div>
                   {simResult.integridade_ok
                     ? <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600"><CheckCircle2 className="w-4 h-4"/>Integridade OK</span>
                     : <span className="flex items-center gap-1 text-xs font-semibold text-red-600"><AlertCircle className="w-4 h-4"/>Falha de integridade</span>}
                 </div>
                 {[
-                  { label: "Débito ao cliente (EMIS/Multicaixa)", value: simResult.valor_total / 100, color: "bg-slate-50 border-slate-200", text: "text-slate-900", sub: "100% do valor — crédito na conta trânsito" },
-                  { label: `Comissão plataforma (${simResult.taxa_comissao_pct}%)`, value: simResult.comissao_plataforma / 100, color: "bg-indigo-50 border-indigo-200", text: "text-indigo-700", sub: "TBI → conta da plataforma" },
-                  { label: `Retenção IRT / AGT (${simResult.taxa_irt_pct}% sobre comissão)`, value: simResult.retencao_irt / 100, color: "bg-amber-50 border-amber-200", text: "text-amber-700", sub: "Retido para entrega mensal à AGT" },
-                  { label: "Valor líquido comerciante", value: simResult.valor_liquido_comerciante / 100, color: "bg-emerald-50 border-emerald-200", text: "text-emerald-700", sub: "TBI → conta IBAN do comerciante (D+0/D+1)" },
+                  { label: `Débito ao cliente via ${simResult.canal_info?.label ?? simCanal}`, value: simResult.valor_total / 100, color: "bg-slate-50 border-slate-200", text: "text-slate-900", sub: "100% do valor — crédito na conta trânsito (escrow)" },
+                  { label: `Comissão plataforma (${simResult.taxa_comissao_pct}%)`, value: simResult.comissao_plataforma / 100, color: "bg-indigo-50 border-indigo-200", text: "text-indigo-700", sub: "TBI → conta da plataforma (IBAN configurado)" },
+                  { label: `Retenção IRT / AGT (${simResult.taxa_irt_pct}% sobre comissão)`, value: simResult.retencao_irt / 100, color: "bg-amber-50 border-amber-200", text: "text-amber-700", sub: "Retido para entrega mensal à AGT (Cód. IRT Art. 67º)" },
+                  { label: "Valor líquido comerciante", value: simResult.valor_liquido_comerciante / 100, color: "bg-emerald-50 border-emerald-200", text: "text-emerald-700", sub: simCanal === "GPO" ? "TBI → IBAN comerciante D+0 (captura imediata)" : simCanal === "SDD" ? "TBI → IBAN comerciante após débito confirmado" : "TBI → IBAN comerciante D+0/D+1" },
                 ].map(({ label, value, color, text, sub }) => (
                   <div key={label} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${color}`}>
                     <div><p className={`text-sm font-medium ${text}`}>{label}</p><p className="text-xs text-slate-400 mt-0.5">{sub}</p></div>
                     <p className={`text-base font-bold ${text}`}>{fmtKz(value)}</p>
                   </div>
                 ))}
+
+                {/* Fluxo de liquidação */}
+                {simResult.fluxo && (
+                  <div className="border-t border-slate-100 pt-4">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Fluxo de Liquidação</p>
+                    <div className="flex items-start gap-0">
+                      {simResult.fluxo.map((step: string, i: number) => (
+                        <div key={i} className="flex items-center">
+                          <div className="flex flex-col items-center">
+                            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</div>
+                            <p className="text-[10px] text-slate-600 text-center mt-1 max-w-[90px] leading-tight">{step}</p>
+                          </div>
+                          {i < simResult.fluxo.length - 1 && <ArrowRight className="w-3 h-3 text-slate-300 mx-1 mt-[-8px] shrink-0"/>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
