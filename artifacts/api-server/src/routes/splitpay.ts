@@ -85,6 +85,26 @@ export async function runSplitPayMigration(): Promise<void> {
     await pool.query(`ALTER TABLE splitpay_transacoes ADD CONSTRAINT chk_canal CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD'))`);
   } catch { /* already exists */ }
 
+  /* ── splitpay_comerciante_config — per-merchant overrides ── */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS splitpay_comerciante_config (
+      id                    SERIAL PRIMARY KEY,
+      school_id             INTEGER REFERENCES schools(id) ON DELETE CASCADE UNIQUE,
+      override_global       BOOLEAN NOT NULL DEFAULT false,
+      taxa_comissao_pct     DECIMAL(5,2) NOT NULL DEFAULT 5.00,
+      irt_activo            BOOLEAN NOT NULL DEFAULT true,
+      irt_taxa_pct          DECIMAL(5,2) NOT NULL DEFAULT 6.50,
+      conta_comerciante_iban TEXT,
+      agenda_liquidacao     TEXT NOT NULL DEFAULT 'diario',
+      kyc_status            TEXT NOT NULL DEFAULT 'pendente',
+      kyc_notas             TEXT,
+      criado_em             TIMESTAMP NOT NULL DEFAULT NOW(),
+      atualizado_em         TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT chk_agenda CHECK (agenda_liquidacao IN ('imediato','diario','semanal')),
+      CONSTRAINT chk_kyc    CHECK (kyc_status IN ('aprovado','pendente','bloqueado'))
+    );
+  `);
+
   console.log("[splitpay] migration ok");
 }
 

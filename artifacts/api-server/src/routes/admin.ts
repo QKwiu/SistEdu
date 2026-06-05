@@ -1753,6 +1753,125 @@ router.post("/admin/emis-config/test/:service", adminAuth, async (req, res) => {
   }
 });
 
+/* ════════════════════════════════════════════════════════════════
+   SPLIT PAYMENT — Parametrização por Comerciante
+════════════════════════════════════════════════════════════════ */
+
+/* ─── GET /admin/splitpay/comerciantes ─── */
+router.get("/admin/splitpay/comerciantes", adminAuth, async (_req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT s.id AS school_id, s.name, COALESCE(s.iban,'') AS school_iban,
+             COALESCE(c.override_global, false)         AS override_global,
+             COALESCE(c.taxa_comissao_pct, 5.00)        AS taxa_comissao_pct,
+             COALESCE(c.irt_activo, true)                AS irt_activo,
+             COALESCE(c.irt_taxa_pct, 6.50)             AS irt_taxa_pct,
+             COALESCE(c.conta_comerciante_iban, s.iban) AS conta_comerciante_iban,
+             COALESCE(c.agenda_liquidacao,'diario')      AS agenda_liquidacao,
+             COALESCE(c.kyc_status,'pendente')           AS kyc_status,
+             c.kyc_notas,
+             c.atualizado_em
+      FROM schools s
+      LEFT JOIN splitpay_comerciante_config c ON c.school_id = s.id
+      ORDER BY s.name
+    `);
+    res.json(r.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* ─── PUT /admin/splitpay/comerciantes/:school_id ─── */
+router.put("/admin/splitpay/comerciantes/:school_id", adminAuth, async (req, res) => {
+  try {
+    const schoolId = Number(req.params.school_id);
+    const { override_global, taxa_comissao_pct, irt_activo, irt_taxa_pct,
+            conta_comerciante_iban, agenda_liquidacao, kyc_status, kyc_notas } = req.body;
+    await pool.query(`
+      INSERT INTO splitpay_comerciante_config
+        (school_id, override_global, taxa_comissao_pct, irt_activo, irt_taxa_pct,
+         conta_comerciante_iban, agenda_liquidacao, kyc_status, kyc_notas)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ON CONFLICT (school_id) DO UPDATE SET
+        override_global       = EXCLUDED.override_global,
+        taxa_comissao_pct     = EXCLUDED.taxa_comissao_pct,
+        irt_activo            = EXCLUDED.irt_activo,
+        irt_taxa_pct          = EXCLUDED.irt_taxa_pct,
+        conta_comerciante_iban= EXCLUDED.conta_comerciante_iban,
+        agenda_liquidacao     = EXCLUDED.agenda_liquidacao,
+        kyc_status            = EXCLUDED.kyc_status,
+        kyc_notas             = EXCLUDED.kyc_notas,
+        atualizado_em         = NOW()
+    `, [schoolId,
+        override_global ?? false,
+        taxa_comissao_pct ?? 5.00,
+        irt_activo ?? true,
+        irt_taxa_pct ?? 6.50,
+        conta_comerciante_iban ?? null,
+        agenda_liquidacao ?? "diario",
+        kyc_status ?? "pendente",
+        kyc_notas ?? null]);
+    res.json({ ok: true });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
+/* ─── POST /admin/splitpay/simular/:school_id ─── */
+router.post("/admin/splitpay/simular/:school_id", adminAuth, async (req, res) => {
+  try {
+    const schoolId = Number(req.params.school_id);
+    const valorKz = Math.max(0.01, parseFloat(req.body?.valor_kz ?? "10000"));
+
+    /* ── Regras globais ── */
+    const globalR = await pool.query("SELECT value FROM platform_config WHERE key='emis_config'");
+    const globalSP = ((globalR.rows[0]?.value ?? {}) as Record<string, Record<string, unknown>>).split_payment ?? {};
+
+    /* ── Regras do comerciante ── */
+    const mr = await pool.query(`
+      SELECT s.id, s.name, s.iban,
+             c.override_global, c.taxa_comissao_pct, c.irt_activo, c.irt_taxa_pct,
+             c.conta_comerciante_iban, c.agenda_liquidacao, c.kyc_status
+      FROM schools s
+      LEFT JOIN splitpay_comerciante_config c ON c.school_id = s.id
+      WHERE s.id = $1
+    `, [schoolId]);
+    if (!mr.rows.length) return res.status(404).json({ error: "Escola não encontrada." });
+    const m = mr.rows[0];
+
+    const useOverride = !!m.override_global;
+    const taxaComissao = useOverride ? parseFloat(m.taxa_comissao_pct ?? 5) : parseFloat(String(globalSP.taxa_comissao_pct ?? 5));
+    const irtActivo   = useOverride ? !!m.irt_activo                         : !!globalSP.irt_activo;
+    const taxaIrt     = useOverride ? parseFloat(m.irt_taxa_pct ?? 6.5)     : parseFloat(String(globalSP.taxa_irt_pct ?? 6.5));
+
+    const comissao = Math.round(valorKz * taxaComissao / 100 * 100) / 100;
+    const irt      = irtActivo ? Math.round(comissao * taxaIrt / 100 * 100) / 100 : 0;
+    const liquido  = Math.round((valorKz - comissao - irt) * 100) / 100;
+    const integridadeOk = Math.abs(comissao + irt + liquido - valorKz) < 0.01;
+
+    const kycStatus = m.kyc_status ?? "pendente";
+    const kycBloqueado = kycStatus === "bloqueado";
+
+    res.json({
+      escola: { id: m.id, nome: m.name },
+      kyc_status: kycStatus,
+      kyc_bloqueado: kycBloqueado,
+      agenda_liquidacao: m.agenda_liquidacao ?? "diario",
+      conta_comerciante_iban: m.conta_comerciante_iban ?? m.iban ?? null,
+      fonte_regras: useOverride ? "individual" : "global",
+      regras_aplicadas: { taxa_comissao_pct: taxaComissao, irt_activo: irtActivo, irt_taxa_pct: taxaIrt },
+      simulacao: {
+        valor_total_kz: valorKz,
+        comissao_plataforma_kz: comissao,
+        retencao_irt_kz: irt,
+        liquido_comerciante_kz: liquido,
+        integridade_ok: integridadeOk,
+      },
+      aviso: kycBloqueado
+        ? "⚠️ KYC bloqueado — valor líquido ficará retido em PENDING na conta de trânsito até aprovação do KYC."
+        : kycStatus === "pendente"
+          ? "ℹ️ KYC pendente — liquidação ficará em QUEUED até aprovação."
+          : null,
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
+});
+
 /* ─── GET /admin/parametrizacao ─── */
 router.get("/admin/parametrizacao", adminAuth, async (_req, res) => {
   const r = await pool.query("SELECT value FROM platform_config WHERE key='parametrizacao'");

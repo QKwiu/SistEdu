@@ -7308,9 +7308,46 @@ function ConfiguracoesTecnicasView() {
   const [testResult, setTestResult] = useState<Record<EmisSection, ConnResult | null>>({ gpo: null, mcx: null, debito_direto: null, split_payment: null });
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
 
+  /* ── Per-merchant state ── */
+  type MerchantCfg = {
+    school_id: number; name: string; school_iban: string;
+    override_global: boolean; taxa_comissao_pct: number;
+    irt_activo: boolean; irt_taxa_pct: number;
+    conta_comerciante_iban: string; agenda_liquidacao: string;
+    kyc_status: string; kyc_notas: string | null; atualizado_em: string | null;
+  };
+  type SimResultMerchant = {
+    escola: { id: number; nome: string }; kyc_status: string; kyc_bloqueado: boolean;
+    agenda_liquidacao: string; conta_comerciante_iban: string | null; fonte_regras: string;
+    regras_aplicadas: { taxa_comissao_pct: number; irt_activo: boolean; irt_taxa_pct: number };
+    simulacao: { valor_total_kz: number; comissao_plataforma_kz: number; retencao_irt_kz: number; liquido_comerciante_kz: number; integridade_ok: boolean };
+    aviso: string | null;
+  };
+  const [merchants, setMerchants] = useState<MerchantCfg[]>([]);
+  const [merchantsLoading, setMerchantsLoading] = useState(false);
+  const [merchantExpanded, setMerchantExpanded] = useState<number | null>(null);
+  const [merchantEdits, setMerchantEdits] = useState<Record<number, Partial<MerchantCfg>>>({});
+  const [merchantSaving, setMerchantSaving] = useState<number | null>(null);
+  const [merchantSaved, setMerchantSaved] = useState<number | null>(null);
+  const [merchantSearch, setMerchantSearch] = useState("");
+  const [simMerchantId, setSimMerchantId] = useState<number | null>(null);
+  const [simValorKz, setSimValorKz] = useState("10000");
+  const [simMerchantLoading, setSimMerchantLoading] = useState(false);
+  const [simMerchantResult, setSimMerchantResult] = useState<SimResultMerchant | null>(null);
+
   useEffect(() => {
     api("/admin/emis-config").then(r => r.json()).then(d => setConfig(d));
   }, []);
+
+  useEffect(() => {
+    if (tab === "split_payment") {
+      setMerchantsLoading(true);
+      api("/admin/splitpay/comerciantes").then(r => r.json()).then((d: MerchantCfg[]) => {
+        setMerchants(d);
+        setMerchantsLoading(false);
+      }).catch(() => setMerchantsLoading(false));
+    }
+  }, [tab]);
 
   const update = (section: EmisSection, key: string, value: unknown) =>
     setConfig(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
@@ -8520,6 +8557,352 @@ function ConfiguracoesTecnicasView() {
                 {spToggle("modo_manutencao","Modo de Manutenção","Suspende o processamento de novas transacções — as existentes continuam em curso")}
                 {spToggle("auto_settlement_enabled","Liquidação Automática","Avança automaticamente transacções em CLEARING para SETTLED após confirmação EMIS")}
               </div>
+            </div>
+
+            {/* ─── I — Parametrização por Comerciante ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("I","Parametrização de Regras por Comerciante","Taxas, IRT e agenda de liquidação individuais por escola — sobrepõem as regras globais quando activado","bg-rose-100 text-rose-700")}
+
+              {/* Barra de pesquisa + reload */}
+              <div className="flex items-center gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"/>
+                  <input
+                    value={merchantSearch}
+                    onChange={e => setMerchantSearch(e.target.value)}
+                    placeholder="Pesquisar escola…"
+                    className="w-full border border-slate-300 rounded-xl pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400/30"/>
+                </div>
+                <button onClick={() => {
+                  setMerchantsLoading(true);
+                  api("/admin/splitpay/comerciantes").then(r => r.json()).then((d: MerchantCfg[]) => { setMerchants(d); setMerchantsLoading(false); }).catch(() => setMerchantsLoading(false));
+                }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">
+                  <RefreshCw className={`w-3.5 h-3.5 ${merchantsLoading ? "animate-spin" : ""}`}/>
+                  Recarregar
+                </button>
+              </div>
+
+              {merchantsLoading && (
+                <div className="flex items-center justify-center py-10 text-slate-400 text-sm gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin"/> A carregar comerciantes…
+                </div>
+              )}
+
+              {!merchantsLoading && merchants.length === 0 && (
+                <div className="text-center py-8 text-slate-400 text-sm">Nenhuma escola registada.</div>
+              )}
+
+              {!merchantsLoading && (
+                <div className="space-y-2">
+                  {merchants
+                    .filter(m => !merchantSearch || m.name.toLowerCase().includes(merchantSearch.toLowerCase()))
+                    .map(m => {
+                      const isOpen = merchantExpanded === m.school_id;
+                      const edits = merchantEdits[m.school_id] ?? {};
+                      const current = { ...m, ...edits };
+                      const isSaving = merchantSaving === m.school_id;
+                      const isSaved  = merchantSaved  === m.school_id;
+
+                      const kycColor = current.kyc_status === "aprovado"
+                        ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                        : current.kyc_status === "bloqueado"
+                          ? "bg-red-100 text-red-700 border-red-200"
+                          : "bg-amber-100 text-amber-700 border-amber-200";
+                      const kycLabel = current.kyc_status === "aprovado" ? "✅ KYC Aprovado"
+                        : current.kyc_status === "bloqueado" ? "🚫 KYC Bloqueado" : "⏳ KYC Pendente";
+
+                      const setEdit = (k: keyof MerchantCfg, v: unknown) =>
+                        setMerchantEdits(prev => ({ ...prev, [m.school_id]: { ...prev[m.school_id], [k]: v } }));
+
+                      const saveMerchant = async () => {
+                        setMerchantSaving(m.school_id);
+                        await api(`/admin/splitpay/comerciantes/${m.school_id}`, {
+                          method: "PUT",
+                          body: JSON.stringify({
+                            override_global: current.override_global,
+                            taxa_comissao_pct: parseFloat(String(current.taxa_comissao_pct)),
+                            irt_activo: current.irt_activo,
+                            irt_taxa_pct: parseFloat(String(current.irt_taxa_pct)),
+                            conta_comerciante_iban: current.conta_comerciante_iban,
+                            agenda_liquidacao: current.agenda_liquidacao,
+                            kyc_status: current.kyc_status,
+                            kyc_notas: current.kyc_notas,
+                          }),
+                        });
+                        /* Merge edits into merchants list */
+                        setMerchants(prev => prev.map(x => x.school_id === m.school_id ? { ...x, ...edits } : x));
+                        setMerchantEdits(prev => { const n = { ...prev }; delete n[m.school_id]; return n; });
+                        setMerchantSaving(null);
+                        setMerchantSaved(m.school_id);
+                        setTimeout(() => setMerchantSaved(null), 3000);
+                      };
+
+                      return (
+                        <div key={m.school_id} className={`border rounded-xl overflow-hidden transition-all ${isOpen ? "border-rose-200 shadow-sm" : "border-slate-200"}`}>
+                          {/* Row header */}
+                          <button
+                            onClick={() => setMerchantExpanded(isOpen ? null : m.school_id)}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left transition-all">
+                            <div className="w-8 h-8 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center text-xs font-bold text-rose-600 shrink-0">
+                              {m.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
+                              <p className="text-xs text-slate-400 truncate">
+                                Comissão: <span className={current.override_global ? "text-rose-600 font-semibold" : "text-slate-500"}>{current.override_global ? `${current.taxa_comissao_pct}% individual` : "global"}</span>
+                                {" · "}Agenda: <span className="text-slate-500">{current.agenda_liquidacao}</span>
+                              </p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${kycColor}`}>{kycLabel}</span>
+                            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}/>
+                          </button>
+
+                          {/* Expanded form */}
+                          {isOpen && (
+                            <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-5 space-y-5">
+
+                              {/* Override toggle */}
+                              <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-rose-100">
+                                <div>
+                                  <p className="text-xs font-bold text-slate-800">Usar Regras Individuais</p>
+                                  <p className="text-xs text-slate-400">Quando activo, as taxas abaixo substituem as regras globais da plataforma</p>
+                                </div>
+                                <button type="button" onClick={() => setEdit("override_global", !current.override_global)}
+                                  className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${current.override_global ? "bg-rose-500" : "bg-slate-300"}`}>
+                                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${current.override_global ? "translate-x-4" : "translate-x-0"}`}/>
+                                </button>
+                              </div>
+
+                              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${!current.override_global ? "opacity-40 pointer-events-none" : ""}`}>
+                                {/* Taxa comissão */}
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">Taxa de Comissão Contratual (%)</label>
+                                  <div className="relative">
+                                    <input type="number" min={0} max={50} step={0.01}
+                                      value={String(current.taxa_comissao_pct)}
+                                      onChange={e => setEdit("taxa_comissao_pct", e.target.value)}
+                                      className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400/30 pr-8"/>
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">%</span>
+                                  </div>
+                                  <p className="text-xs text-slate-400 mt-1">Taxa acordada contratualmente com este colégio</p>
+                                </div>
+
+                                {/* IRT toggle + taxa */}
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">IRT — Taxa Individual (%)</label>
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => setEdit("irt_activo", !current.irt_activo)}
+                                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${current.irt_activo ? "bg-amber-500" : "bg-slate-300"}`}>
+                                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${current.irt_activo ? "translate-x-4" : "translate-x-0"}`}/>
+                                    </button>
+                                    <span className="text-xs text-slate-500 w-12">{current.irt_activo ? "Activo" : "Isento"}</span>
+                                    <div className="relative flex-1">
+                                      <input type="number" min={0} max={100} step={0.01}
+                                        disabled={!current.irt_activo}
+                                        value={String(current.irt_taxa_pct)}
+                                        onChange={e => setEdit("irt_taxa_pct", e.target.value)}
+                                        className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 pr-8 disabled:opacity-40"/>
+                                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">%</span>
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-slate-400 mt-1">Isentar entidades sem fins lucrativos (art. 9.º CIRT)</p>
+                                </div>
+                              </div>
+
+                              {/* IBAN + Agenda */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="sm:col-span-2">
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">IBAN do Comerciante <span className="text-red-500">*</span></label>
+                                  <input value={current.conta_comerciante_iban ?? ""}
+                                    onChange={e => setEdit("conta_comerciante_iban", e.target.value)}
+                                    placeholder="AO06 0044 0000 0000 0000 0000 0"
+                                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-rose-400/30"/>
+                                  <p className="text-xs text-slate-400 mt-1">Conta para crédito do valor líquido após split. Validação de formato AO06 aplicada pelo motor.</p>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">Agenda de Liquidação</label>
+                                  <select value={current.agenda_liquidacao}
+                                    onChange={e => setEdit("agenda_liquidacao", e.target.value)}
+                                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400/30 bg-white">
+                                    <option value="imediato">⚡ Imediato — nas janelas diárias SPTR (D+0)</option>
+                                    <option value="diario">📅 Diário — acumula e liquida ao fim do dia</option>
+                                    <option value="semanal">📆 Semanal — acumula e liquida à sexta-feira</option>
+                                  </select>
+                                  <p className="text-xs text-slate-400 mt-1">Frequência com que o Settlement Worker emite instruções TBI</p>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">Estado KYC</label>
+                                  <select value={current.kyc_status}
+                                    onChange={e => setEdit("kyc_status", e.target.value)}
+                                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400/30 bg-white">
+                                    <option value="aprovado">✅ Aprovado — liquidações processadas normalmente</option>
+                                    <option value="pendente">⏳ Pendente — valores ficam QUEUED até aprovação</option>
+                                    <option value="bloqueado">🚫 Bloqueado — valor líquido retido em PENDING</option>
+                                  </select>
+                                  <p className="text-xs text-slate-400 mt-1">Motor retém fundos na conta de trânsito se KYC não aprovado</p>
+                                </div>
+                              </div>
+
+                              {/* KYC notas */}
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">Notas KYC / Observações Internas</label>
+                                <textarea value={current.kyc_notas ?? ""}
+                                  onChange={e => setEdit("kyc_notas", e.target.value)}
+                                  rows={2}
+                                  placeholder="Ex: Aguarda entrega de certidão comercial actualizada…"
+                                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400/30 resize-none"/>
+                              </div>
+
+                              {/* Save / Cancel */}
+                              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                                <button onClick={() => { setMerchantEdits(prev => { const n = { ...prev }; delete n[m.school_id]; return n; }); setMerchantExpanded(null); }}
+                                  className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-100">
+                                  Cancelar
+                                </button>
+                                <button onClick={saveMerchant} disabled={isSaving}
+                                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition-all disabled:opacity-50">
+                                  {isSaving ? <RefreshCw className="w-4 h-4 animate-spin"/> : isSaved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                                  {isSaved ? "Guardado!" : "Guardar Regras"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            {/* ─── J — Simulador Split Individual ─── */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              {spSecHeader("J","Simulador Split Individual","Calcula a distribuição exacta para um comerciante específico com as suas regras individuais","bg-fuchsia-100 text-fuchsia-700")}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                {/* Selecionar escola */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Escola / Comerciante <span className="text-red-500">*</span></label>
+                  <select value={simMerchantId ?? ""}
+                    onChange={e => { setSimMerchantId(e.target.value ? Number(e.target.value) : null); setSimMerchantResult(null); }}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400/30 bg-white">
+                    <option value="">— Selecionar escola —</option>
+                    {merchants.map(m => (
+                      <option key={m.school_id} value={m.school_id}>{m.name}</option>
+                    ))}
+                  </select>
+                  {simMerchantId && (() => {
+                    const m = merchants.find(x => x.school_id === simMerchantId);
+                    if (!m) return null;
+                    return (
+                      <div className="mt-2 flex items-center gap-2 flex-wrap text-xs">
+                        <span className={`px-2 py-0.5 rounded-full border font-semibold ${m.kyc_status === "aprovado" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : m.kyc_status === "bloqueado" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                          {m.kyc_status === "aprovado" ? "✅ KYC OK" : m.kyc_status === "bloqueado" ? "🚫 KYC Bloqueado" : "⏳ KYC Pendente"}
+                        </span>
+                        <span className="text-slate-400">·</span>
+                        <span className="text-slate-500">{m.override_global ? `Comissão individual: ${m.taxa_comissao_pct}%` : "Comissão global"}</span>
+                        <span className="text-slate-400">·</span>
+                        <span className="text-slate-500">Agenda: {m.agenda_liquidacao}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Valor */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Valor a Simular (Kz) <span className="text-red-500">*</span></label>
+                  <input type="number" min={1} step={100}
+                    value={simValorKz}
+                    onChange={e => { setSimValorKz(e.target.value); setSimMerchantResult(null); }}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400/30"/>
+                  <p className="text-xs text-slate-400 mt-1">Valor bruto da transacção em Kwanza</p>
+                </div>
+              </div>
+
+              <button
+                onClick={async () => {
+                  if (!simMerchantId) return;
+                  setSimMerchantLoading(true);
+                  setSimMerchantResult(null);
+                  const r = await api(`/admin/splitpay/simular/${simMerchantId}`, {
+                    method: "POST",
+                    body: JSON.stringify({ valor_kz: parseFloat(simValorKz) }),
+                  }).then(x => x.json()).catch(() => null);
+                  setSimMerchantResult(r);
+                  setSimMerchantLoading(false);
+                }}
+                disabled={!simMerchantId || simMerchantLoading}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-sm font-semibold transition-all disabled:opacity-40 mb-5">
+                {simMerchantLoading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>}
+                {simMerchantLoading ? "A calcular…" : "Simular Split Individual"}
+              </button>
+
+              {/* Resultado */}
+              {simMerchantResult && (
+                <div className="space-y-4">
+                  {/* Aviso KYC */}
+                  {simMerchantResult.aviso && (
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5"/>
+                      {simMerchantResult.aviso}
+                    </div>
+                  )}
+
+                  {/* Regras aplicadas */}
+                  <div className="bg-fuchsia-50 border border-fuchsia-100 rounded-xl p-4">
+                    <p className="text-xs font-bold text-fuchsia-700 mb-2">Regras Aplicadas — fonte: <span className="uppercase">{simMerchantResult.fonte_regras}</span></p>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <span className="px-2 py-1 rounded-lg bg-white border border-fuchsia-100 text-fuchsia-700 font-semibold">
+                        Comissão: {simMerchantResult.regras_aplicadas.taxa_comissao_pct}%
+                      </span>
+                      <span className={`px-2 py-1 rounded-lg bg-white border font-semibold ${simMerchantResult.regras_aplicadas.irt_activo ? "border-amber-200 text-amber-700" : "border-slate-200 text-slate-500"}`}>
+                        IRT: {simMerchantResult.regras_aplicadas.irt_activo ? `${simMerchantResult.regras_aplicadas.irt_taxa_pct}%` : "Isento"}
+                      </span>
+                      <span className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-600">
+                        Agenda: {simMerchantResult.agenda_liquidacao}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Ledger visual */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                      <p className="text-xs font-bold text-slate-700">Distribuição — {simMerchantResult.escola.nome}</p>
+                      {simMerchantResult.simulacao.integridade_ok
+                        ? <span className="flex items-center gap-1 text-xs text-emerald-600 font-semibold"><CheckCircle2 className="w-3.5 h-3.5"/>Integridade OK</span>
+                        : <span className="flex items-center gap-1 text-xs text-red-600 font-semibold"><AlertCircle className="w-3.5 h-3.5"/>Erro de integridade</span>
+                      }
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {[
+                        { label: "🏫 Valor Líquido — Escola (Comerciante)", value: simMerchantResult.simulacao.liquido_comerciante_kz, color: "text-emerald-700", bg: "bg-emerald-50" },
+                        { label: "💠 Comissão — Plataforma Kiwara", value: simMerchantResult.simulacao.comissao_plataforma_kz, color: "text-indigo-700", bg: "bg-indigo-50" },
+                        { label: "📋 Retenção IRT — AGT", value: simMerchantResult.simulacao.retencao_irt_kz, color: "text-amber-700", bg: "bg-amber-50" },
+                      ].map(row => (
+                        <div key={row.label} className={`flex items-center justify-between px-5 py-4 ${row.bg}`}>
+                          <span className="text-xs font-semibold text-slate-700">{row.label}</span>
+                          <div className="text-right">
+                            <p className={`text-sm font-bold ${row.color}`}>{row.value.toLocaleString("pt-AO", { minimumFractionDigits: 2 })} Kz</p>
+                            <p className="text-[10px] text-slate-400">{((row.value / simMerchantResult.simulacao.valor_total_kz) * 100).toFixed(2)}% do total</p>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between px-5 py-3 bg-slate-50">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Total</span>
+                        <p className="text-sm font-bold text-slate-800">{simMerchantResult.simulacao.valor_total_kz.toLocaleString("pt-AO", { minimumFractionDigits: 2 })} Kz</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* IBAN destino */}
+                  {simMerchantResult.conta_comerciante_iban && (
+                    <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                      <Landmark className="w-4 h-4 text-slate-400 shrink-0"/>
+                      <span className="font-semibold">IBAN destino:</span>
+                      <code className="font-mono text-slate-700">{simMerchantResult.conta_comerciante_iban}</code>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ─── H — Teste + Guardar ─── */}
