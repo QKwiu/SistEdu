@@ -2850,18 +2850,17 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
               <p className="text-sm text-slate-400 mt-1">Registe o primeiro aluno usando o formulário abaixo.</p>
             </Card>
           ) : (
-            <Card className="p-0 overflow-hidden overflow-x-auto">
-              <table className="w-full text-left text-sm min-w-[800px]">
+            <Card className="p-0 overflow-hidden">
+              <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
                   <tr>
-                    <th className="px-5 py-3">Nome</th>
-                    <th className="px-5 py-3">Processo / BI</th>
-                    <th className="px-5 py-3">Turma</th>
-                    <th className="px-5 py-3">Nascimento</th>
-                    <th className="px-5 py-3">Estado</th>
-                    <th className="px-5 py-3">Pacote de Propinas</th>
-                    <th className="px-5 py-3">Propinas</th>
-                    <th className="px-5 py-3"></th>
+                    <th className="px-3 py-2.5">Nome</th>
+                    <th className="px-3 py-2.5">Turma</th>
+                    <th className="px-3 py-2.5 hidden md:table-cell">Nascimento</th>
+                    <th className="px-3 py-2.5">Estado</th>
+                    <th className="px-3 py-2.5">Pacote de Propinas</th>
+                    <th className="px-3 py-2.5">Propinas</th>
+                    <th className="px-3 py-2.5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
@@ -2879,40 +2878,36 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
                     const isSaving = assigningPacote === a.id;
                     return (
                       <tr key={a.id} className="hover:bg-slate-50/50">
-                        <td className="px-5 py-3">
-                          <div className="font-medium text-slate-900">{a.nome}</div>
-                          <div className="text-xs text-slate-400">{a.nome_encarregado ? `Enc: ${a.nome_encarregado}` : ""}</div>
+                        <td className="px-3 py-2.5 min-w-0">
+                          <div className="font-medium text-slate-900 truncate max-w-[160px]">{a.nome}</div>
+                          {a.numero_processo && <div className="font-mono text-[10px] text-slate-500 leading-tight">{a.numero_processo}</div>}
+                          {a.nome_encarregado && <div className="text-[10px] text-slate-400 truncate max-w-[160px]">Enc: {a.nome_encarregado}</div>}
                         </td>
-                        <td className="px-5 py-3">
-                          {a.numero_processo && <div className="font-mono text-xs text-slate-600">{a.numero_processo}</div>}
-                          {a.bilhete && <div className="font-mono text-xs text-slate-400">{a.bilhete}</div>}
-                          {!a.numero_processo && !a.bilhete && <span className="text-slate-300">—</span>}
+                        <td className="px-3 py-2.5">
+                          <div className="text-xs text-slate-700 whitespace-nowrap">{a.turma}</div>
+                          {a.turno && <div className="text-[10px] text-slate-400">{a.turno}</div>}
                         </td>
-                        <td className="px-5 py-3">
-                          <div className="text-slate-700">{a.turma}</div>
-                          {a.turno && <div className="text-xs text-slate-400">{a.turno}</div>}
-                        </td>
-                        <td className="px-5 py-3 text-xs text-slate-500">
+                        <td className="px-3 py-2.5 text-xs text-slate-500 whitespace-nowrap hidden md:table-cell">
                           {a.data_nascimento
-                            ? new Date(a.data_nascimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"short", year:"numeric" })
+                            ? new Date(a.data_nascimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"short", year:"2-digit" })
                             : "—"}
-                          {a.sexo && <span className="ml-1.5 text-slate-400">{sexoLabel[a.sexo] ?? ""}</span>}
+                          {a.sexo && <span className="ml-1 text-slate-400">{sexoLabel[a.sexo] ?? ""}</span>}
                         </td>
-                        <td className="px-5 py-3">
-                          <span className={`text-xs font-semibold border px-2 py-0.5 rounded-full ${estadoCls[a.estado ?? "activo"] ?? estadoCls.activo}`}>
+                        <td className="px-3 py-2.5">
+                          <span className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full whitespace-nowrap ${estadoCls[a.estado ?? "activo"] ?? estadoCls.activo}`}>
                             {estadoLabel[a.estado ?? "activo"] ?? a.estado}
                           </span>
                         </td>
-                        <td className="px-5 py-3 min-w-[180px]">
+                        <td className="px-3 py-2.5">
                           {pacotes.length === 0 ? (
-                            <span className="text-xs text-slate-400 italic">Sem pacotes</span>
+                            <span className="text-xs text-slate-400 italic">—</span>
                           ) : (
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <select
                                 value={a.pacote_id ?? ""}
                                 disabled={isSaving}
                                 onChange={e => handleAssignPacote(a.id, e.target.value ? Number(e.target.value) : null)}
-                                className={`text-xs border rounded-lg px-2 py-1 pr-6 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors ${
+                                className={`text-xs border rounded-lg px-2 py-1 appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors max-w-[140px] ${
                                   a.pacote_id
                                     ? "border-emerald-300 text-emerald-800 bg-emerald-50"
                                     : "border-amber-300 text-amber-700 bg-amber-50"
@@ -2927,29 +2922,29 @@ function AlunosView({ token, alunos, turmas, pacotes, onOpenAdicionarAluno, onOp
                             </div>
                           )}
                         </td>
-                        <td className="px-5 py-3">
-                          <div className="flex flex-col gap-1">
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
                             {Number(a.propinas_pendentes) > 0
-                              ? <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-fit">{a.propinas_pendentes} pendente(s)</span>
-                              : <span className="text-xs text-emerald-600">Em dia</span>}
+                              ? <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full w-fit whitespace-nowrap">{a.propinas_pendentes} pendente(s)</span>
+                              : <span className="text-[10px] text-emerald-600 font-semibold">Em dia</span>}
                             {Number(a.multa_total) > 0 && (
-                              <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full w-fit flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3"/>Multa: {fmt(Number(a.multa_total))} Kz
+                              <span className="text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full w-fit flex items-center gap-1 whitespace-nowrap">
+                                <AlertTriangle className="w-2.5 h-2.5"/>+{fmt(Number(a.multa_total))}
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-1">
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-0.5">
                             <button onClick={() => setFichaAlunoId(a.id)}
                               title="Editar ficha do aluno"
                               className="p-1.5 rounded-lg hover:bg-primary/10 text-slate-400 hover:text-primary transition-colors">
-                              <Pencil className="w-4 h-4"/>
+                              <Pencil className="w-3.5 h-3.5"/>
                             </button>
                             <button onClick={() => { if(confirm(`Eliminar ${a.nome}?`)) onDeleteAluno(a.id); }}
                               title="Eliminar aluno"
                               className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors">
-                              <Trash2 className="w-4 h-4"/>
+                              <Trash2 className="w-3.5 h-3.5"/>
                             </button>
                           </div>
                         </td>
@@ -3287,77 +3282,79 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
       {filtered.length === 0 ? (
         <Card className="p-12 text-center"><Banknote className="w-12 h-12 text-slate-200 mx-auto mb-3"/><p className="font-semibold text-slate-500">Sem propinas nesta categoria</p><Button className="mt-4" onClick={onOpenGerarPropina}><Plus className="w-4 h-4 mr-2"/> Gerar Propina</Button></Card>
       ) : (
-        <Card className="p-0 overflow-hidden overflow-x-auto">
-          <table className="w-full text-left text-sm min-w-[700px]">
+        <Card className="p-0 overflow-hidden">
+          <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
               <tr>
-                <th className="px-5 py-3">Aluno</th><th className="px-5 py-3">Turma</th><th className="px-5 py-3">Período</th>
-                <th className="px-5 py-3">Propina</th><th className="px-5 py-3">Multa</th><th className="px-5 py-3">Total</th>
-                <th className="px-5 py-3">Estado</th><th className="px-5 py-3">Referência</th><th className="px-5 py-3"></th>
+                <th className="px-3 py-2.5">Aluno</th>
+                <th className="px-3 py-2.5 hidden lg:table-cell">Turma</th>
+                <th className="px-3 py-2.5">Período</th>
+                <th className="px-3 py-2.5">Total</th>
+                <th className="px-3 py-2.5">Estado</th>
+                <th className="px-3 py-2.5 hidden xl:table-cell">Referência</th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {filtered.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/50">
-                  <td className="px-5 py-3 font-medium text-slate-900">{p.aluno_nome}</td>
-                  <td className="px-5 py-3 text-slate-500">{p.turma}</td>
-                  <td className="px-5 py-3 text-slate-600">{p.mes} {p.ano}</td>
-                  <td className="px-5 py-3 font-mono text-slate-700">{fmt(p.montante)} Kz</td>
-                  <td className="px-5 py-3">
-                    {Number(p.multa) > 0
-                      ? <span className="font-mono text-red-600 font-semibold text-xs">+{fmt(p.multa)} Kz</span>
-                      : <span className="text-slate-300 text-xs">—</span>}
+                  <td className="px-3 py-2.5 font-medium text-slate-900 max-w-[160px]">
+                    <div className="truncate">{p.aluno_nome}</div>
+                    <div className="text-[10px] text-slate-400 lg:hidden">{p.turma}</div>
                   </td>
-                  <td className="px-5 py-3 font-bold text-slate-900">{fmt(Number(p.montante)+Number(p.multa))} Kz</td>
-                  <td className="px-5 py-3">
-                    <div className="flex flex-col gap-1">
+                  <td className="px-3 py-2.5 text-xs text-slate-500 whitespace-nowrap hidden lg:table-cell">{p.turma}</td>
+                  <td className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{p.mes} {p.ano}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="font-bold text-slate-900 text-xs whitespace-nowrap">{fmt(Number(p.montante)+Number(p.multa))} Kz</div>
+                    {Number(p.multa) > 0 && <div className="text-[10px] text-red-500">+{fmt(p.multa)} multa</div>}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex flex-col gap-0.5">
                       {p.status === "pago"
-                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-3 h-3"/> Pago</span>
+                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap"><CheckCircle2 className="w-2.5 h-2.5"/> Pago</span>
                         : p.status === "vencido"
-                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-3 h-3"/> Vencido</span>
-                        : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3 h-3"/> Pendente</span>
+                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-700 border border-red-200 whitespace-nowrap"><AlertCircle className="w-2.5 h-2.5"/> Vencido</span>
+                        : <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap"><Clock className="w-2.5 h-2.5"/> Pendente</span>
                       }
                       {p.pagamento_origem === "online"
-                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300 tracking-wide uppercase">
-                            <Zap className="w-2.5 h-2.5"/> GPO / EMIS
+                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300 whitespace-nowrap">
+                            <Zap className="w-2.5 h-2.5"/> GPO/EMIS
                           </span>
                         : p.status === "pago"
-                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-500 border border-slate-200">
+                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-500 border border-slate-200 whitespace-nowrap">
                             <ShieldCheck className="w-2.5 h-2.5"/> Manual
                           </span>
                         : null
                       }
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-xs">
+                  <td className="px-3 py-2.5 text-xs hidden xl:table-cell">
                     {p.ref_numero
-                      ? <span className="font-mono text-slate-700">{p.entidade} / {p.ref_numero}</span>
+                      ? <span className="font-mono text-slate-700">{p.entidade}/{p.ref_numero}</span>
                       : p.internal_reference
-                      ? <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{p.internal_reference}</span>
+                      ? <span className="font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">{p.internal_reference}</span>
                       : <span className="text-slate-300">—</span>}
                   </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      {/* Fatura icon */}
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-0.5 justify-end">
                       <button
                         title="Ver fatura"
                         onClick={() => setFaturaPropinaId(p.id)}
                         className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition-colors">
-                        <Receipt className="w-4 h-4"/>
+                        <Receipt className="w-3.5 h-3.5"/>
                       </button>
-                      {/* Lupa — detail view for all propinas */}
                       <button
                         title="Ver detalhe do pagamento"
                         onClick={() => setDetalhePropina(p)}
                         className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors">
-                        <Eye className="w-4 h-4"/>
+                        <Eye className="w-3.5 h-3.5"/>
                       </button>
                       {p.status !== "pago" && p.pagamento_origem !== "online" && (
                         <>
-                          {/* Baixa Manual quick button — blocked for online payments */}
                           <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors whitespace-nowrap">
-                            <FileCheck className="w-3 h-3"/> Baixa Manual
+                            title="Dar baixa manual"
+                            className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors">
+                            <FileCheck className="w-3.5 h-3.5"/>
                           </button>
                           {/* More actions menu */}
                           <div className="relative">
