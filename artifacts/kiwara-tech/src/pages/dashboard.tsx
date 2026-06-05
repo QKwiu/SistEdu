@@ -1810,7 +1810,12 @@ interface BolsaAtribuicao {
 }
 
 /* ─── AlunoFichaSlideOver (portal da escola) ─── */
-interface FichaPropina { id: number; mes: string; ano: string; montante: number; multa: number; status: string; desconto?: number; }
+interface FichaPropina {
+  id: number; mes: string; ano: string; montante: number; multa: number;
+  status: string; desconto?: number;
+  data_vencimento?: string; metodo_pagamento?: string; pago_em?: string;
+  pagamento_origem?: string; baixa_manual?: boolean; baixa_manual_por?: string;
+}
 interface AlunoFichaData {
   id: number; nome: string; bilhete?: string; numero_processo?: string;
   data_nascimento?: string; sexo?: string; estado?: string;
@@ -1869,6 +1874,17 @@ function AlunoFichaSlideOver({
   const [bolsaAtribNotas, setBolsaAtribNotas] = useState("");
   const [bolsaSaving, setBolsaSaving] = useState(false);
   const [bolsaError, setBolsaError] = useState("");
+
+  /* ── Situação Financeira tab ── */
+  const [fichaTab, setFichaTab] = useState<"perfil"|"financeiro">("perfil");
+  const [baixaModalPropina, setBaixaModalPropina] = useState<FichaPropina | null>(null);
+  const [baixaMetodo, setBaixaMetodo] = useState("CASH");
+  const [baixaData, setBaixaData] = useState(new Date().toISOString().slice(0,10));
+  const [baixaObs, setBaixaObs] = useState("");
+  const [baixaOperador, setBaixaOperador] = useState("Secretaria");
+  const [baixaSaving, setBaixaSaving] = useState(false);
+  const [baixaError, setBaixaError] = useState("");
+  const [baixaSuccess, setBaixaSuccess] = useState(false);
 
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
@@ -2020,9 +2036,24 @@ function AlunoFichaSlideOver({
           </button>
         </div>
 
+        {/* ── Tab bar ── */}
+        <div className="flex border-b border-slate-100 shrink-0 px-6 bg-white">
+          {([
+            { id: "perfil",      label: "Perfil",               icon: <User className="w-3.5 h-3.5"/> },
+            { id: "financeiro",  label: "Situação Financeira",   icon: <Receipt className="w-3.5 h-3.5"/> },
+          ] as const).map(t => (
+            <button key={t.id} onClick={() => setFichaTab(t.id)}
+              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold border-b-2 transition-all -mb-px ${
+                fichaTab === t.id ? "border-primary text-primary" : "border-transparent text-slate-400 hover:text-slate-600"
+              }`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-6 h-6 animate-spin text-primary"/></div>
-        ) : (
+        ) : fichaTab === "perfil" ? (
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
             {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2">{err}</div>}
 
@@ -2409,8 +2440,280 @@ function AlunoFichaSlideOver({
               </div>
             </div>
           </div>
-        )}
+        ) : (() => {
+          /* ── SITUAÇÃO FINANCEIRA TAB ── */
+          const MORDER = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+          const isento = bolsaHistory.some(b => b.estado === 'activa' && b.tipo_desconto === 'percentagem' && b.bolsa_valor >= 100);
+          const hasVencidas = fichaPropinaList.some(p => p.status === 'vencido');
+          const estadoFin: "regularizado"|"incumprimento"|"isento" = isento ? "isento" : hasVencidas ? "incumprimento" : "regularizado";
+          const totalPago = fichaPropinaList.filter(p => p.status === 'pago').reduce((s,p) => s + Number(p.montante) + Number(p.multa), 0);
+          const totalDivida = fichaPropinaList.filter(p => p.status !== 'pago').reduce((s,p) => s + Number(p.montante) + Number(p.multa), 0);
+          const pendentes = [...fichaPropinaList].filter(p => p.status !== 'pago').sort((a,b) => {
+            const da = a.data_vencimento ? new Date(a.data_vencimento).getTime() : Infinity;
+            const db = b.data_vencimento ? new Date(b.data_vencimento).getTime() : Infinity;
+            return da - db;
+          });
+          const proximoVenc = pendentes[0];
 
+          const printFatura = async (propinaId: number) => {
+            try {
+              const r = await fetch(`${API}/school/propinas/${propinaId}/fatura`, { headers });
+              const d = await r.json();
+              if (!r.ok) return;
+              const win = window.open("","_blank","width=620,height=800");
+              if (!win) return;
+              win.document.write(`<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8"><title>Recibo</title>
+              <style>body{font-family:Arial,sans-serif;padding:32px;max-width:480px;margin:0 auto;color:#1e293b}
+              h2{margin:0 0 4px}p{margin:4px 0;font-size:14px}hr{border:none;border-top:1px solid #e2e8f0;margin:12px 0}
+              .row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid #f1f5f9}
+              .total{font-weight:700;font-size:15px;color:#0f172a}.status{text-align:center;margin-top:16px;padding:8px;background:#f0fdf4;border-radius:8px;font-weight:700;color:#15803d}
+              @media print{body{padding:16px}}</style></head><body>
+              <h2>${d.escola?.nome ?? "Escola"}</h2><p style="color:#64748b">Recibo de Propina</p><hr>
+              <div class="row"><span>Aluno</span><span><b>${d.aluno?.nome ?? ""}</b></span></div>
+              <div class="row"><span>Turma</span><span>${d.aluno?.turma ?? "—"}</span></div>
+              <div class="row"><span>Período</span><span>${d.mes} ${d.ano}</span></div><hr>
+              <div class="row"><span>Propina</span><span>${Number(d.montante??0).toLocaleString("pt-AO")} Kz</span></div>
+              ${Number(d.multa)>0?`<div class="row"><span>Multa</span><span>${Number(d.multa).toLocaleString("pt-AO")} Kz</span></div>`:""}
+              ${Number(d.desconto)>0?`<div class="row"><span>Desconto (Bolsa)</span><span>-${Number(d.desconto).toLocaleString("pt-AO")} Kz</span></div>`:""}
+              <div class="row total"><span>Total</span><span>${(Number(d.montante??0)+Number(d.multa??0)-Number(d.desconto??0)).toLocaleString("pt-AO")} Kz</span></div>
+              <div class="status">${d.status==="pago"?"✅ PAGO":"⏳ PENDENTE"}</div>
+              <p style="font-size:11px;color:#94a3b8;margin-top:20px;text-align:center">Emitido em ${new Date().toLocaleString("pt-AO")} · Kiwara Tech</p>
+              <script>window.print();</script></body></html>`);
+              win.document.close();
+            } catch {}
+          };
+
+          const handleBaixa = async () => {
+            if (!baixaModalPropina) return;
+            setBaixaSaving(true); setBaixaError(""); setBaixaSuccess(false);
+            try {
+              const r = await fetch(`${API}/school/caixa/emitir`, {
+                method: "POST", headers,
+                body: JSON.stringify({
+                  student_id: alunoId,
+                  propina_id: baixaModalPropina.id,
+                  descricao: `Propina de ${baixaModalPropina.mes} ${baixaModalPropina.ano}`,
+                  montante: Number(baixaModalPropina.montante) + Number(baixaModalPropina.multa),
+                  metodo_pagamento: baixaMetodo,
+                  operador_nome: baixaOperador || "Secretaria",
+                }),
+              });
+              const d = await r.json();
+              if (!r.ok) throw new Error(d.error ?? "Erro ao dar baixa.");
+              setBaixaSuccess(true);
+              setFichaPropinaList(prev => prev.map(p =>
+                p.id === baixaModalPropina.id
+                  ? { ...p, status: "pago", metodo_pagamento: baixaMetodo, pago_em: new Date().toISOString(), baixa_manual: true, baixa_manual_por: baixaOperador }
+                  : p
+              ));
+              setTimeout(() => { setBaixaModalPropina(null); setBaixaSuccess(false); }, 1800);
+            } catch (e: any) { setBaixaError(e.message); }
+            finally { setBaixaSaving(false); }
+          };
+
+          return (
+            <>
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                {/* Estado financeiro global */}
+                <div className={`flex items-center gap-3 p-4 rounded-2xl border ${
+                  estadoFin === "regularizado" ? "bg-emerald-50 border-emerald-200"
+                  : estadoFin === "incumprimento" ? "bg-red-50 border-red-200"
+                  : "bg-blue-50 border-blue-200"
+                }`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                    estadoFin === "regularizado" ? "bg-emerald-100"
+                    : estadoFin === "incumprimento" ? "bg-red-100" : "bg-blue-100"
+                  }`}>
+                    {estadoFin === "regularizado" ? <CheckCircle2 className="w-5 h-5 text-emerald-600"/>
+                    : estadoFin === "incumprimento" ? <AlertTriangle className="w-5 h-5 text-red-600"/>
+                    : <GraduationCap className="w-5 h-5 text-blue-600"/>}
+                  </div>
+                  <div>
+                    <p className={`font-bold text-sm ${
+                      estadoFin === "regularizado" ? "text-emerald-800"
+                      : estadoFin === "incumprimento" ? "text-red-800" : "text-blue-800"
+                    }`}>
+                      {estadoFin === "regularizado" ? "Regularizado"
+                      : estadoFin === "incumprimento" ? "Em Incumprimento" : "Isento"}
+                    </p>
+                    <p className={`text-xs mt-0.5 ${
+                      estadoFin === "regularizado" ? "text-emerald-600"
+                      : estadoFin === "incumprimento" ? "text-red-600" : "text-blue-600"
+                    }`}>
+                      {estadoFin === "regularizado" ? "Sem propinas vencidas ou em atraso"
+                      : estadoFin === "incumprimento" ? `${fichaPropinaList.filter(p=>p.status==="vencido").length} propina(s) em atraso`
+                      : "Bolseiro(a) integral — regime de isenção de propinas"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Cards de resumo */}
+                <div className="grid grid-cols-3 gap-2.5">
+                  {[
+                    { label: "Total Pago", value: totalPago, icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500"/>, color: "text-emerald-700", sub: `${fichaPropinaList.filter(p=>p.status==="pago").length} liquidadas` },
+                    { label: "Em Dívida", value: totalDivida, icon: <AlertTriangle className="w-3.5 h-3.5 text-red-500"/>, color: "text-red-700", sub: `${fichaPropinaList.filter(p=>p.status!=="pago").length} pendente(s)` },
+                    { label: "Próx. Venc.", value: proximoVenc ? (Number(proximoVenc.montante)+Number(proximoVenc.multa)) : 0, icon: <Calendar className="w-3.5 h-3.5 text-amber-500"/>, color: "text-amber-700", sub: proximoVenc?.data_vencimento ? new Date(proximoVenc.data_vencimento).toLocaleDateString("pt-AO",{day:"2-digit",month:"short"}) : "—" },
+                  ].map(c => (
+                    <div key={c.label} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-1">{c.icon}<p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide leading-tight">{c.label}</p></div>
+                      <p className={`text-sm font-bold ${c.color} font-mono`}>{fmt(c.value)}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{c.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tabela histórico */}
+                <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <FileText className="w-3.5 h-3.5"/> Histórico de Lançamentos
+                  </h3>
+                  {fichaPropinaList.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-sm border border-dashed border-slate-200 rounded-2xl">
+                      <Receipt className="w-6 h-6 mx-auto mb-2 opacity-30"/>
+                      Nenhum lançamento registado.
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200">
+                              <th className="px-3 py-2.5 text-left font-semibold text-slate-500">Descrição</th>
+                              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Vencimento</th>
+                              <th className="px-3 py-2.5 text-right font-semibold text-slate-500 whitespace-nowrap">Valor</th>
+                              <th className="px-3 py-2.5 text-left font-semibold text-slate-500">Meio</th>
+                              <th className="px-3 py-2.5 text-center font-semibold text-slate-500">Estado</th>
+                              <th className="px-3 py-2.5 text-center font-semibold text-slate-500">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {[...fichaPropinaList].sort((a,b) => {
+                              const ya = Number(a.ano??0), yb = Number(b.ano??0);
+                              if (ya !== yb) return yb - ya;
+                              return MORDER.indexOf(b.mes) - MORDER.indexOf(a.mes);
+                            }).map(p => {
+                              const total = Number(p.montante) + Number(p.multa);
+                              const isPago = p.status === "pago";
+                              const isVencido = p.status === "vencido";
+                              const metodoPago = isPago
+                                ? (p.metodo_pagamento === "CASH" ? "💵 Dinheiro"
+                                  : p.metodo_pagamento === "TPA" ? "💳 TPA"
+                                  : p.metodo_pagamento === "TRANSFERENCIA" ? "🏦 Transf."
+                                  : p.metodo_pagamento === "MULTICAIXA" ? "🏧 Multicaixa"
+                                  : p.metodo_pagamento ?? "—") : "—";
+                              const badge = isPago
+                                ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-[10px] whitespace-nowrap"><CheckCircle2 className="w-2.5 h-2.5"/>Pago</span>
+                                : isVencido
+                                  ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 font-semibold text-[10px] whitespace-nowrap"><AlertTriangle className="w-2.5 h-2.5"/>Vencido</span>
+                                  : <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold text-[10px] whitespace-nowrap"><Clock className="w-2.5 h-2.5"/>Pendente</span>;
+                              return (
+                                <tr key={p.id} className={`hover:bg-slate-50/80 transition-colors ${isVencido ? "bg-red-50/30" : ""}`}>
+                                  <td className="px-3 py-3">
+                                    <p className="font-semibold text-slate-800 whitespace-nowrap">Propina {p.mes} {p.ano}</p>
+                                    {Number(p.multa) > 0 && <p className="text-[10px] text-red-500">+{fmt(p.multa)} multa</p>}
+                                    {Number(p.desconto) > 0 && <p className="text-[10px] text-emerald-600">-{fmt(p.desconto)} bolsa</p>}
+                                    {p.baixa_manual && <p className="text-[10px] text-indigo-500">Baixa manual · {p.baixa_manual_por}</p>}
+                                  </td>
+                                  <td className="px-3 py-3 whitespace-nowrap text-slate-500">
+                                    {p.data_vencimento ? new Date(p.data_vencimento).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"}) : "—"}
+                                  </td>
+                                  <td className="px-3 py-3 text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{fmt(total)}</td>
+                                  <td className="px-3 py-3 whitespace-nowrap text-slate-500 text-[11px]">{metodoPago}</td>
+                                  <td className="px-3 py-3 text-center">{badge}</td>
+                                  <td className="px-3 py-3">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button title="Imprimir recibo" onClick={() => printFatura(p.id)}
+                                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                                        <Printer className="w-3.5 h-3.5"/>
+                                      </button>
+                                      {!isPago && (
+                                        <button title="Dar baixa manual" onClick={() => {
+                                          setBaixaModalPropina(p);
+                                          setBaixaMetodo("CASH"); setBaixaObs(""); setBaixaError("");
+                                          setBaixaSuccess(false); setBaixaData(new Date().toISOString().slice(0,10));
+                                        }} className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors">
+                                          <Banknote className="w-3.5 h-3.5"/>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal de Baixa Manual */}
+              {baixaModalPropina && (
+                <div className="absolute inset-0 z-10 flex items-end sm:items-center justify-center bg-black/25 backdrop-blur-sm"
+                  onClick={e => { if (e.target === e.currentTarget && !baixaSaving) setBaixaModalPropina(null); }}>
+                  <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:mx-4 shadow-2xl p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-900 text-sm flex items-center gap-2"><Banknote className="w-4 h-4 text-emerald-600"/> Dar Baixa Manual</p>
+                        <p className="text-xs text-slate-500 mt-0.5">Propina de {baixaModalPropina.mes} {baixaModalPropina.ano} · {fmt(Number(baixaModalPropina.montante)+Number(baixaModalPropina.multa))} Kz</p>
+                      </div>
+                      <button onClick={() => setBaixaModalPropina(null)} disabled={baixaSaving} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
+                        <X className="w-4 h-4"/>
+                      </button>
+                    </div>
+                    {baixaSuccess ? (
+                      <div className="flex flex-col items-center py-5 gap-2 text-center">
+                        <CheckCircle2 className="w-10 h-10 text-emerald-500"/>
+                        <p className="text-sm font-semibold text-emerald-700">Baixa registada com sucesso!</p>
+                        <p className="text-xs text-slate-400">O recibo foi emitido na Caixa.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Meio de Pagamento</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {[{id:"CASH",label:"💵 Dinheiro"},{id:"TPA",label:"💳 TPA"},{id:"TRANSFERENCIA",label:"🏦 Transferência"},{id:"MULTICAIXA",label:"🏧 Multicaixa"}].map(m => (
+                              <button key={m.id} type="button" onClick={() => setBaixaMetodo(m.id)}
+                                className={`py-2.5 px-3 rounded-xl text-xs font-semibold border transition-all text-left ${baixaMetodo === m.id ? "bg-primary text-white border-primary shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"}`}>
+                                {m.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Data de Recebimento</label>
+                            <input type="date" className={inp} value={baixaData} onChange={e => setBaixaData(e.target.value)}/>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Operador / Caixa</label>
+                            <input className={inp} value={baixaOperador} onChange={e => setBaixaOperador(e.target.value)} placeholder="Nome do operador"/>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Observações (opcional)</label>
+                          <input className={inp} value={baixaObs} onChange={e => setBaixaObs(e.target.value)} placeholder="Notas internas…"/>
+                        </div>
+                        {baixaError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{baixaError}</p>}
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => { setBaixaModalPropina(null); setBaixaError(""); }} disabled={baixaSaving}
+                            className="flex-1 py-2.5 text-xs text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors">Cancelar</button>
+                          <button type="button" onClick={handleBaixa} disabled={baixaSaving}
+                            className="flex-1 py-2.5 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-1.5 transition-colors">
+                            {baixaSaving ? <><RefreshCw className="w-3 h-3 animate-spin"/>A registar…</> : <><Banknote className="w-3 h-3"/>Confirmar Baixa</>}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {fichaTab === "perfil" && !loading && (
         <div className="shrink-0 px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3">
           <button onClick={onClose} className="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
             Cancelar
@@ -2421,6 +2724,7 @@ function AlunoFichaSlideOver({
             {saved ? "Guardado!" : "Guardar alterações"}
           </button>
         </div>
+        )}
       </div>
     </div>
   );
