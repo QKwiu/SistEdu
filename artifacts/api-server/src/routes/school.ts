@@ -152,19 +152,22 @@ function applyBolsaDiscount(montante: number, bolsa: { tipo_desconto: string; bo
    configured multa_regra.
 
    Rules:
-   - Uses multa_regras.aplica_automatico flag
-   - For propinas from PREVIOUS months: always
-     applies the fine (they are fully overdue)
-   - For propinas from the CURRENT month: only
-     applies if today's day > dia_limite
-   - Marks all overdue pendente propinas as
-     status='vencido'
+   - Only runs when multa_regras.aplica_automatico = true
+   - Respects dias_carencia: no fine applied until
+     (TODAY - data_vencimento) > dias_carencia days
+   - Modelo 1 (percentagem fixa): triggers after
+     dia_limite (day-of-month) or in previous months
+   - Modelo 2 (escalões): matches by DAYS OVERDUE
+     (days elapsed since data_vencimento), not
+     day-of-month — fixes progressive bracket logic
+   - Modelo 3 (valor fixo): same trigger as modelo 1
+   - Marks all past-due pendente propinas as 'vencido'
    ───────────────────────────────────────────── */
 async function applyFinesForSchool(schoolId: number): Promise<void> {
   const now = new Date();
-  const today = now.getDate();
+  const today = now.getDate();        // day-of-month (for modelo 1 & 3 dia_limite)
   const thisYear = now.getFullYear();
-  const thisMonth = now.getMonth(); // 0-indexed
+  const thisMonth = now.getMonth();   // 0-indexed
 
   const overdueRes = await pool.query(
     `SELECT p.id, p.montante, p.multa, p.data_vencimento, p.mes,
@@ -189,32 +192,48 @@ async function applyFinesForSchool(schoolId: number): Promise<void> {
       venc.getFullYear() < thisYear ||
       (venc.getFullYear() === thisYear && venc.getMonth() < thisMonth);
 
+    // FIX: calculate whole days elapsed since due date — used for carência and escalões
+    const daysOverdue = Math.max(
+      0,
+      Math.floor((now.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24))
+    );
+
     let multa = Number(p.multa);
 
     if (regra && regra.aplica_automatico) {
-      const modelo = Number(regra.modelo ?? 1);
-      if (modelo === 1) {
-        if (isPreviousMonth || today > Number(regra.dia_limite)) {
-          multa = Number(p.montante) * (Number(regra.percentagem) / 100);
-        }
-      } else if (modelo === 2) {
-        const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
-        if (isPreviousMonth && brackets.length > 0) {
-          multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
-        } else {
-          for (const b of brackets) {
-            if (today >= Number(b.dia_inicio) && today <= Number(b.dia_fim)) {
-              multa = Number(p.montante) * (Number(b.percentagem) / 100);
-              break;
+      // FIX: respect grace period — skip fine calculation while still within carência window
+      const diasCarencia = Number(regra.dias_carencia ?? 0);
+
+      if (daysOverdue > diasCarencia) {
+        const modelo = Number(regra.modelo ?? 1);
+
+        if (modelo === 1) {
+          // Percentagem fixa: apply after dia_limite (day-of-month) or in prior months
+          if (isPreviousMonth || today > Number(regra.dia_limite)) {
+            multa = Number(p.montante) * (Number(regra.percentagem) / 100);
+          }
+        } else if (modelo === 2) {
+          // FIX: escalões — match bracket by DAYS OVERDUE, not day-of-month
+          const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
+          if (brackets.length > 0) {
+            let matched = false;
+            for (const b of brackets) {
+              if (daysOverdue >= Number(b.dia_inicio) && daysOverdue <= Number(b.dia_fim)) {
+                multa = Number(p.montante) * (Number(b.percentagem) / 100);
+                matched = true;
+                break;
+              }
+            }
+            // Beyond last bracket → cap at highest bracket percentage
+            if (!matched && daysOverdue > Number(brackets[brackets.length - 1].dia_fim)) {
+              multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
             }
           }
-          if (multa === Number(p.multa) && brackets.length > 0 && today > Number(brackets[brackets.length - 1].dia_fim)) {
-            multa = Number(p.montante) * (Number(brackets[brackets.length - 1].percentagem) / 100);
+        } else if (modelo === 3) {
+          // Valor fixo: apply after dia_limite (day-of-month) or in prior months
+          if (isPreviousMonth || today > Number(regra.dia_limite)) {
+            multa = Number(regra.valor_fixo);
           }
-        }
-      } else if (modelo === 3) {
-        if (isPreviousMonth || today > Number(regra.dia_limite)) {
-          multa = Number(regra.valor_fixo);
         }
       }
     }

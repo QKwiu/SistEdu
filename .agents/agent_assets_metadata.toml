@@ -30,3 +30,9 @@ id = "838O6eqq96nBGKAebS8_y"
 uri = "file://funcionalidades-por-perfil-kiwara-tech.pdf"
 type = "pdf"
 title = "Funcionalidades por Perfil — Kiwara Tech MVP v1.0"
+
+[[outputs]]
+id = "qGCceg4Ksi_xB84O1AtW0"
+uri = "file://relatorio-kiwara-tech.pdf"
+type = "pdf"
+title = "Relatório de Funcionalidades — Kiwara Tech"
