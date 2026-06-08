@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, User, Eye, EyeOff, Shield, HelpCircle, X, Mail, Phone } from "lucide-react";
+import { setAdminToken } from "@/lib/auth";
 
 const API = "/api";
-const TOKEN_KEY = "kiwara_admin_token";
 
 function RecoveryModal({ onClose }: { onClose: () => void }) {
   return (
@@ -102,7 +102,7 @@ export default function AdminLogin() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro de autenticação.");
-      localStorage.setItem(TOKEN_KEY, data.token);
+      setAdminToken(data.token);
       setLocation("/admin/dashboard");
     } catch (err: any) {
       setError(err.message);

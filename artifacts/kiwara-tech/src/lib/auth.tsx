@@ -64,6 +64,21 @@ export function useAuth() {
   return ctx;
 }
 
+/* ─── Admin token helpers (module-level, safe to call anywhere) ─── */
+export const ADMIN_TOKEN_KEY = "kiwara_admin_token";
+
+export function getAdminToken(): string {
+  return localStorage.getItem(ADMIN_TOKEN_KEY) ?? "";
+}
+
+export function setAdminToken(token: string): void {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+export function clearAdminToken(): void {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
 export function generateSchoolId(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let id = "SCH-";

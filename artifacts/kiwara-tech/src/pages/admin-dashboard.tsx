@@ -18,12 +18,12 @@ import { StudentRegistrationForm } from "@/components/student-form";
 import { fmtNumber as fmt, fmtCurrency as fmtCur } from "@/lib/format";
 import { FormField as Field, inputCls, selectCls, labelCls } from "@/components/ui/form-field";
 import { createApiClient } from "@/lib/api-client";
+import { getAdminToken, clearAdminToken, ADMIN_TOKEN_KEY } from "@/lib/auth";
 
 const API = "/api";
-const TOKEN_KEY = "kiwara_admin_token";
 
 /* ─── Helpers ─── */
-const api = createApiClient(TOKEN_KEY);
+const api = createApiClient(ADMIN_TOKEN_KEY);
 
 /* ─── Types ─── */
 interface Stats {
@@ -654,7 +654,7 @@ function AddAlunoPanel({ schoolId, turmas, usaPacotes, pacotes, anoLectivo, onSu
   const [nextNumeroProcesso, setNextNumeroProcesso] = useState<string | undefined>(undefined);
 
   const fetchNext = useCallback(() => {
-    const token = localStorage.getItem("kiwara_admin_token") ?? "";
+    const token = getAdminToken();
     fetch(`/api/admin/colegios/${schoolId}/alunos/next-numero-processo`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.next) setNextNumeroProcesso(d.next); })
@@ -664,7 +664,7 @@ function AddAlunoPanel({ schoolId, turmas, usaPacotes, pacotes, anoLectivo, onSu
   useEffect(() => { fetchNext(); }, [fetchNext]);
 
   const handleSubmit = async (fd: FormData) => {
-    const token = localStorage.getItem("kiwara_admin_token") ?? "";
+    const token = getAdminToken();
     const r = await fetch(`/api/admin/colegios/${schoolId}/alunos`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -3153,7 +3153,7 @@ function AlunoFichaSlideOver({
 
 /* ─── AlunosListAdminPanel: Lista de alunos com atribuição de pacote inline ─── */
 function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes: PacoteEmolumento[] }) {
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = getAdminToken();
   const headers = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : {};
 
   interface AdminAluno {
@@ -5935,9 +5935,8 @@ function AdminSMSView() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<any>(null);
 
-  const getToken = () => localStorage.getItem(TOKEN_KEY) ?? "";
   const apiAdmin = (path: string, opts?: RequestInit) =>
-    fetch(`${API}${path}`, { ...opts, headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...(opts?.headers ?? {}) } });
+    fetch(`${API}${path}`, { ...opts, headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAdminToken()}`, ...(opts?.headers ?? {}) } });
 
   const fetchProvider = () => {
     apiAdmin("/admin/sms/provider").then(r => r.ok ? r.json() : null).then(d => d && setProviderConfig(d));
@@ -7138,7 +7137,7 @@ const ADMIN_RBAC_TABS: { key: AdminRBACTab; label: string; Icon: React.ElementTy
 ];
 
 function AdminRBACView() {
-  const token = getToken();
+  const token = getAdminToken();
   const [schools, setSchools] = useState<any[]>([]);
   const [schoolId, setSchoolId] = useState<number | null>(null);
   const [summary, setSummary] = useState<any>(null);
@@ -10705,10 +10704,10 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY) ?? "";
+    const token = getAdminToken();
     if (!token) { setLocation("/admin"); return; }
     api("/admin/stats").then(r => {
-      if (r.status === 401) { localStorage.removeItem(TOKEN_KEY); setLocation("/admin"); }
+      if (r.status === 401) { clearAdminToken(); setLocation("/admin"); }
       else r.json().then(setStats);
     });
   }, []);
@@ -10723,7 +10722,7 @@ export default function AdminDashboard() {
   }, [selectedSchoolId]);
 
   const logout = () => {
-    localStorage.removeItem(TOKEN_KEY);
+    clearAdminToken();
     setLocation("/admin");
   };
 
