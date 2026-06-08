@@ -10016,7 +10016,7 @@ function AdminFinanceReconciliationView() {
 }
 
 /* ─── Main Dashboard ─── */
-type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "fcm_config" | "relatorios_financeiros" | "admin_students" | "admin_classes" | "admin_finance_overdue" | "admin_finance_receipts" | "admin_finance_reconciliation";
+type AdminView = "stats" | "colegios" | "emolumentos_globais" | "sms" | "gestao_acessos" | "config_tecnicas" | "parametrizacao" | "fcm_config" | "relatorios_financeiros" | "admin_students" | "admin_classes" | "admin_finance_overdue" | "admin_finance_receipts" | "admin_finance_reconciliation" | "logs_alertas";
 
 /* ═══════════════════════════════════════════════════════════════════
    FCM CONFIG VIEW — Push Notifications (Firebase Cloud Messaging)
@@ -10199,6 +10199,502 @@ function FcmConfigAdminView() {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   LOGS & ALERTAS — Monitorização do sistema
+═══════════════════════════════════════════════════════════════════ */
+function LogsAlertasAdminView() {
+  type LogTab = "auditoria" | "sms" | "pagamentos";
+  type AlertLevel = "ok" | "warning" | "critical";
+
+  const [health, setHealth]               = useState<any>(null);
+  const [loadingHealth, setLoadingHealth] = useState(true);
+  const [lastRefresh, setLastRefresh]     = useState(new Date());
+  const [activeTab, setActiveTab]         = useState<LogTab>("auditoria");
+
+  const [accessLogs, setAccessLogs]       = useState<any[]>([]);
+  const [accessTotal, setAccessTotal]     = useState(0);
+  const [accessPage, setAccessPage]       = useState(1);
+  const [accessSearch, setAccessSearch]   = useState("");
+  const [loadingAccess, setLoadingAccess] = useState(false);
+
+  const [smsLogs, setSmsLogs]             = useState<any[]>([]);
+  const [smsTotal, setSmsTotal]           = useState(0);
+  const [smsPage, setSmsPage]             = useState(1);
+  const [smsSearch, setSmsSearch]         = useState("");
+  const [loadingSms, setLoadingSms]       = useState(false);
+
+  const [payLogs, setPayLogs]             = useState<any[]>([]);
+  const [payTotal, setPayTotal]           = useState(0);
+  const [payPage, setPayPage]             = useState(1);
+  const [loadingPay, setLoadingPay]       = useState(false);
+
+  const fetchHealth = useCallback(() => {
+    setLoadingHealth(true);
+    api("/admin/db-health")
+      .then(r => r.json())
+      .then(d => { setHealth(d); setLastRefresh(new Date()); })
+      .catch(() => {})
+      .finally(() => setLoadingHealth(false));
+  }, []);
+
+  useEffect(() => { fetchHealth(); }, [fetchHealth]);
+  useEffect(() => {
+    const iv = setInterval(fetchHealth, 60_000);
+    return () => clearInterval(iv);
+  }, [fetchHealth]);
+
+  useEffect(() => {
+    if (activeTab !== "auditoria") return;
+    setLoadingAccess(true);
+    api(`/admin/logs/access?page=${accessPage}&search=${encodeURIComponent(accessSearch)}`)
+      .then(r => r.json())
+      .then(d => { setAccessLogs(d.logs ?? []); setAccessTotal(d.total ?? 0); })
+      .catch(() => {})
+      .finally(() => setLoadingAccess(false));
+  }, [activeTab, accessPage, accessSearch]);
+
+  useEffect(() => {
+    if (activeTab !== "sms") return;
+    setLoadingSms(true);
+    api(`/admin/logs/sms?page=${smsPage}&search=${encodeURIComponent(smsSearch)}`)
+      .then(r => r.json())
+      .then(d => { setSmsLogs(d.logs ?? []); setSmsTotal(d.total ?? 0); })
+      .catch(() => {})
+      .finally(() => setLoadingSms(false));
+  }, [activeTab, smsPage, smsSearch]);
+
+  useEffect(() => {
+    if (activeTab !== "pagamentos") return;
+    setLoadingPay(true);
+    api(`/admin/logs/payments?page=${payPage}`)
+      .then(r => r.json())
+      .then(d => { setPayLogs(d.logs ?? []); setPayTotal(d.total ?? 0); })
+      .catch(() => {})
+      .finally(() => setLoadingPay(false));
+  }, [activeTab, payPage]);
+
+  const alertStyle: Record<AlertLevel, { bg: string; border: string; text: string; iconColor: string; badge: string }> = {
+    ok:       { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", iconColor: "text-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
+    warning:  { bg: "bg-amber-50",   border: "border-amber-200",   text: "text-amber-700",   iconColor: "text-amber-500",   badge: "bg-amber-100 text-amber-700"   },
+    critical: { bg: "bg-red-50",     border: "border-red-200",     text: "text-red-700",     iconColor: "text-red-500",     badge: "bg-red-100 text-red-700"       },
+  };
+  const alertLabel: Record<AlertLevel, string> = { ok: "OK", warning: "AVISO", critical: "CRÍTICO" };
+  const lvl = (val: number, warn: number, crit: number): AlertLevel =>
+    val >= crit ? "critical" : val >= warn ? "warning" : "ok";
+
+  const totalConn    = (health?.connections ?? []).reduce((s: number, r: any) => s + Number(r.count), 0);
+  const activeConn   = Number((health?.connections ?? []).find((r: any) => r.state === "active")?.count ?? 0);
+  const maxDeadRatio = (health?.dead_tuples ?? []).reduce((m: number, r: any) => Math.max(m, Number(r.dead_ratio)), 0);
+  const totalExpired = Number(health?.expired_sessions?.expired_admin ?? 0)
+                     + Number(health?.expired_sessions?.expired_guardian ?? 0)
+                     + Number(health?.expired_sessions?.expired_staff ?? 0);
+  const slowCount    = health?.slow_queries?.length ?? 0;
+  const failedSms    = Number(health?.log_counts?.sms_failed_24h ?? 0);
+
+  const AlertCard = ({ title, value, subtitle, level, icon }: { title: string; value: string | number; subtitle?: string; level: AlertLevel; icon: React.ReactNode }) => {
+    const s = alertStyle[level];
+    return (
+      <div className={`rounded-2xl border p-4 space-y-2 ${s.bg} ${s.border}`}>
+        <div className="flex items-center justify-between">
+          <span className={`text-[11px] font-semibold uppercase tracking-wide ${s.text}`}>{title}</span>
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${s.badge}`}>{alertLabel[level]}</span>
+        </div>
+        <div className={`flex items-center gap-2 ${s.iconColor}`}>
+          {icon}
+          <span className="text-2xl font-bold text-slate-900">{value}</span>
+        </div>
+        {subtitle && <p className="text-[11px] text-slate-500 leading-tight">{subtitle}</p>}
+      </div>
+    );
+  };
+
+  const Pages = ({ total, page, limit, onPage }: { total: number; page: number; limit: number; onPage: (p: number) => void }) => {
+    const pages = Math.ceil(total / limit);
+    if (pages <= 1) return null;
+    return (
+      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+        <span className="text-xs text-slate-400">{total} registos · página {page}/{pages}</span>
+        <div className="flex gap-1">
+          <button onClick={() => onPage(page - 1)} disabled={page <= 1}
+            className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+            <ChevronLeft className="w-4 h-4 text-slate-500"/>
+          </button>
+          <button onClick={() => onPage(page + 1)} disabled={page >= pages}
+            className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+            <ChevronRight className="w-4 h-4 text-slate-500"/>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="p-6 space-y-6 max-w-7xl">
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Server className="w-5 h-5 text-slate-600"/> Logs & Alertas do Sistema
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Saúde da base de dados, alertas configuráveis e registos de actividade.
+            {health && (
+              <span className="ml-2 text-xs text-slate-400">
+                · Actualizado às {lastRefresh.toLocaleTimeString("pt-AO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </span>
+            )}
+          </p>
+        </div>
+        <button onClick={fetchHealth} disabled={loadingHealth}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-sm font-medium text-slate-700 transition-all disabled:opacity-60 shadow-sm">
+          <RefreshCw className={`w-4 h-4 ${loadingHealth ? "animate-spin" : ""}`}/> Actualizar métricas
+        </button>
+      </div>
+
+      {/* Alert cards */}
+      <div>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Alertas de Saúde</h3>
+        {loadingHealth ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => <div key={i} className="bg-slate-100 rounded-2xl h-24 animate-pulse"/>)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <AlertCard
+              title="Ligações Activas" value={totalConn}
+              subtitle={`${activeConn} em execução · Limite: 100 / 150`}
+              level={lvl(totalConn, 100, 150)}
+              icon={<Wifi className="w-5 h-5"/>}
+            />
+            <AlertCard
+              title="Fragmentação DB" value={`${maxDeadRatio}%`}
+              subtitle="Máx. dead tuples · Limite: 10% / 30%"
+              level={lvl(maxDeadRatio, 10, 30)}
+              icon={<Layers className="w-5 h-5"/>}
+            />
+            <AlertCard
+              title="Sessões Expiradas" value={totalExpired}
+              subtitle="Admin + Guardian + Staff · Limite: 100 / 1 000"
+              level={lvl(totalExpired, 100, 1000)}
+              icon={<Clock className="w-5 h-5"/>}
+            />
+            <AlertCard
+              title="Queries Lentas" value={slowCount}
+              subtitle={slowCount === 0 ? "Nenhuma query > 500 ms" : "Queries acima de 500 ms · Limite: 1 / 5"}
+              level={lvl(slowCount, 1, 5)}
+              icon={<Terminal className="w-5 h-5"/>}
+            />
+            <AlertCard
+              title="SMS Falhados 24h" value={failedSms}
+              subtitle="Falhas de envio nas últimas 24h · Limite: 5 / 20"
+              level={lvl(failedSms, 5, 20)}
+              icon={<Smartphone className="w-5 h-5"/>}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Tabelas + Dead Tuples */}
+      <div className="grid md:grid-cols-2 gap-4">
+
+        {/* Tamanho das tabelas */}
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+            <TableProperties className="w-4 h-4 text-slate-400"/>
+            <h3 className="font-semibold text-slate-800 text-sm">Top 10 — Tamanho das Tabelas</h3>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="px-4 py-2.5 text-left font-semibold text-slate-500">Tabela</th>
+                <th className="px-4 py-2.5 text-right font-semibold text-slate-500">Tamanho</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingHealth
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i}><td colSpan={2} className="px-4 py-2.5"><div className="bg-slate-100 h-3 rounded animate-pulse"/></td></tr>
+                  ))
+                : (health?.table_sizes ?? []).map((row: any, i: number) => (
+                    <tr key={row.table_name} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-2.5 font-mono text-slate-700">
+                        <span className="text-slate-400 mr-2 tabular-nums">{i + 1}.</span>{row.table_name}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-slate-900">{row.total_size}</td>
+                    </tr>
+                  ))
+              }
+            </tbody>
+          </table>
+        </div>
+
+        {/* Dead tuples */}
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400"/>
+            <h3 className="font-semibold text-slate-800 text-sm">Fragmentação (Dead Tuples)</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[420px]">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  <th className="px-4 py-2.5 text-left font-semibold text-slate-500">Tabela</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-slate-500">Dead</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-slate-500">Ratio</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-slate-500">Último Vacuum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingHealth
+                  ? Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i}><td colSpan={4} className="px-4 py-2.5"><div className="bg-slate-100 h-3 rounded animate-pulse"/></td></tr>
+                    ))
+                  : (health?.dead_tuples ?? []).map((row: any) => {
+                      const r = Number(row.dead_ratio);
+                      const rc = r >= 30 ? "text-red-600 font-bold" : r >= 10 ? "text-amber-600 font-semibold" : "text-emerald-600";
+                      return (
+                        <tr key={row.table_name} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-2.5 font-mono text-slate-700">{row.table_name}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-500">{Number(row.dead_tup).toLocaleString("pt-AO")}</td>
+                          <td className={`px-4 py-2.5 text-right ${rc}`}>{r}%</td>
+                          <td className="px-4 py-2.5 text-right text-slate-400 text-[11px]">{row.last_autovacuum ?? row.last_vacuum ?? "—"}</td>
+                        </tr>
+                      );
+                    })
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Slow queries */}
+      {(health?.slow_queries?.length > 0) && (
+        <div className="bg-white rounded-2xl border border-red-200 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-red-100 flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-red-500"/>
+            <h3 className="font-semibold text-red-800 text-sm">Queries Lentas (&gt; 500 ms de média)</h3>
+            <span className="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-lg bg-red-100 text-red-700">{health.slow_queries.length} detectadas</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[600px]">
+              <thead>
+                <tr className="bg-red-50 border-b border-red-100">
+                  <th className="px-4 py-2.5 text-left font-semibold text-red-700">Query (resumida)</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-red-700">Chamadas</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-red-700">Média</th>
+                  <th className="px-4 py-2.5 text-right font-semibold text-red-700">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {health.slow_queries.map((q: any, i: number) => (
+                  <tr key={i} className="border-b border-red-50 hover:bg-red-50/50 transition-colors">
+                    <td className="px-4 py-2.5 font-mono text-slate-600 max-w-xs truncate">{q.query_short}</td>
+                    <td className="px-4 py-2.5 text-right text-slate-500">{q.calls}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-red-600">{q.mean_ms} ms</td>
+                    <td className="px-4 py-2.5 text-right text-slate-500">{(q.total_ms / 1000).toFixed(1)} s</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Contagens de logs */}
+      {health?.log_counts && (
+        <div>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Volume de Registos</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "SMS",              value: Number(health.log_counts.sms_total),      sub: `${Number(health.log_counts.sms_30d).toLocaleString("pt-AO")} nos últimos 30 dias`,   icon: <Smartphone className="w-4 h-4 text-blue-500"/>   },
+              { label: "Auditoria",        value: Number(health.log_counts.audit_total),    sub: `${Number(health.log_counts.audit_30d).toLocaleString("pt-AO")} nos últimos 30 dias`, icon: <History className="w-4 h-4 text-violet-500"/>    },
+              { label: "Pag. Manuais",     value: Number(health.log_counts.payments_total), sub: "Total de registos de pagamento",                                                        icon: <CreditCard className="w-4 h-4 text-emerald-500"/> },
+              { label: "Débito Directo",   value: Number(health.log_counts.dd_audit_total), sub: "Transições de estado de mandato",                                                       icon: <FileText className="w-4 h-4 text-amber-500"/>    },
+            ].map(item => (
+              <div key={item.label} className="bg-white rounded-2xl border border-slate-200 p-4">
+                <div className="flex items-center gap-2 mb-1.5">{item.icon}<span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">{item.label}</span></div>
+                <p className="text-2xl font-bold text-slate-900">{item.value.toLocaleString("pt-AO")}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tabs de logs */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="flex border-b border-slate-100 bg-slate-50">
+          {([
+            { id: "auditoria",  label: "Auditoria de Acessos", icon: <History className="w-4 h-4"/>    },
+            { id: "sms",        label: "SMS",                  icon: <Smartphone className="w-4 h-4"/>  },
+            { id: "pagamentos", label: "Pagamentos Manuais",   icon: <CreditCard className="w-4 h-4"/> },
+          ] as { id: LogTab; label: string; icon: React.ReactNode }[]).map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold transition-colors border-b-2 ${
+                activeTab === t.id
+                  ? "border-primary text-primary bg-white"
+                  : "border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              }`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Auditoria */}
+        {activeTab === "auditoria" && (
+          <div className="p-5 space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+              <input type="text" placeholder="Pesquisar por actor, acção, alvo ou IP…"
+                value={accessSearch}
+                onChange={e => { setAccessSearch(e.target.value); setAccessPage(1); }}
+                className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+            </div>
+            {loadingAccess
+              ? <div className="flex items-center justify-center h-32"><RefreshCw className="w-5 h-5 animate-spin text-slate-300"/></div>
+              : accessLogs.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-10">Sem registos de auditoria.</p>
+                : (
+                  <>
+                    <div className="overflow-x-auto rounded-xl border border-slate-100">
+                      <table className="w-full text-xs min-w-[680px]">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-100">
+                            {["Data/Hora","Actor","Tipo","Acção","Alvo","IP"].map(h => (
+                              <th key={h} className="px-4 py-2.5 text-left font-semibold text-slate-500">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {accessLogs.map(log => (
+                            <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                              <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString("pt-AO")}</td>
+                              <td className="px-4 py-2.5 font-medium text-slate-700">{log.actor}</td>
+                              <td className="px-4 py-2.5">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                  log.actor_tipo === "admin" ? "bg-purple-100 text-purple-700" :
+                                  log.actor_tipo === "staff" ? "bg-blue-100 text-blue-700" :
+                                  "bg-slate-100 text-slate-600"
+                                }`}>{log.actor_tipo}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-slate-700">{log.acao}</td>
+                              <td className="px-4 py-2.5 text-slate-500">{log.alvo ?? "—"}</td>
+                              <td className="px-4 py-2.5 font-mono text-slate-400">{log.ip ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pages total={accessTotal} page={accessPage} limit={50} onPage={setAccessPage}/>
+                  </>
+                )
+            }
+          </div>
+        )}
+
+        {/* SMS */}
+        {activeTab === "sms" && (
+          <div className="p-5 space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"/>
+              <input type="text" placeholder="Pesquisar por telemóvel, mensagem ou evento…"
+                value={smsSearch}
+                onChange={e => { setSmsSearch(e.target.value); setSmsPage(1); }}
+                className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+            </div>
+            {loadingSms
+              ? <div className="flex items-center justify-center h-32"><RefreshCw className="w-5 h-5 animate-spin text-slate-300"/></div>
+              : smsLogs.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-10">Sem logs de SMS.</p>
+                : (
+                  <>
+                    <div className="overflow-x-auto rounded-xl border border-slate-100">
+                      <table className="w-full text-xs min-w-[660px]">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-100">
+                            {["Data/Hora","Telemóvel","Evento","Estado","Mensagem"].map(h => (
+                              <th key={h} className="px-4 py-2.5 text-left font-semibold text-slate-500">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {smsLogs.map(log => (
+                            <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                              <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">{new Date(log.data_envio).toLocaleString("pt-AO")}</td>
+                              <td className="px-4 py-2.5 font-mono text-slate-700">{log.telefone ?? "—"}</td>
+                              <td className="px-4 py-2.5 text-slate-600">{log.evento ?? "—"}</td>
+                              <td className="px-4 py-2.5">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                  log.status === "sent" || log.status === "delivered" ? "bg-emerald-100 text-emerald-700" :
+                                  log.status === "failed" ? "bg-red-100 text-red-700" :
+                                  "bg-slate-100 text-slate-600"
+                                }`}>{log.status ?? "—"}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-slate-500 max-w-xs truncate">{log.mensagem ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pages total={smsTotal} page={smsPage} limit={50} onPage={setSmsPage}/>
+                  </>
+                )
+            }
+          </div>
+        )}
+
+        {/* Pagamentos */}
+        {activeTab === "pagamentos" && (
+          <div className="p-5 space-y-4">
+            {loadingPay
+              ? <div className="flex items-center justify-center h-32"><RefreshCw className="w-5 h-5 animate-spin text-slate-300"/></div>
+              : payLogs.length === 0
+                ? <p className="text-sm text-slate-400 text-center py-10">Sem logs de pagamentos manuais.</p>
+                : (
+                  <>
+                    <div className="overflow-x-auto rounded-xl border border-slate-100">
+                      <table className="w-full text-xs min-w-[760px]">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-100">
+                            {["Data/Hora","Escola","Aluno","Propina","Montante","Método","Ref. Transacção"].map(h => (
+                              <th key={h} className={`px-4 py-2.5 font-semibold text-slate-500 ${h === "Montante" ? "text-right" : "text-left"}`}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payLogs.map(log => {
+                            let meta: any = {};
+                            try { meta = JSON.parse(log.metadata_json ?? "{}"); } catch {}
+                            return (
+                              <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString("pt-AO")}</td>
+                                <td className="px-4 py-2.5 text-slate-700">{log.escola_nome ?? "—"}</td>
+                                <td className="px-4 py-2.5 text-slate-700">{log.aluno_nome ?? "—"}</td>
+                                <td className="px-4 py-2.5 text-slate-500">{log.mes && log.ano ? `${log.mes}/${log.ano}` : "—"}</td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-slate-900">
+                                  {log.montante ? `${Number(log.montante).toLocaleString("pt-AO")} AOA` : "—"}
+                                </td>
+                                <td className="px-4 py-2.5 text-slate-600">{meta.payment_method ?? "—"}</td>
+                                <td className="px-4 py-2.5 font-mono text-slate-400 truncate max-w-[150px]">{meta.transaction_id ?? "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pages total={payTotal} page={payPage} limit={50} onPage={setPayPage}/>
+                  </>
+                )
+            }
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
   const [view, setView] = useState<AdminView>("stats");
@@ -10241,6 +10737,7 @@ export default function AdminDashboard() {
     { id: "config_tecnicas"        as const, label: "Configurações Técnicas",  icon: <Settings2 className="w-5 h-5" /> },
     { id: "parametrizacao"         as const, label: "Parametrização",          icon: <Network className="w-5 h-5" /> },
     { id: "fcm_config"             as const, label: "Push Notifications",      icon: <Zap className="w-5 h-5" /> },
+    { id: "logs_alertas"           as const, label: "Logs & Alertas",           icon: <Server className="w-5 h-5" /> },
   ];
 
   const navigate = (id: AdminView) => {
@@ -10452,6 +10949,7 @@ export default function AdminDashboard() {
             {view === "admin_finance_overdue"         && <AdminFinanceOverdueView />}
             {view === "admin_finance_receipts"        && <AdminFinanceReceiptsView />}
             {view === "admin_finance_reconciliation"  && <AdminFinanceReconciliationView />}
+            {view === "logs_alertas"                  && <LogsAlertasAdminView />}
           </>
         )}
       </main>

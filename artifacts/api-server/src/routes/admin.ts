@@ -2258,6 +2258,185 @@ router.post("/admin/fcm-config/test", adminAuth, async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════════
+   LOGS & ALERTAS — Monitorização e registos de actividade
+═══════════════════════════════════════════════════════════════════ */
+
+/* ─── GET /admin/db-health ─── */
+router.get("/admin/db-health", adminAuth, async (_req, res) => {
+  try {
+    const [connRes, sizesRes, deadRes, sessRes, countsRes] = await Promise.all([
+      pool.query(`
+        SELECT state, count(*)::int AS count
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+        GROUP BY state ORDER BY count DESC
+      `),
+      pool.query(`
+        SELECT c.relname AS table_name,
+               pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size,
+               pg_total_relation_size(c.oid)::bigint AS size_bytes
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
+        ORDER BY size_bytes DESC LIMIT 10
+      `),
+      pool.query(`
+        SELECT relname AS table_name,
+               n_dead_tup::int AS dead_tup,
+               n_live_tup::int AS live_tup,
+               CASE WHEN n_live_tup > 0
+                    THEN round((n_dead_tup::numeric / n_live_tup) * 100, 1)
+                    ELSE 0 END AS dead_ratio,
+               to_char(last_vacuum,     'DD/MM/YYYY HH24:MI') AS last_vacuum,
+               to_char(last_autovacuum, 'DD/MM/YYYY HH24:MI') AS last_autovacuum
+        FROM pg_stat_user_tables
+        WHERE n_live_tup > 0
+        ORDER BY n_dead_tup DESC LIMIT 10
+      `),
+      pool.query(`
+        SELECT
+          (SELECT count(*)::int FROM sessions       WHERE expires_at < NOW()) AS expired_admin,
+          (SELECT count(*)::int FROM guardian_sessions WHERE expires_at < NOW()) AS expired_guardian,
+          (SELECT count(*)::int FROM staff_sessions WHERE expires_at < NOW()) AS expired_staff
+      `),
+      pool.query(`
+        SELECT
+          (SELECT count(*)::bigint FROM sms_logs)                                         AS sms_total,
+          (SELECT count(*)::bigint FROM sms_logs WHERE data_envio > NOW() - interval '30 days') AS sms_30d,
+          (SELECT count(*)::bigint FROM access_audit_log)                                 AS audit_total,
+          (SELECT count(*)::bigint FROM access_audit_log WHERE created_at > NOW() - interval '30 days') AS audit_30d,
+          (SELECT count(*)::bigint FROM manual_payment_logs)                              AS payments_total,
+          (SELECT count(*)::bigint FROM dd_audit_log)                                     AS dd_audit_total,
+          (SELECT count(*)::bigint FROM sms_logs WHERE status='failed' AND data_envio > NOW() - interval '24 hours') AS sms_failed_24h
+      `),
+    ]);
+
+    let slowQueries: any[] = [];
+    try {
+      const sqRes = await pool.query(`
+        SELECT substring(query, 1, 120) AS query_short,
+               calls::int,
+               round(mean_exec_time::numeric, 1) AS mean_ms,
+               round(total_exec_time::numeric, 1) AS total_ms
+        FROM pg_stat_statements
+        WHERE mean_exec_time > 500 AND query NOT ILIKE '%pg_stat%'
+        ORDER BY total_exec_time DESC LIMIT 10
+      `);
+      slowQueries = sqRes.rows;
+    } catch (_) { /* extensão não instalada — ignorar */ }
+
+    res.json({
+      connections:      connRes.rows,
+      table_sizes:      sizesRes.rows,
+      dead_tuples:      deadRes.rows,
+      expired_sessions: sessRes.rows[0] ?? null,
+      log_counts:       countsRes.rows[0] ?? null,
+      slow_queries:     slowQueries,
+      fetched_at:       new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("[db-health]", e);
+    res.status(500).json({ error: "Erro ao obter métricas da base de dados." });
+  }
+});
+
+/* ─── GET /admin/logs/access ─── */
+router.get("/admin/logs/access", adminAuth, async (req, res) => {
+  try {
+    const page   = Math.max(1, Number(req.query.page) || 1);
+    const limit  = 50;
+    const offset = (page - 1) * limit;
+    const search = (req.query.search as string ?? "").trim();
+
+    const params: any[] = [];
+    let where = "WHERE 1=1";
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (actor ILIKE $${params.length} OR acao ILIKE $${params.length} OR alvo ILIKE $${params.length} OR ip ILIKE $${params.length})`;
+    }
+
+    const [logsRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT id, school_id, actor, actor_tipo, acao, alvo, ip, created_at,
+                detalhe::text AS detalhe_json
+         FROM access_audit_log ${where}
+         ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+        params
+      ),
+      pool.query(`SELECT count(*)::int AS total FROM access_audit_log ${where}`, params),
+    ]);
+
+    res.json({ logs: logsRes.rows, total: countRes.rows[0].total, page, limit });
+  } catch (e) {
+    console.error("[logs/access]", e);
+    res.status(500).json({ error: "Erro ao carregar logs de auditoria." });
+  }
+});
+
+/* ─── GET /admin/logs/sms ─── */
+router.get("/admin/logs/sms", adminAuth, async (req, res) => {
+  try {
+    const page   = Math.max(1, Number(req.query.page) || 1);
+    const limit  = 50;
+    const offset = (page - 1) * limit;
+    const search = (req.query.search as string ?? "").trim();
+
+    const params: any[] = [];
+    let where = "WHERE 1=1";
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (telefone ILIKE $${params.length} OR mensagem ILIKE $${params.length} OR evento ILIKE $${params.length})`;
+    }
+
+    const [logsRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT id, school_id, telefone, mensagem, status, evento, data_envio
+         FROM sms_logs ${where}
+         ORDER BY data_envio DESC LIMIT ${limit} OFFSET ${offset}`,
+        params
+      ),
+      pool.query(`SELECT count(*)::int AS total FROM sms_logs ${where}`, params),
+    ]);
+
+    res.json({ logs: logsRes.rows, total: countRes.rows[0].total, page, limit });
+  } catch (e) {
+    console.error("[logs/sms]", e);
+    res.status(500).json({ error: "Erro ao carregar logs de SMS." });
+  }
+});
+
+/* ─── GET /admin/logs/payments ─── */
+router.get("/admin/logs/payments", adminAuth, async (req, res) => {
+  try {
+    const page   = Math.max(1, Number(req.query.page) || 1);
+    const limit  = 50;
+    const offset = (page - 1) * limit;
+
+    const [logsRes, countRes] = await Promise.all([
+      pool.query(
+        `SELECT ml.id, ml.propina_id, ml.created_at,
+                ml.metadata::text AS metadata_json,
+                p.mes, p.ano, p.montante, p.status AS propina_status,
+                s.nome AS aluno_nome,
+                sc.name AS escola_nome
+         FROM manual_payment_logs ml
+         LEFT JOIN propinas p  ON p.id = ml.propina_id
+         LEFT JOIN students s  ON s.id = p.student_id
+         LEFT JOIN schools sc  ON sc.id = p.school_id
+         ORDER BY ml.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+        []
+      ),
+      pool.query(`SELECT count(*)::int AS total FROM manual_payment_logs`),
+    ]);
+
+    res.json({ logs: logsRes.rows, total: countRes.rows[0].total, page, limit });
+  } catch (e) {
+    console.error("[logs/payments]", e);
+    res.status(500).json({ error: "Erro ao carregar logs de pagamentos." });
+  }
+});
+
 export default router;
 
 
