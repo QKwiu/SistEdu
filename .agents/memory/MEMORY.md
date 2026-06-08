@@ -8,3 +8,4 @@
 - [Débito Directo DD engine](dd-engine.md) — motor ISO 20022 completo; testConnectivity suporta SOAP/REST/OAuth2/AMBOS; painel escola 4 tabs; estados encarregado ACTV/SUSP/CANC/EXPRD.
 - [Guardian portal e.bi bug](guardian-bi-fix.md) — tabela encarregados não tem coluna `bi`; getGuardianFromToken linha 12 causava 500 em todas as rotas guardian; remover e.bi do SELECT.
 - [Calendar guardian portal](calendar-guardian-portal.md) — calSub union, creche/colégio tab switching via schoolModuloInfantil, localStorage cache pattern, multimedia security rules.
+- [DRY refactoring — shared utilities](dry-refactoring.md) — 10 ficheiros partilhados criados; padrões de import e aliases a usar em código novo.

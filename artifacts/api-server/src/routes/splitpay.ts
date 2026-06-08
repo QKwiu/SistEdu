@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { schoolAuth, getSchoolFromToken } from "../middlewares/school-auth";
 
 const router = Router();
 
@@ -108,23 +109,7 @@ export async function runSplitPayMigration(): Promise<void> {
   console.log("[splitpay] migration ok");
 }
 
-/* ─── Auth helpers ─── */
-async function getSchoolFromToken(token: string) {
-  const r = await pool.query(
-    `SELECT sc.id AS school_id, sc.name AS school_name
-     FROM sessions s
-     JOIN schools sc ON sc.id = s.school_id
-     WHERE s.token = $1 AND s.expires_at > NOW()`,
-    [token]
-  );
-  return r.rows[0] ?? null;
-}
-function schoolAuth(req: any, res: any, next: any) {
-  const h = req.headers.authorization;
-  if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
-  req.schoolToken = h.slice(7);
-  next();
-}
+/* ─── Auth helpers — imported from middlewares/school-auth ─── */
 
 /* ─── Split engine ─── */
 function calcularSplit(valorTotal: bigint, taxaComissaoPct: number, taxaIrtPct: number) {

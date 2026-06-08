@@ -1,26 +1,12 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { schoolAuthFull as schoolAuth } from "../middlewares/school-auth";
+import { calcFine } from "../lib/fines-engine";
 
 const router = Router();
 
-/* ─── Auth middleware (school session) ─── */
-async function schoolAuth(req: any, res: any, next: any) {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autorizado" });
-  const token = auth.slice(7);
-  const rows = await db.execute(sql`
-    SELECT s.id AS school_id, s.name AS school_name
-    FROM sessions sess
-    JOIN schools s ON s.id = sess.school_id
-    WHERE sess.token = ${token} AND sess.expires_at > now()
-    LIMIT 1
-  `);
-  if (!rows.rows.length) return res.status(401).json({ error: "Sessão inválida" });
-  req.schoolId = rows.rows[0].school_id as number;
-  req.schoolName = rows.rows[0].school_name as string;
-  next();
-}
+/* ─── Auth middleware — imported from middlewares/school-auth ─── */
 
 /* ── Migration: ensure tables needed for reports exist ── */
 export async function runReportsMigration() {
@@ -514,55 +500,7 @@ router.get("/school/relatorios/export/propinas", schoolAuth, async (req: any, re
   }
 });
 
-/* ─── Multa calculation helper (mirrors applyFinesForSchool logic) ─── */
-function calcMultaParaPropina(
-  montante: number,
-  dataVencimento: Date,
-  regra: any
-): number {
-  if (!regra) return 0;
-  const now = new Date();
-  const today = now.getDate();
-  const thisYear = now.getFullYear();
-  const thisMonth = now.getMonth();
-
-  const isPreviousMonth =
-    dataVencimento.getFullYear() < thisYear ||
-    (dataVencimento.getFullYear() === thisYear && dataVencimento.getMonth() < thisMonth);
-
-  const isOverdue = dataVencimento < now;
-  if (!isOverdue) return 0;
-
-  const modelo = Number(regra.modelo ?? 1);
-  let multa = 0;
-
-  if (modelo === 1) {
-    if (isPreviousMonth || today > Number(regra.dia_limite)) {
-      multa = montante * (Number(regra.percentagem) / 100);
-    }
-  } else if (modelo === 2) {
-    const brackets = Array.isArray(regra.brackets) ? regra.brackets : [];
-    if (isPreviousMonth && brackets.length > 0) {
-      multa = montante * (Number(brackets[brackets.length - 1].percentagem) / 100);
-    } else {
-      for (const b of brackets) {
-        if (today >= Number(b.dia_inicio) && today <= Number(b.dia_fim)) {
-          multa = montante * (Number(b.percentagem) / 100);
-          break;
-        }
-      }
-      if (multa === 0 && brackets.length > 0 && today > Number(brackets[brackets.length - 1].dia_fim)) {
-        multa = montante * (Number(brackets[brackets.length - 1].percentagem) / 100);
-      }
-    }
-  } else if (modelo === 3) {
-    if (isPreviousMonth || today > Number(regra.dia_limite)) {
-      multa = Number(regra.valor_fixo);
-    }
-  }
-
-  return multa;
-}
+/* ─── Multa calculation — imported from lib/fines-engine (single source of truth) ─── */
 
 /* ─── GET /school/relatorios/multas-analise ─── */
 router.get("/school/relatorios/multas-analise", schoolAuth, async (req: any, res) => {
@@ -604,7 +542,7 @@ router.get("/school/relatorios/multas-analise", schoolAuth, async (req: any, res
       const montante = Number(p.montante);
       const multaActual = Number(p.multa_actual);
       const dataVenc = new Date(p.data_vencimento);
-      const multaCalculada = calcMultaParaPropina(montante, dataVenc, regra);
+      const { multa: multaCalculada } = calcFine({ montante, dataVencimento: dataVenc, regra });
       const delta = multaCalculada - multaActual;
 
       totalMultaAplicada += multaActual;
@@ -705,7 +643,7 @@ router.post("/school/relatorios/multas-aplicar", schoolAuth, async (req: any, re
       const montante = Number(p.montante);
       const multaActual = Number(p.multa_actual);
       const dataVenc = new Date(p.data_vencimento);
-      const multaCalculada = calcMultaParaPropina(montante, dataVenc, regra);
+      const { multa: multaCalculada } = calcFine({ montante, dataVencimento: dataVenc, regra });
 
       const novoStatus = "vencido";
       const mudouMulta = Math.abs(multaCalculada - multaActual) > 0.01;

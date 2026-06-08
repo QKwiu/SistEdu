@@ -15,27 +15,15 @@ import {
   Layers,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
+import { fmtNumber as fmt, fmtCurrency as fmtCur } from "@/lib/format";
+import { FormField as Field, inputCls, selectCls, labelCls } from "@/components/ui/form-field";
+import { createApiClient } from "@/lib/api-client";
 
 const API = "/api";
 const TOKEN_KEY = "kiwara_admin_token";
 
 /* ─── Helpers ─── */
-const fmt = (n: number | string) =>
-  Number(n).toLocaleString("pt-AO", { minimumFractionDigits: 0 });
-
-const fmtCur = (n: number | string) =>
-  `${fmt(n)} AOA`;
-
-function getToken() { return localStorage.getItem(TOKEN_KEY) ?? ""; }
-
-async function api(path: string, opts: RequestInit = {}) {
-  const token = getToken();
-  const res = await fetch(`${API}${path}`, {
-    ...opts,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...opts.headers },
-  });
-  return res;
-}
+const api = createApiClient(TOKEN_KEY);
 
 /* ─── Types ─── */
 interface Stats {
@@ -104,20 +92,7 @@ interface AdminPropina {
   entidade: string | null; ref_numero: string | null; ref_validade: string | null;
 }
 
-/* ─── Shared UI ─── */
-const inputCls = "w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all";
-const selectCls = inputCls;
-const labelCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1";
-
-function Field({ label, children, required, desc }: { label: string; children: React.ReactNode; required?: boolean; desc?: string }) {
-  return (
-    <div>
-      <label className={labelCls}>{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
-      {children}
-      {desc && <p className="text-xs text-slate-400 mt-1">{desc}</p>}
-    </div>
-  );
-}
+/* ─── Shared UI (imported from @/components/ui/form-field) ─── */
 
 function Modal({ title, onClose, children, wide, xl }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; xl?: boolean }) {
   return (

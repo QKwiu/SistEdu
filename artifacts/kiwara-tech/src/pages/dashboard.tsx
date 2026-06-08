@@ -28,6 +28,8 @@ import { useAuth } from "@/lib/auth";
 import { StudentRegistrationForm } from "@/components/student-form";
 import ReportsDashboard from "./ReportsDashboard";
 import AccessManagement from "./AccessManagement";
+import { fmtCurrency as fmt, fmtDate } from "@/lib/format";
+import { FormField as Field, inputCls, selectCls } from "@/components/ui/form-field";
 
 const API = "/api";
 const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -99,13 +101,6 @@ const CANAL_META: Record<string, { label: string; color: string; bg: string; bor
 };
 
 /* ─── Helpers ─── */
-function fmt(val: number | string) {
-  const n = typeof val === "string" ? parseFloat(val) : val;
-  return isNaN(n) ? "0 AOA" : n.toLocaleString("pt-AO") + " AOA";
-}
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" });
-}
 function lastDayOfMonth(mes: string, ano: string) {
   const mIdx = MESES.findIndex(m => m === mes);
   if (mIdx === -1) return "";
@@ -150,19 +145,6 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-function Field({ label, children, required, hint }: { label: string; children: React.ReactNode; required?: boolean; hint?: string }) {
-  return (
-    <div>
-      <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
-      {children}
-      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
-    </div>
-  );
-}
-const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white";
-const selectCls = inputCls + " appearance-none";
 
 /* ─── Feedback banner ─── */
 function Feedback({ error, success }: { error?: string; success?: string }) {
@@ -4997,7 +4979,7 @@ function previewTemplate(tpl: string): string {
 }
 
 function printCaixaFatura(fatura: any, escola: any, aluno: any, mode: "thermal" | "a4") {
-  const fmt = (v: number) => Number(v).toLocaleString("pt-AO");
+  const fmt = fmtNumber;
   const dataHora = new Date(fatura.created_at);
   const dataStr = dataHora.toLocaleDateString("pt-AO");
   const horaStr = dataHora.toLocaleTimeString("pt-AO", { hour: "2-digit", minute: "2-digit" });
@@ -10675,7 +10657,6 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
     } catch {} finally { setDeletingEvt(null); }
   };
 
-  const fmtDate = (s: string) => new Date(s).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"});
 
   // ─── Computed ───
   const allEventos = useMemo(() => Object.values(eventos).flat(), [eventos]);

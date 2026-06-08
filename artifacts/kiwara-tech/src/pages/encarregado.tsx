@@ -12,6 +12,7 @@ import {
   ShoppingCart, Truck, Store, MinusCircle, PlusCircle,
   UtensilsCrossed, Image as ImageIcon, Play, Soup,
 } from "lucide-react";
+import { fmtCurrency, fmtDate as fmtShort, fmtDateLong as fmtDate } from "@/lib/format";
 
 const API = "/api";
 const SESSION_KEY = "kiwara_guardian_token";
@@ -120,16 +121,7 @@ function tipoBadgeEnc(tipo: string) {
   );
 }
 
-function fmt(val: number | string) {
-  const n = typeof val === "string" ? parseFloat(val) : val;
-  return n.toLocaleString("pt-AO") + " Kz";
-}
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" });
-}
-function fmtShort(d: string) {
-  return new Date(d).toLocaleDateString("pt-AO", { day: "2-digit", month: "short", year: "numeric" });
-}
+const fmt = (val: number | string) => fmtCurrency(val, "Kz");
 
 function StatusBadge({ estado }: { estado: string }) {
   const c: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
