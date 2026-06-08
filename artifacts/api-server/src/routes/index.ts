@@ -16,6 +16,8 @@ import portalRouter from "./portal";
 import fcmRouter from "./fcm";
 import directDebitRouter, { runDirectDebitMigration } from "./direct-debit";
 import splitPayRouter, { runSplitPayMigration } from "./splitpay";
+import backupRouter from "./backup";
+import { runBackupMigration, startBackupScheduler } from "../services/backup.service";
 
 const router: IRouter = Router();
 
@@ -36,6 +38,7 @@ router.use(portalRouter);
 router.use(fcmRouter);
 router.use(directDebitRouter);
 router.use(splitPayRouter);
+router.use(backupRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>
@@ -59,5 +62,8 @@ runDirectDebitMigration().catch(err =>
 runSplitPayMigration().catch(err =>
   console.error("[splitpay migration]", err)
 );
+runBackupMigration()
+  .then(() => startBackupScheduler())
+  .catch(err => console.error("[backup migration]", err));
 
 export default router;
