@@ -1,0 +1,151 @@
+## PROMPT MASTER: ANÁLISE DE CÓDIGO E PLANEAMENTO DE BASE DE DADOS MASTER/SLAVE
+
+### PAPEL E CONTEXTO
+Actua como Arquitecto de Base de Dados Sénior com experiência em:
+- Sistemas de replicação Master/Slave (Primary/Replica)
+- Optimização para grandes volumes de dados (10M+ registos)
+- PostgreSQL, MySQL/MariaDB e arquitecturas distribuídas
+- SaaS multi-tenant com alta concorrência
+
+---
+
+### FASE 1 — ANÁLISE DO CÓDIGO E SCHEMA ACTUAL
+
+Analisa todo o código fornecido e responde a cada ponto:
+
+**1.1 Inventário de Tabelas e Relacionamentos**
+- Lista todas as tabelas identificadas com volume estimado de dados
+- Mapeamento de relacionamentos (1:N, N:M, 1:1)
+- Identificação de chaves primárias, estrangeiras e índices existentes
+
+**1.2 Padrões de Acesso (Read vs Write)**
+- Classifica cada tabela: READ-heavy / WRITE-heavy / MIXED
+- Identifica queries críticas que consomem mais recursos
+- Detecta N+1 queries, full-table scans e JOINs problemáticos
+
+**1.3 Pontos de Gargalo (Bottlenecks)**
+- Tabelas sem índices adequados para os padrões de consulta
+- Operações que bloqueiam (locks) outras transacções
+- Dados que crescem de forma descontrolada (logs, eventos, auditorias)
+
+**1.4 Compatibilidade com Replicação**
+- Operações que usam funções não-determinísticas (NOW(), RAND(), UUID())
+- Queries que dependem de estado local ou sessão
+- Uso de transacções longas que podem atrasar replicação
+
+---
+
+### FASE 2 — PLANEAMENTO DA ARQUITECTURA MASTER/SLAVE
+
+Com base na análise, define o plano completo:
+
+**2.1 Topologia Recomendada**
+Escolhe e justifica entre:
+- [ ] 1 Master + 1 Slave (simples, baixo custo)
+- [ ] 1 Master + N Slaves com load balancer (leitura distribuída)
+- [ ] Master + Slave de leitura + Slave dedicado a backups
+- [ ] Multi-Master com resolução de conflitos (se necessário)
+
+**2.2 Separação de Responsabilidades**
+Define claramente:
+- MASTER: operações de escrita (INSERT, UPDATE, DELETE, DDL)
+- SLAVE(S): operações de leitura (SELECT, relatórios, exports, APIs públicas)
+- Estratégia de connection pooling (PgBouncer, ProxySQL, HAProxy)
+
+**2.3 Lag de Replicação — Estratégia de Tolerância**
+- Tabelas onde lag é INACEITÁVEL → redirige para Master
+- Tabelas onde lag de 1-5s é ACEITÁVEL → redirige para Slave
+- Implementação de read-your-writes consistency onde necessário
+
+**2.4 Índices e Particionamento**
+- Índices adicionais recomendados por tabela
+- Tabelas candidatas a particionamento (RANGE, LIST, HASH)
+- Estratégia de archiving para dados históricos
+
+---
+
+### FASE 3 — IMPLEMENTAÇÃO E MIGRAÇÃO
+
+**3.1 Configuração do Master**
+Gera configurações para:
+- postgresql.conf / my.cnf com parâmetros optimizados
+- WAL level, max_wal_senders, wal_keep_size (PostgreSQL)
+- binlog_format, sync_binlog, innodb_flush_log (MySQL)
+- Parâmetros de memória: shared_buffers, work_mem, wal_buffers
+
+**3.2 Configuração dos Slaves**
+- hot_standby = on, max_standby_streaming_delay
+- recovery.conf / primary_conninfo
+- Slots de replicação para garantir WAL retention
+
+**3.3 Alterações no Código da Aplicação**
+Propõe padrões de código para:
+- Connection routing automático (read → slave, write → master)
+- Retry logic em caso de failover
+- Health checks e circuit breakers
+
+**3.4 Monitorização**
+Define métricas críticas a monitorizar:
+- Replication lag (pg_stat_replication / SHOW SLAVE STATUS)
+- Slow queries log threshold
+- Connection pool saturation
+- Disk I/O e WAL generation rate
+
+---
+
+### FASE 4 — OPTIMIZAÇÕES AVANÇADAS PARA GRANDES VOLUMES
+
+**4.1 Estratégias de Indexação**
+- Índices compostos vs parciais vs covering indexes
+- Índices para full-text search (GIN/GiST no PostgreSQL)
+- Manutenção: REINDEX CONCURRENTLY, VACUUM ANALYZE
+
+**4.2 Particionamento de Tabelas Críticas**
+- Particionamento por data (dados transaccionais, logs)
+- Particionamento por tenant_id (arquitectura multi-tenant)
+- Partition pruning automático nas queries
+
+**4.3 Caching Layer**
+- Redis/Memcached para queries de leitura frequente
+- Cache invalidation strategy por tabela
+- Query result caching no nível da aplicação
+
+**4.4 Archiving e Retenção**
+- Política de retenção por tabela (hot / warm / cold data)
+- Migração automática para tabelas de arquivo
+- Compressão de dados históricos
+
+---
+
+### FORMATO DA RESPOSTA ESPERADO
+
+Para cada fase, estrutura a resposta assim:
+
+```
+## [FASE X] — [NOME]
+### Diagnóstico
+[Problemas encontrados com severidade: CRÍTICO / ALTO / MÉDIO / BAIXO]
+
+### Recomendação
+[Acção concreta a tomar]
+
+### Código / Configuração
+[SQL, configuração ou código da aplicação]
+
+### Impacto Esperado
+[Melhoria de performance estimada]
+```
+
+---
+
+### RESTRIÇÕES E PRIORIDADES
+1. Zero downtime durante a migração
+2. Backwards compatibility com o código existente
+3. Prioriza PostgreSQL se ambos os sistemas suportarem
+4. Documenta todos os trade-offs de cada decisão
+5. Inclui rollback plan para cada alteração crítica
+
+---
+
+### CÓDIGO A ANALISAR:
+[COLA AQUI TODO O CÓDIGO DA APLICAÇÃO, MIGRATIONS, SCHEMA E QUERIES]
