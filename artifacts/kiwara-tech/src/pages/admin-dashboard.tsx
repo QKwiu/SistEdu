@@ -10705,7 +10705,7 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const token = getToken();
+    const token = localStorage.getItem(TOKEN_KEY) ?? "";
     if (!token) { setLocation("/admin"); return; }
     api("/admin/stats").then(r => {
       if (r.status === 401) { localStorage.removeItem(TOKEN_KEY); setLocation("/admin"); }
