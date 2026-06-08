@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -1534,11 +1534,17 @@ function PropinasAdminPanel({ schoolId }: { schoolId: number }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const alunos = Array.from(new Map(propinas.map(p => [p.student_id, p.aluno_nome])).entries());
+  const alunos = useMemo(
+    () => Array.from(new Map(propinas.map(p => [p.student_id, p.aluno_nome])).entries()),
+    [propinas]
+  );
 
-  const filtered = propinas
-    .filter(p => filterStatus === "todos" || p.status === filterStatus)
-    .filter(p => !filterAluno || String(p.student_id) === filterAluno);
+  const filtered = useMemo(
+    () => propinas
+      .filter(p => filterStatus === "todos" || p.status === filterStatus)
+      .filter(p => !filterAluno || String(p.student_id) === filterAluno),
+    [propinas, filterStatus, filterAluno]
+  );
 
   const statusBadge = (s: string) => {
     if (s === "pago") return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-3 h-3"/>Pago</span>;
@@ -2399,11 +2405,14 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
     } finally { setReconciling(false); }
   };
 
-  const filtered = (data?.propinas ?? []).filter((p: any) => {
-    if (search && !p.aluno_nome?.toLowerCase().includes(search.toLowerCase()) &&
-        !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = useMemo(
+    () => (data?.propinas ?? []).filter((p: any) => {
+      if (search && !p.aluno_nome?.toLowerCase().includes(search.toLowerCase()) &&
+          !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    }),
+    [data?.propinas, search]
+  );
 
   const statusBadge = (s: string) => {
     if (s === "pago")    return <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">Paga</span>;
@@ -2413,7 +2422,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
 
   const stats = data?.stats;
 
-  const alunosMultas = (() => {
+  const alunosMultas = useMemo(() => {
     const map = new Map<string, { nome: string; turma: string; multa: number; count: number }>();
     for (const p of (data?.propinas ?? [])) {
       if (p.status === "pago" || Number(p.multa) <= 0) continue;
@@ -2423,7 +2432,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
       else map.set(key, { nome: p.aluno_nome, turma: p.turma ?? "", multa: Number(p.multa), count: 1 });
     }
     return Array.from(map.values()).sort((a, b) => b.multa - a.multa);
-  })();
+  }, [data?.propinas]);
 
   return (
     <div className="space-y-6">
@@ -3193,12 +3202,13 @@ function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes
     } finally { setSaving(null); }
   };
 
-  const filtered = alunos.filter(a =>
-    a.nome.toLowerCase().includes(search.toLowerCase()) ||
-    a.turma.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const semPacote = alunos.filter(a => !a.pacote_id).length;
+  const { filtered, semPacote } = useMemo(() => ({
+    filtered: alunos.filter(a =>
+      a.nome.toLowerCase().includes(search.toLowerCase()) ||
+      a.turma.toLowerCase().includes(search.toLowerCase())
+    ),
+    semPacote: alunos.filter(a => !a.pacote_id).length,
+  }), [alunos, search]);
 
   if (loading) return <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-primary"/></div>;
 
@@ -5450,8 +5460,11 @@ function ColegiosView({ onSelect }: { onSelect: (id: number) => void }) {
     setColegios(c => c.filter(x => x.id !== id));
   };
 
-  const filtered = colegios.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase())
+  const filtered = useMemo(
+    () => colegios.filter(c =>
+      c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase())
+    ),
+    [colegios, search]
   );
 
   return (
@@ -10201,9 +10214,57 @@ function FcmConfigAdminView() {
 /* ═══════════════════════════════════════════════════════════════════
    LOGS & ALERTAS — Monitorização do sistema
 ═══════════════════════════════════════════════════════════════════ */
+type AlertLevel = "ok" | "warning" | "critical";
+const _alertStyle: Record<AlertLevel, { bg: string; border: string; text: string; iconColor: string; badge: string }> = {
+  ok:       { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", iconColor: "text-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
+  warning:  { bg: "bg-amber-50",   border: "border-amber-200",   text: "text-amber-700",   iconColor: "text-amber-500",   badge: "bg-amber-100 text-amber-700"   },
+  critical: { bg: "bg-red-50",     border: "border-red-200",     text: "text-red-700",     iconColor: "text-red-500",     badge: "bg-red-100 text-red-700"       },
+};
+const _alertLabel: Record<AlertLevel, string> = { ok: "OK", warning: "AVISO", critical: "CRÍTICO" };
+
+const AlertCard = memo(function AlertCard({
+  title, value, subtitle, level, icon,
+}: { title: string; value: string | number; subtitle?: string; level: AlertLevel; icon: React.ReactNode }) {
+  const s = _alertStyle[level];
+  return (
+    <div className={`rounded-2xl border p-4 space-y-2 ${s.bg} ${s.border}`}>
+      <div className="flex items-center justify-between">
+        <span className={`text-[11px] font-semibold uppercase tracking-wide ${s.text}`}>{title}</span>
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${s.badge}`}>{_alertLabel[level]}</span>
+      </div>
+      <div className={`flex items-center gap-2 ${s.iconColor}`}>
+        {icon}
+        <span className="text-2xl font-bold text-slate-900">{value}</span>
+      </div>
+      {subtitle && <p className="text-[11px] text-slate-500 leading-tight">{subtitle}</p>}
+    </div>
+  );
+});
+
+const Pages = memo(function Pages({
+  total, page, limit, onPage,
+}: { total: number; page: number; limit: number; onPage: (p: number) => void }) {
+  const pages = Math.ceil(total / limit);
+  if (pages <= 1) return null;
+  return (
+    <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+      <span className="text-xs text-slate-400">{total} registos · página {page}/{pages}</span>
+      <div className="flex gap-1">
+        <button onClick={() => onPage(page - 1)} disabled={page <= 1}
+          className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+          <ChevronLeft className="w-4 h-4 text-slate-500"/>
+        </button>
+        <button onClick={() => onPage(page + 1)} disabled={page >= pages}
+          className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+          <ChevronRight className="w-4 h-4 text-slate-500"/>
+        </button>
+      </div>
+    </div>
+  );
+});
+
 function LogsAlertasAdminView() {
   type LogTab = "auditoria" | "sms" | "pagamentos";
-  type AlertLevel = "ok" | "warning" | "critical";
 
   const [health, setHealth]               = useState<any>(null);
   const [loadingHealth, setLoadingHealth] = useState(true);
@@ -10272,12 +10333,6 @@ function LogsAlertasAdminView() {
       .finally(() => setLoadingPay(false));
   }, [activeTab, payPage]);
 
-  const alertStyle: Record<AlertLevel, { bg: string; border: string; text: string; iconColor: string; badge: string }> = {
-    ok:       { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", iconColor: "text-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
-    warning:  { bg: "bg-amber-50",   border: "border-amber-200",   text: "text-amber-700",   iconColor: "text-amber-500",   badge: "bg-amber-100 text-amber-700"   },
-    critical: { bg: "bg-red-50",     border: "border-red-200",     text: "text-red-700",     iconColor: "text-red-500",     badge: "bg-red-100 text-red-700"       },
-  };
-  const alertLabel: Record<AlertLevel, string> = { ok: "OK", warning: "AVISO", critical: "CRÍTICO" };
   const lvl = (val: number, warn: number, crit: number): AlertLevel =>
     val >= crit ? "critical" : val >= warn ? "warning" : "ok";
 
@@ -10289,43 +10344,6 @@ function LogsAlertasAdminView() {
                      + Number(health?.expired_sessions?.expired_staff ?? 0);
   const slowCount    = health?.slow_queries?.length ?? 0;
   const failedSms    = Number(health?.log_counts?.sms_failed_24h ?? 0);
-
-  const AlertCard = ({ title, value, subtitle, level, icon }: { title: string; value: string | number; subtitle?: string; level: AlertLevel; icon: React.ReactNode }) => {
-    const s = alertStyle[level];
-    return (
-      <div className={`rounded-2xl border p-4 space-y-2 ${s.bg} ${s.border}`}>
-        <div className="flex items-center justify-between">
-          <span className={`text-[11px] font-semibold uppercase tracking-wide ${s.text}`}>{title}</span>
-          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${s.badge}`}>{alertLabel[level]}</span>
-        </div>
-        <div className={`flex items-center gap-2 ${s.iconColor}`}>
-          {icon}
-          <span className="text-2xl font-bold text-slate-900">{value}</span>
-        </div>
-        {subtitle && <p className="text-[11px] text-slate-500 leading-tight">{subtitle}</p>}
-      </div>
-    );
-  };
-
-  const Pages = ({ total, page, limit, onPage }: { total: number; page: number; limit: number; onPage: (p: number) => void }) => {
-    const pages = Math.ceil(total / limit);
-    if (pages <= 1) return null;
-    return (
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-        <span className="text-xs text-slate-400">{total} registos · página {page}/{pages}</span>
-        <div className="flex gap-1">
-          <button onClick={() => onPage(page - 1)} disabled={page <= 1}
-            className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-            <ChevronLeft className="w-4 h-4 text-slate-500"/>
-          </button>
-          <button onClick={() => onPage(page + 1)} disabled={page >= pages}
-            className="p-1.5 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
-            <ChevronRight className="w-4 h-4 text-slate-500"/>
-          </button>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="p-6 space-y-6 max-w-7xl">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -626,18 +626,27 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
       .catch(() => {});
   }, [token]);
 
-  const pending = propinas.filter(p => p.status === "pendente" || p.status === "vencido");
+  const pending = useMemo(
+    () => propinas.filter(p => p.status === "pendente" || p.status === "vencido"),
+    [propinas]
+  );
 
-  const availableMeses = Array.from(
-    new Map(pending.map(p => [`${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}`, `${p.mes} ${p.ano}`])).entries()
-  ).sort((a, b) => a[0].localeCompare(b[0])).map(e => ({ key: e[0], label: e[1] }));
+  const availableMeses = useMemo(
+    () => Array.from(
+      new Map(pending.map(p => [`${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}`, `${p.mes} ${p.ano}`])).entries()
+    ).sort((a, b) => a[0].localeCompare(b[0])).map(e => ({ key: e[0], label: e[1] })),
+    [pending]
+  );
 
-  const filtered = pending
-    .filter(p => !filterAluno || String(p.student_id) === filterAluno)
-    .filter(p => !filterMes || `${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}` === filterMes);
+  const filtered = useMemo(
+    () => pending
+      .filter(p => !filterAluno || String(p.student_id) === filterAluno)
+      .filter(p => !filterMes || `${p.ano}-${String(MESES.indexOf(p.mes)).padStart(2,"0")}` === filterMes),
+    [pending, filterAluno, filterMes]
+  );
 
-  const toggleId = (id: number) => setSelectedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const selectAll = () => setSelectedIds(new Set(filtered.map(p => p.id)));
+  const toggleId = useCallback((id: number) => setSelectedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; }), []);
+  const selectAll = useCallback(() => setSelectedIds(new Set(filtered.map(p => p.id))), [filtered]);
   const clearAll  = () => setSelectedIds(new Set());
   const allSelected = filtered.length > 0 && filtered.every(p => selectedIds.has(p.id));
 
@@ -997,7 +1006,10 @@ function OcorrenciasView({ token, schoolName }: { token: string | null; schoolNa
 
   useEffect(() => { load(); }, [load]);
 
-  const filteredStudents = students.filter(s => s.nome.toLowerCase().includes(search.toLowerCase()));
+  const filteredStudents = useMemo(
+    () => students.filter(s => s.nome.toLowerCase().includes(search.toLowerCase())),
+    [students, search]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setSuccess("");
@@ -4022,7 +4034,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                     </p>
                     {isImage ? (
                       <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-                        <img src={url} alt="Comprovante" className="w-full max-h-72 object-contain bg-slate-100"/>
+                        <img src={url} alt="Comprovante" loading="lazy" decoding="async" className="w-full max-h-72 object-contain bg-slate-100"/>
                         <div className="p-2 flex justify-end border-t border-slate-100">
                           <a href={url} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
@@ -4349,11 +4361,14 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     finally { setReconciling(false); }
   };
 
-  const filtered = propinas.filter(p => {
-    if (search && !p.aluno_nome.toLowerCase().includes(search.toLowerCase()) &&
-        !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = useMemo(
+    () => propinas.filter(p => {
+      if (search && !p.aluno_nome.toLowerCase().includes(search.toLowerCase()) &&
+          !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    }),
+    [propinas, search]
+  );
 
   const statusBadge = (s: string) => {
     if (s === "pago")     return <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">Paga</span>;
@@ -4361,7 +4376,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     return                       <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-700 rounded-full border border-amber-200">Pendente</span>;
   };
 
-  const alunosMultas = (() => {
+  const alunosMultas = useMemo(() => {
     const map = new Map<string, { nome: string; turma: string; multa: number; count: number }>();
     for (const p of propinas) {
       if (p.status === "pago" || Number(p.multa) <= 0) continue;
@@ -4371,7 +4386,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
       else map.set(key, { nome: p.aluno_nome, turma: p.turma ?? "", multa: Number(p.multa), count: 1 });
     }
     return Array.from(map.values()).sort((a, b) => b.multa - a.multa);
-  })();
+  }, [propinas]);
 
   return (
     <motion.div key="reconciliacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
@@ -5850,7 +5865,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
                         {c.tipo === "aniversario" && <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-medium border border-pink-200">🎂 Aniversário</span>}
                       </div>
                       {c.foto_base64 && (
-                        <img src={c.foto_base64} alt="Foto do aniversário" className="mt-2 w-full max-h-40 object-cover rounded-xl border border-slate-200"/>
+                        <img src={c.foto_base64} alt="Foto do aniversário" loading="lazy" decoding="async" className="mt-2 w-full max-h-40 object-cover rounded-xl border border-slate-200"/>
                       )}
                       <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{c.conteudo}</p>
                     </div>
@@ -7321,31 +7336,31 @@ function ComunicacaoView({ token }: { token: string }) {
   };
 
   // All encarregados (registados + não-registados) merged for UI
-  const allEncs = [
+  const allEncs = useMemo(() => [
     ...encarregados.registados.map(e => ({ ...e, tipo: "registado" as const })),
     ...encarregados.nao_registados.map(e => ({ ...e, tipo: "nao_registado" as const })),
-  ].filter(e => e.telefone);
+  ].filter(e => e.telefone), [encarregados]);
 
-  const filteredEncs = encSearch.trim()
+  const filteredEncs = useMemo(() => encSearch.trim()
     ? allEncs.filter(e =>
         e.nome?.toLowerCase().includes(encSearch.toLowerCase()) ||
         e.telefone?.includes(encSearch) ||
         e.alunos?.some((a: string) => a.toLowerCase().includes(encSearch.toLowerCase()))
       )
-    : allEncs;
+    : allEncs, [allEncs, encSearch]);
 
-  const handleSelectAll = (checked: boolean) => {
+  const handleSelectAll = useCallback((checked: boolean) => {
     setSelectAll(checked);
     if (checked) setSelectedPhones(filteredEncs.map(e => e.telefone));
     else setSelectedPhones([]);
-  };
+  }, [filteredEncs]);
 
-  const togglePhone = (phone: string) => {
+  const togglePhone = useCallback((phone: string) => {
     setSelectedPhones(prev =>
       prev.includes(phone) ? prev.filter(p => p !== phone) : [...prev, phone]
     );
     setSelectAll(false);
-  };
+  }, []);
 
   const handleSend = async () => {
     if (!sendMsg.trim() || !selectedPhones.length) return;
@@ -7932,10 +7947,10 @@ const DD_STATUS_MAP: Record<string, { label: string; cls: string }> = {
   cancellation_requested: { label: "Canc. Pedido", cls: "bg-amber-100 text-amber-700 border-amber-200" },
   cancelled: { label: "Cancelado",     cls: "bg-slate-100 text-slate-500 border-slate-200" },
 };
-function DDStatusBadge({ s }: { s: string }) {
+const DDStatusBadge = memo(function DDStatusBadge({ s }: { s: string }) {
   const cfg = DD_STATUS_MAP[s] ?? { label: s, cls: "bg-slate-100 text-slate-500 border-slate-200" };
   return <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${cfg.cls}`}>{cfg.label}</span>;
-}
+});
 
 function DDCancelamentosView({ token }: { token: string }) {
   const [ddTab, setDdTab]       = useState<"mandatos"|"pain008"|"pain002"|"reconciliacao">("mandatos");
@@ -12008,7 +12023,8 @@ function InfantilView({ token, embedded }: { token: string; embedded?: boolean }
                     </div>
                   ) : (
                     <img src={`${API}/school/infant/media/${g.filename}`}
-                      alt={g.titulo||""} className="w-full h-full object-cover cursor-pointer" onClick={() => setLightbox(g)}
+                      alt={g.titulo||""} loading="lazy" decoding="async"
+                      className="w-full h-full object-cover cursor-pointer" onClick={() => setLightbox(g)}
                       onError={e => { (e.target as HTMLImageElement).style.display="none"; }}/>
                   )}
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex flex-col justify-between opacity-0 group-hover:opacity-100">

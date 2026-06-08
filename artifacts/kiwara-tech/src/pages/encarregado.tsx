@@ -187,7 +187,7 @@ function SchoolBadge({ name, logoUrl, schoolId, size = "sm" }: { name: string; l
   return (
     <div className="flex items-center gap-1.5">
       {logoUrl ? (
-        <img src={logoUrl} alt={name} className={`${dim} rounded-lg object-cover border border-white/30`}/>
+        <img src={logoUrl} alt={name} loading="lazy" decoding="async" className={`${dim} rounded-lg object-cover border border-white/30`}/>
       ) : (
         <div className={`${dim} rounded-lg bg-gradient-to-br ${schoolColor(schoolId)} flex items-center justify-center text-white font-bold shrink-0`}>
           {schoolInitials(name)}
@@ -1824,6 +1824,8 @@ function InfantGaleriaScreen({ token, headers }: { token: string; headers: Recor
                 ) : (
                   <img src={`${API}/guardian/infant/media/${g.filename}`}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     draggable={false}
                     onContextMenu={e => e.preventDefault()}
                     className="w-full h-full object-cover pointer-events-none"
@@ -1857,6 +1859,7 @@ function InfantGaleriaScreen({ token, headers }: { token: string; headers: Recor
                   ) : (
                     <img src={`${API}/guardian/infant/media/${lightbox.filename}`}
                       alt=""
+                      decoding="async"
                       draggable={false}
                       onContextMenu={e => e.preventDefault()}
                       className="w-full rounded-2xl max-h-[75vh] object-contain pointer-events-none"/>
