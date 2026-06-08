@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo, type CSSProperties } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -28,7 +28,7 @@ import { useAuth } from "@/lib/auth";
 import { StudentRegistrationForm } from "@/components/student-form";
 import ReportsDashboard from "./ReportsDashboard";
 import AccessManagement from "./AccessManagement";
-import { fmtCurrency as fmt, fmtDate } from "@/lib/format";
+import { fmtCurrency as fmt, fmtDate, fmtNumber } from "@/lib/format";
 import { FormField as Field, inputCls, selectCls } from "@/components/ui/form-field";
 
 const API = "/api";
@@ -2097,7 +2097,7 @@ function AlunoFichaSlideOver({
                           <p className="text-xs text-red-500">+{fmt(p.multa)} multa</p>
                         )}
                         {Number(p.desconto) > 0 && (
-                          <p className="text-xs text-emerald-600 flex items-center gap-1"><GraduationCap className="w-3 h-3"/>Bolsa: -{fmt(p.desconto)}</p>
+                          <p className="text-xs text-emerald-600 flex items-center gap-1"><GraduationCap className="w-3 h-3"/>Bolsa: -{fmt(p.desconto ?? 0)}</p>
                         )}
                       </div>
                       <p className="text-sm font-mono font-semibold text-slate-900 shrink-0">{fmt(Number(p.montante) + Number(p.multa))}</p>
@@ -2462,7 +2462,7 @@ function AlunoFichaSlideOver({
                                   <td className="px-3 py-3">
                                     <p className="font-semibold text-slate-800 whitespace-nowrap">Propina {p.mes} {p.ano}</p>
                                     {Number(p.multa) > 0 && <p className="text-[10px] text-red-500">+{fmt(p.multa)} multa</p>}
-                                    {Number(p.desconto) > 0 && <p className="text-[10px] text-emerald-600">-{fmt(p.desconto)} bolsa</p>}
+                                    {Number(p.desconto) > 0 && <p className="text-[10px] text-emerald-600">-{fmt(p.desconto ?? 0)} bolsa</p>}
                                     {p.baixa_manual && <p className="text-[10px] text-indigo-500">Baixa manual · {p.baixa_manual_por}</p>}
                                   </td>
                                   <td className="px-3 py-3 whitespace-nowrap text-slate-500">
@@ -4574,7 +4574,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                   return (
                     <div key={canal}
                       className={`${m.bg} border ${m.border} rounded-xl p-4 transition-all ${isFlashing ? "scale-105 shadow-lg ring-2" : ""}`}
-                      style={isFlashing ? { ringColor: m.color } : undefined}>
+                      style={isFlashing ? { "--tw-ring-color": m.color } as CSSProperties : undefined}>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-lg">{m.icon}</span>
                         {data ? (
@@ -9020,7 +9020,7 @@ function GlobalEmolumentosTab({ token }: { token: string }) {
                     </div>
                     <p className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{Number(em.montante).toLocaleString("pt-AO")} Kz</p>
                     {!em.activo && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inactivo</span>}
-                    <ShieldOff className="w-4 h-4 text-slate-300 shrink-0" title="Apenas leitura"/>
+                    <span title="Apenas leitura"><ShieldOff className="w-4 h-4 text-slate-300 shrink-0"/></span>
                   </div>
                 ))}
               </div>
@@ -9424,7 +9424,7 @@ function BolsasSchoolTab({ token }: { token: string }) {
     const q = filterSearch.toLowerCase();
     return atribuicoes.filter(a => {
       const matchTurma = !filterTurma || a.turma === filterTurma;
-      const matchSearch = !q || a.aluno_nome.toLowerCase().includes(q) || a.bolsa_nome.toLowerCase().includes(q);
+      const matchSearch = !q || a.aluno_nome?.toLowerCase().includes(q) || a.bolsa_nome?.toLowerCase().includes(q);
       return matchTurma && matchSearch;
     });
   }, [atribuicoes, filterTurma, filterSearch]);
@@ -10618,7 +10618,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
   const saveEvt = async (calId: number) => {
     setSavingEvt(true); setEvtError(null);
     try {
-      const base = {...evtForm};
+      const base: Record<string, any> = {...evtForm};
       if (base.tipo_prova_id) {
         const tp = tipos.find((t:any) => t.id===Number(base.tipo_prova_id));
         if (tp) { base.tipo_prova_nome=tp.nome; base.tipo_prova_cor=tp.cor; }
@@ -10628,7 +10628,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       const turmaIds: string[] = (isProvas && !editEvt && (base.turma_ids||[]).length > 0) ? base.turma_ids : [];
 
       if (editEvt) {
-        const payload = {...base, dia_semana: (base.dias_semana||[Number(base.dia_semana)])[0] };
+        const payload: Record<string, any> = {...base, dia_semana: (base.dias_semana||[Number(base.dia_semana)])[0] };
         if (payload.turma_id) { const tm = turmas.find(t => String(t.id)===String(payload.turma_id)); if (tm) payload.turma_nome=tm.nome; }
         delete payload.dias_semana; delete payload.turma_ids;
         const r = await fetch(`${API}/school/calendarios/${calId}/eventos/${editEvt.id}`, { method:"PUT", headers, body: JSON.stringify(payload) });
@@ -10636,7 +10636,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
       } else if (isProvas && turmaIds.length > 0) {
         const results = await Promise.all(turmaIds.map(tid => {
           const tm = turmas.find(t => String(t.id)===tid);
-          const payload = {...base, turma_id: tid, turma_nome: tm?.nome||"", dia_semana: null };
+          const payload: Record<string, any> = {...base, turma_id: tid, turma_nome: tm?.nome||"", dia_semana: null };
           delete payload.dias_semana; delete payload.turma_ids;
           return fetch(`${API}/school/calendarios/${calId}/eventos`, { method:"POST", headers, body: JSON.stringify(payload) });
         }));
@@ -10646,7 +10646,7 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
         const dias: number[] = base.dias_semana||[0];
         if (dias.length===0) { setEvtError("Seleccione pelo menos um dia da semana."); setSavingEvt(false); return; }
         const results = await Promise.all(dias.map(d => {
-          const payload = {...base, dia_semana: d};
+          const payload: Record<string, any> = {...base, dia_semana: d};
           delete payload.dias_semana; delete payload.turma_ids;
           if (payload.turma_id) { const tm = turmas.find(t => String(t.id)===String(payload.turma_id)); if (tm) payload.turma_nome=tm.nome; }
           return fetch(`${API}/school/calendarios/${calId}/eventos`, { method:"POST", headers, body: JSON.stringify(payload) });
@@ -12500,12 +12500,12 @@ export default function Dashboard() {
                 <OcorrenciasView token={token} schoolName={schoolName}/>
               </motion.div>
             )}
-            {view === "comunicar" && (
+            {view === "comunicar" && token && (
               <motion.div key="comunicar" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1">
                 <ComunicarView token={token} moduloInfantil={schoolModuloInfantil}/>
               </motion.div>
             )}
-            {view === "debito_direto" && (
+            {view === "debito_direto" && token && (
               <DDCancelamentosView key="debito_direto" token={token}/>
             )}
             {view === "emolumentos" && token && (

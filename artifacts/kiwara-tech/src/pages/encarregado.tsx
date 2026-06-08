@@ -1312,9 +1312,9 @@ function DDSubscriptionCard({ sub, token, onCancelled }: {
   };
 
   const isCancelRequested = sub.status === "cancellation_requested";
-  const isSusp  = sub.status === "SUSP";
-  const isCanc  = sub.status === "CANC" || sub.status === "cancelled";
-  const isExprd = sub.status === "EXPRD";
+  const isSusp  = (sub.status as string) === "SUSP";
+  const isCanc  = (sub.status as string) === "CANC" || sub.status === "cancelled";
+  const isExprd = (sub.status as string) === "EXPRD";
 
   const headerCfg = isCancelRequested
     ? { bg: "bg-amber-50 border-b border-amber-200",    icon: <Clock size={14} className="text-amber-600"/>,   label: "Pedido de cancelamento em análise pelo colégio", textCls: "text-amber-800" }

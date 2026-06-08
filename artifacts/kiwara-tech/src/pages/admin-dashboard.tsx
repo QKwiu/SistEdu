@@ -2913,7 +2913,7 @@ function AlunoFichaSlideOver({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-              <User className="w-5 h-5 text-primary"/>
+              <Users className="w-5 h-5 text-primary"/>
             </div>
             <div>
               <h2 className="font-bold text-slate-900 text-base">{loading ? "A carregar…" : ficha?.nome}</h2>
@@ -2934,7 +2934,7 @@ function AlunoFichaSlideOver({
             {/* Dados pessoais */}
             <div>
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <User className="w-3.5 h-3.5"/> Dados do Aluno
+                <Users className="w-3.5 h-3.5"/> Dados do Aluno
               </h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
@@ -3163,7 +3163,7 @@ function AlunoFichaSlideOver({
 /* ─── AlunosListAdminPanel: Lista de alunos com atribuição de pacote inline ─── */
 function AlunosListAdminPanel({ schoolId, pacotes }: { schoolId: number; pacotes: PacoteEmolumento[] }) {
   const token = getAdminToken();
-  const headers = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : {};
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : {};
 
   interface AdminAluno {
     id: number; nome: string; bilhete?: string; numero_processo?: string; estado?: string;
@@ -5368,7 +5368,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
           </div>
         </div>
       )}
-      {tab === "propinas" && (
+      {(tab as string) === "propinas" && (
         <div className="bg-white border border-slate-100 rounded-2xl p-4 sm:p-6">
           <h3 className="font-semibold text-slate-900 mb-1">Propinas da instituição de ensino</h3>
           <p className="text-sm text-slate-500 mb-5">
@@ -5389,7 +5389,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
           <ReconciliacaoAdminPanel schoolId={currentSchool.id} commissionRate={currentSchool.commission_rate} />
         </div>
       )}
-      {tab === "iban" && (
+      {(tab as string) === "iban" && (
         <div className="bg-white border border-slate-100 rounded-2xl p-6">
           <h3 className="font-semibold text-slate-900 mb-1">Conta bancária</h3>
           <IBANPanel
@@ -7840,7 +7840,7 @@ function ConfiguracoesTecnicasView() {
                         reader.readAsDataURL(f);
                       }}/>
                   </label>
-                  {dd.cert_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.cert_filename)}</p>}
+                  {!!dd.cert_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.cert_filename)}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Chave Privada <span className="text-slate-400 font-normal">(.key)</span></label>
@@ -7858,14 +7858,14 @@ function ConfiguracoesTecnicasView() {
                         reader.readAsDataURL(f);
                       }}/>
                   </label>
-                  {dd.key_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.key_filename)}</p>}
+                  {!!dd.key_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.key_filename)}</p>}
                 </div>
                 {fld("cert_password","Password do Certificado",{secret:true,hint:"Apenas se o certificado estiver protegido por password"})}
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Expiração</label>
                   <input type="date" value={String(dd.cert_expiry ?? "")} onChange={e => upd("cert_expiry", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
-                  {dd.cert_expiry && (() => {
+                  {!!dd.cert_expiry && (() => {
                     const daysLeft = Math.ceil((new Date(String(dd.cert_expiry)).getTime() - Date.now()) / 86400000);
                     return daysLeft <= 30
                       ? <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/>Expira em {daysLeft} dias</p>
@@ -8264,7 +8264,7 @@ function ConfiguracoesTecnicasView() {
               {/* Parâmetros por canal */}
               <div className="mt-5 space-y-4">
                 {/* GPO */}
-                {sp.canal_gpo_activo && (
+                {!!sp.canal_gpo_activo && (
                   <div className="border border-blue-100 bg-blue-50/50 rounded-xl p-4">
                     <p className="text-xs font-bold text-blue-700 mb-3 flex items-center gap-1.5"><Globe className="w-3.5 h-3.5"/> Parâmetros GPO</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -8290,7 +8290,7 @@ function ConfiguracoesTecnicasView() {
                 )}
 
                 {/* REFERENCIA */}
-                {sp.canal_referencia_activo && (
+                {!!sp.canal_referencia_activo && (
                   <div className="border border-purple-100 bg-purple-50/50 rounded-xl p-4">
                     <p className="text-xs font-bold text-purple-700 mb-3 flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5"/> Parâmetros Referência Multicaixa</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -8315,7 +8315,7 @@ function ConfiguracoesTecnicasView() {
                 )}
 
                 {/* SDD */}
-                {sp.canal_sdd_activo && (
+                {!!sp.canal_sdd_activo && (
                   <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl p-4">
                     <p className="text-xs font-bold text-emerald-700 mb-3 flex items-center gap-1.5"><ArrowLeftRight className="w-3.5 h-3.5"/> Parâmetros SDD</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -8361,7 +8361,7 @@ function ConfiguracoesTecnicasView() {
                     <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${sp.sptr_liquidacao_imediata ? "translate-x-5" : "translate-x-0"}`}/>
                   </button>
                 </div>
-                {sp.sptr_liquidacao_imediata && (
+                {!!sp.sptr_liquidacao_imediata && (
                   <p className="text-xs text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2 mt-2 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0"/> Modo imediato activo — as janelas abaixo são ignoradas. Garanta que o SLA do banco parceiro está contratualmente assegurado.
                   </p>
