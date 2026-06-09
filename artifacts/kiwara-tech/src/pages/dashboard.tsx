@@ -12405,7 +12405,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex overflow-x-hidden">
+    <div translate="no" className="min-h-screen bg-slate-50 flex overflow-x-hidden">
 
       {/* ── Desktop Sidebar (md+) ── */}
       <aside className="bg-slate-900 text-slate-300 w-64 flex-shrink-0 hidden md:flex flex-col sticky top-0 h-screen overflow-y-auto">

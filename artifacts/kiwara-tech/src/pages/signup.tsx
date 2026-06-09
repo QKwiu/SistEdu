@@ -128,7 +128,7 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 flex items-center justify-center p-4">
+    <div translate="no" className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 flex items-center justify-center p-4">
       <Link href="/escolar" className="absolute top-8 left-8 text-lg font-display font-bold text-slate-900 flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold">K</div>
         Kiwara <span className="text-primary">Escolar</span>

@@ -867,7 +867,7 @@ export default function AccessManagement({ token }: { token: string }) {
   }, [token, activeTab]);
 
   return (
-    <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+    <motion.div translate="no" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
       className="flex-1 flex flex-col min-h-0">
 
       {/* Header */}

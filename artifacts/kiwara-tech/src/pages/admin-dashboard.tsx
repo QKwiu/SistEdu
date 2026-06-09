@@ -10768,7 +10768,7 @@ export default function AdminDashboard() {
     : NAV.find(n => n.id === view)?.label ?? "";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div translate="no" className="min-h-screen bg-slate-50">
 
       {/* ── Top Header ── */}
       <header className="sticky top-0 z-30 bg-slate-900 text-white shadow-lg">

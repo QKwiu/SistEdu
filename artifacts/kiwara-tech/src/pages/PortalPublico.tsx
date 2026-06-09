@@ -127,7 +127,7 @@ export default function PortalPublico() {
   const portalLabel = school!.portal_nomenclatura === "aluno" ? "Portal do Aluno" : "Portal do Encarregado";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex items-center justify-center p-4">
+    <div translate="no" className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-3xl shadow-2xl overflow-hidden">
           {/* Header */}

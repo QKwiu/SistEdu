@@ -1555,7 +1555,7 @@ function ChangePasswordScreen({ token, guardian, onSuccess }: {
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
+    <div translate="no" className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
       <div className="flex items-center p-6">
         <Link href="/" className="flex items-center gap-2.5 text-white/70 hover:text-white transition-colors">
           <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">K</div>
@@ -2185,7 +2185,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 md:flex">
+    <div translate="no" className="min-h-screen bg-gray-50 md:flex">
       <aside className="hidden md:flex w-80 bg-slate-900 text-white flex-col shrink-0">
         <div className="h-16 px-6 border-b border-white/10 flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>

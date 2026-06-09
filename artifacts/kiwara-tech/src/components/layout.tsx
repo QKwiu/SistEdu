@@ -62,6 +62,7 @@ export function Navbar() {
 
   return (
     <header
+      translate="no"
       className={cn(
         "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
         isScrolled ? "bg-white/80 backdrop-blur-md shadow-sm py-3" : "bg-transparent py-5"
@@ -249,7 +250,7 @@ export function Footer() {
   if (location.startsWith("/dashboard")) return null;
 
   return (
-    <footer className="bg-slate-900 pt-16 pb-8 text-slate-300">
+    <footer translate="no" className="bg-slate-900 pt-16 pb-8 text-slate-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
           <div className="md:col-span-2">
@@ -297,7 +298,7 @@ export function Footer() {
 
 export function PageLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div translate="no" className="flex flex-col min-h-screen">
       <Navbar />
       <main className="flex-grow pt-20">
         {children}

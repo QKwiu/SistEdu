@@ -257,7 +257,7 @@ function LoginView({ onLogin }: { onLogin: (s: StaffSession, t: string) => void 
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+    <div translate="no" className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -485,7 +485,7 @@ function DashboardView({
   const pendentes = propinas.filter(p => p.status === "pendente" || p.status === "vencido").length;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div translate="no" className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto flex items-center gap-3">
