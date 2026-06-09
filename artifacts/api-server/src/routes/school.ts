@@ -3,6 +3,7 @@ import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import { generateInternalReference } from "./reconciliation";
 import { sendEventSMS, sendBulkSMS } from "../services/sms.service";
+import { triggerComunicadoPush, type PushAudiencia } from "../services/push-worker";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -1746,12 +1747,19 @@ router.get("/school/caixa/faturas", schoolAuth, async (req: any, res) => {
   return res.json({ faturas: r.rows, totais });
 });
 
-/* ─── POST /school/comunicar/publicar — unified: portal + SMS ─── */
+/* ─── POST /school/comunicar/publicar — unified: portal + SMS + Push ─── */
 router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
   const school = await getSchoolFromToken(req.schoolToken);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const { titulo, conteudo, prioridade, canal, phones } = req.body;
+  const {
+    titulo, conteudo, prioridade, canal, phones,
+    /* filtros de audiência para push */
+    audiencia  = "todos",
+    turma_id,
+    encarregado_ids,
+  } = req.body;
+
   if (!conteudo?.trim()) return res.status(400).json({ error: "Conteúdo obrigatório." });
 
   let comunicadoId: number | null = null;
@@ -1761,20 +1769,40 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
   const settingsR = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school.school_id]);
   const comm = settingsR.rows[0]?.settings?.comunicacao ?? {};
   const smsConfig = {
-    provider: comm.sms_provider || "mock",
-    api_url: comm.sms_api_url,
-    api_key: comm.sms_api_key,
+    provider:    comm.sms_provider    || "mock",
+    api_url:     comm.sms_api_url,
+    api_key:     comm.sms_api_key,
     sender_name: comm.sms_sender_name || "KiwaraEsc",
   };
 
-  // Publish to guardian portal
+  // ── Publica no portal do encarregado ──
   if (canal === "portal" || canal === "ambos") {
     if (!titulo?.trim()) return res.status(400).json({ error: "Título obrigatório para publicar no portal." });
+
     const r = await pool.query(
       `INSERT INTO comunicados (escola_id, titulo, conteudo, prioridade) VALUES ($1,$2,$3,$4) RETURNING id`,
       [school.school_id, titulo.trim(), conteudo.trim(), prioridade ?? "normal"]
     );
     comunicadoId = r.rows[0].id;
+
+    // ── Dispara push notifications de forma ASSÍNCRONA (não bloqueia a resposta HTTP) ──
+    // O worker executa após a resposta ser enviada ao cliente; qualquer erro é
+    // registado nos logs do servidor sem afectar a experiência do utilizador.
+    const pushParams = {
+      comunicadoId: comunicadoId!,
+      schoolId:     school.school_id as number,
+      titulo:       titulo.trim() as string,
+      corpo:        conteudo.trim() as string,
+      audiencia:    audiencia as PushAudiencia,
+      turmaId:      turma_id        ? Number(turma_id)                               : undefined,
+      encarregadoIds: Array.isArray(encarregado_ids) ? encarregado_ids.map(Number)  : undefined,
+    };
+
+    setImmediate(() => {
+      triggerComunicadoPush(pushParams).catch((err: Error) =>
+        console.error(`[push:trigger] Erro ao enviar push para comunicado #${pushParams.comunicadoId}:`, err.message)
+      );
+    });
 
     // SMS Fallback: auto-send to guardians without a portal account
     if (canal === "portal" && comm.sms_fallback && comm.sms_activo) {
@@ -1791,7 +1819,9 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
         [school.school_id]
       );
       if (naoReg.rows.length > 0) {
-        const fallbackMsg = titulo ? `${titulo.trim()}: ${conteudo.trim().substring(0, 130)}` : conteudo.trim().substring(0, 160);
+        const fallbackMsg = titulo
+          ? `${titulo.trim()}: ${conteudo.trim().substring(0, 130)}`
+          : conteudo.trim().substring(0, 160);
         const recipients = naoReg.rows.map((r: any) => ({ phone: r.phone, name: "" }));
         const fbResult = await sendBulkSMS(recipients, fallbackMsg, smsConfig, school.school_id);
         smsSent += fbResult.sent; smsFailed += fbResult.failed;
@@ -1799,7 +1829,7 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
     }
   }
 
-  // Explicit SMS send (sms or ambos with selected phones)
+  // ── Envio SMS explícito (canal sms ou ambos com telefones seleccionados) ──
   if ((canal === "sms" || canal === "ambos") && Array.isArray(phones) && phones.length > 0) {
     const recipients = phones.map((p: string) => ({ phone: p, name: "" }));
     const smsResult = await sendBulkSMS(recipients, conteudo.trim(), smsConfig, school.school_id);
@@ -1807,7 +1837,12 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
     smsFailed += smsResult.failed;
   }
 
-  return res.json({ comunicado_id: comunicadoId, sms_sent: smsSent, sms_failed: smsFailed });
+  return res.json({
+    comunicado_id:   comunicadoId,
+    sms_sent:        smsSent,
+    sms_failed:      smsFailed,
+    push_triggered:  comunicadoId !== null,
+  });
 });
 
 /* ─────────────────────────────────────────────

@@ -1,0 +1,22 @@
+Atua como um Arquiteto de Software e Programador Back-end Sénior. Preciso de implementar o trigger automático de Push Notifications (via Firebase Cloud Messaging) assim que um Gestor do Colégio publicar um novo comunicado através do endpoint `POST /api/school/comunicar/publicar`.
+
+Gera a especificação e o código limpo seguindo estes requisitos arquiteturais:
+
+1. FLUXO HTTP PRINCIPAL (O Endpoint de Publicação)
+- Ao receber o payload do comunicado (Título, Corpo, Filtro de Audiência), o endpoint deve salvar o registo imediatamente na base de dados com o estado 'PUBLICADO'.
+- Para garantir performance (não bloquear a resposta HTTP da UI do colégio), despacha a tarefa de envio dos Pushes para um Worker Assíncrono (ex: BullMQ, Celery, ou um processo process.nextTick / Background Task do framework) e devolve imediatamente HTTP 200/201 ao cliente.
+
+2. LOGICA DO TRIGER / MOTOR DE PUSH (O Background Worker)
+O worker assíncrono deve executar a seguinte lógica sequencial:
+- Passo A (Resolução da Audiência): Com base no filtro selecionado (ex: 'Toda a Escola', 'Turma 10A'), faz uma query à base de dados para extrair todos os 'guardian_id' (Encarregados) afetados.
+- Passo B (Procura de Dispositivos): Procura na tabela 'guardian_device_tokens' todos os Tokens FCM ativos e válidos associados a esses Encarregados.
+- Passo C (Agrupamento / Batching): Agrupa os tokens em lotes de até 500 destinatários (limite padrão da API do Firebase) para otimizar o envio em massa.
+
+3. INTEGRAÇÃO COM O GOOGLE FCM (Firebase Admin SDK)
+- Carrega as credenciais dinâmicas do Firebase do Colégio (conforme o ambiente configurado pelo Administrador: Teste ou Produção).
+- Utiliza o método 'messaging().sendEachForMulticast()' do Firebase Admin SDK para disparar o payload (title, body, e data com o ID do comunicado).
+
+4. TRATAMENTO DE ERROS E LIMPEZA DE TOKENS ORFEÕES
+- Implementa um bloco de tratamento de respostas do Firebase: se a API da Google devolver um erro do tipo 'messaging/registration-token-not-registered' ou 'InvalidRegistration' (indicando que o encarregado desinstalou o app ou bloqueou o browser), remove automaticamente esse token inválido da tabela 'guardian_device_tokens' para manter o banco limpo.
+
+Gera um código modular, focado em alta concorrência e ideal para o ecossistema do Replit.
