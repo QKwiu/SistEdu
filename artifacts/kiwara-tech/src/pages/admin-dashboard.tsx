@@ -3689,7 +3689,7 @@ function SectionCard({ title, icon, children, onSave, saving, saved }: {
 }
 
 function SettingsView({ schoolId }: { schoolId: number }) {
-  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico"|"banco"|"sdd";
+  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico"|"banco";
   const STABS: { id: STab; label: string; icon: React.ReactNode }[] = [
     { id: "financeiro",   label: "Financeiro",    icon: <Banknote className="w-4 h-4"/> },
     { id: "pagamento",    label: "Pagamento",     icon: <CreditCard className="w-4 h-4"/> },
@@ -3700,7 +3700,6 @@ function SettingsView({ schoolId }: { schoolId: number }) {
     { id: "permissoes",   label: "Permissões",    icon: <Lock className="w-4 h-4"/> },
     { id: "tecnico",      label: "Técnico",       icon: <Globe className="w-4 h-4"/> },
     { id: "banco",        label: "Banco",         icon: <Landmark className="w-4 h-4"/> },
-    { id: "sdd",          label: "ISO 20022 SDD", icon: <FileText className="w-4 h-4"/> },
   ];
 
   const [tab, setTab] = useState<STab>("financeiro");
@@ -4097,11 +4096,6 @@ function SettingsView({ schoolId }: { schoolId: number }) {
       {/* ── BANCO ── */}
       {tab === "banco" && (
         <BancoIntegracaoPanel schoolId={schoolId} />
-      )}
-
-      {/* ── ISO 20022 SDD ── */}
-      {tab === "sdd" && (
-        <SddIso20022Panel schoolId={schoolId} />
       )}
     </div>
   );
@@ -8601,6 +8595,7 @@ function AdminRBACView() {
 ════════════════════════════════════════════════════════════════ */
 
 type EmisSection = "gpo" | "mcx" | "debito_direto" | "split_payment";
+type ConfigTab = EmisSection | "sdd_iso20022";
 
 interface ConnResult { ok: boolean; status?: number; message: string; latency_ms?: number }
 
@@ -8704,13 +8699,15 @@ interface EmisConfigState {
 }
 
 function ConfiguracoesTecnicasView() {
-  const [tab, setTab] = useState<EmisSection>("gpo");
+  const [tab, setTab] = useState<ConfigTab>("gpo");
   const [config, setConfig] = useState<EmisConfigState>({ gpo: {}, mcx: {}, debito_direto: {}, split_payment: {} });
   const [saving, setSaving] = useState<EmisSection | null>(null);
   const [saved, setSaved] = useState<EmisSection | null>(null);
   const [testing, setTesting] = useState<EmisSection | null>(null);
   const [testResult, setTestResult] = useState<Record<EmisSection, ConnResult | null>>({ gpo: null, mcx: null, debito_direto: null, split_payment: null });
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
+  const [sddSchoolId, setSddSchoolId] = useState<number | null>(null);
+  const schools = useSchoolsList();
 
   /* ── Per-merchant state ── */
   const [merchants, setMerchants] = useState<MerchantCfg[]>([]);
@@ -8814,11 +8811,12 @@ function ConfiguracoesTecnicasView() {
     );
   };
 
-  const TABS: { key: EmisSection; label: string; icon: React.ReactNode; color: string }[] = [
+  const TABS: { key: ConfigTab; label: string; icon: React.ReactNode; color: string }[] = [
     { key: "gpo",           label: "GPO — Webframe",    icon: <Globe className="w-4 h-4"/>,        color: "blue" },
     { key: "mcx",           label: "Referências MCX",   icon: <CreditCard className="w-4 h-4"/>,   color: "purple" },
     { key: "debito_direto", label: "Débito Direto",      icon: <ArrowLeftRight className="w-4 h-4"/>, color: "emerald" },
     { key: "split_payment", label: "Split Payment",      icon: <Layers className="w-4 h-4"/>,       color: "indigo" },
+    { key: "sdd_iso20022",  label: "ISO 20022 SDD",      icon: <FileText className="w-4 h-4"/>,     color: "violet" },
   ];
 
   return (
@@ -10334,6 +10332,48 @@ function ConfiguracoesTecnicasView() {
           </div>
         );
       })()}
+
+      {/* ── ISO 20022 SDD ── */}
+      {tab === "sdd_iso20022" && (
+        <div className="space-y-5">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
+                <FileText className="w-4 h-4 text-violet-600"/>
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">ISO 20022 SDD — pain.008.001.02</h3>
+                <p className="text-xs text-slate-500">Configuração e geração de ficheiros de débito directo por instituição de ensino</p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Selecionar Instituição de Ensino</label>
+              <select
+                value={sddSchoolId ?? ""}
+                onChange={e => setSddSchoolId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full sm:w-80 border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
+              >
+                <option value="">— Escolher instituição —</option>
+                {schools.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {!sddSchoolId && (
+              <div className="flex items-center gap-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl px-5 py-4 text-sm text-slate-400 mt-4">
+                <FileText className="w-5 h-5 text-slate-300 shrink-0"/>
+                Seleccione uma instituição para gerir a configuração SDD ISO 20022 (PAIN.008 / PAIN.002).
+              </div>
+            )}
+          </div>
+
+          {sddSchoolId && (
+            <SddIso20022Panel schoolId={sddSchoolId} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
