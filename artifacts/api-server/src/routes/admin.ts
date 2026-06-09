@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { pool } from "@workspace/db";
 import { sendBulkSMS } from "../services/sms.service";
+import { sendSchoolEmail } from "../services/email.service";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -2256,6 +2257,222 @@ router.post("/admin/fcm-config/test", adminAuth, async (req, res) => {
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e.message ?? "Erro ao enviar push de teste." });
   }
+});
+
+/* ─── POST /admin/school/email/test ───────────────────────────────────────
+   Diagnóstico síncrono das credenciais SMTP/SendGrid de uma escola.
+   Acesso exclusivo a administradores (adminAuth → admin_sessions).
+   Devolve o veredicto imediatamente — não usa a fila assíncrona (setImmediate).
+──────────────────────────────────────────────────────────────────────────── */
+router.post("/admin/school/email/test", adminAuth, async (req, res) => {
+  const { school_id, destination_email } = req.body;
+
+  /* ── 1. Validação do payload ── */
+  if (!school_id) {
+    return res.status(400).json({
+      success: false,
+      error:   "school_id é obrigatório.",
+    });
+  }
+
+  const schoolIdNum = parseInt(String(school_id), 10);
+  if (isNaN(schoolIdNum) || schoolIdNum <= 0) {
+    return res.status(400).json({
+      success: false,
+      error:   "school_id deve ser um número inteiro positivo.",
+    });
+  }
+
+  if (!destination_email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination_email.trim())) {
+    return res.status(400).json({
+      success: false,
+      error:   "destination_email inválido. Forneça um endereço de e-mail válido.",
+    });
+  }
+
+  const destEmail = destination_email.trim();
+
+  /* ── 2. Confirma que a escola existe e tem configuração de e-mail ── */
+  const [schoolRow, cfgRow] = await Promise.all([
+    pool.query("SELECT name FROM schools WHERE id=$1", [schoolIdNum]),
+    pool.query(
+      `SELECT provider_type, email_from, activo
+       FROM school_email_config
+       WHERE school_id=$1`,
+      [schoolIdNum]
+    ),
+  ]);
+
+  if (!schoolRow.rows[0]) {
+    return res.status(404).json({
+      success: false,
+      error:   `Escola com id ${schoolIdNum} não encontrada.`,
+    });
+  }
+
+  const escolaNome: string = schoolRow.rows[0].name;
+
+  if (!cfgRow.rows[0]) {
+    return res.status(400).json({
+      success:   false,
+      error:     `A escola "${escolaNome}" não tem configuração de e-mail. Configure as credenciais antes de testar.`,
+      escola:    escolaNome,
+      school_id: schoolIdNum,
+    });
+  }
+
+  if (!cfgRow.rows[0].activo) {
+    return res.status(400).json({
+      success:   false,
+      error:     `A configuração de e-mail da escola "${escolaNome}" está desactivada (activo=false).`,
+      escola:    escolaNome,
+      school_id: schoolIdNum,
+      provider:  cfgRow.rows[0].provider_type,
+    });
+  }
+
+  const provider: string  = cfgRow.rows[0].provider_type;
+  const emailFrom: string = cfgRow.rows[0].email_from;
+  const testedAt          = new Date().toLocaleString("pt-AO", { timeZone: "Africa/Luanda" });
+
+  /* ── 3. Corpo HTML do e-mail de diagnóstico ── */
+  const html = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:#f8fafc;padding:32px 0;">
+      <tr><td align="center">
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0"
+               style="max-width:520px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#1a56db;padding:24px 32px;">
+              <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6);">
+                Kiwara Tech · Backoffice Admin
+              </p>
+              <h1 style="margin:8px 0 0;font-size:18px;font-weight:700;color:#fff;">
+                ✓ Diagnóstico de Configuração de E-mail
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:28px 32px;">
+              <p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.6;">
+                Este e-mail confirma que as credenciais de <strong>${provider}</strong>
+                configuradas para a escola <strong>${escolaNome}</strong>
+                estão operacionais e o envio está funcional.
+              </p>
+
+              <!-- Detail grid -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                     style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:20px;">
+                <tr>
+                  <td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                      <td style="font-size:12px;color:#6b7280;">Escola</td>
+                      <td align="right" style="font-size:13px;font-weight:600;color:#111827;">${escolaNome}</td>
+                    </tr></table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 16px;background:#f9fafb;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                      <td style="font-size:12px;color:#6b7280;">Fornecedor</td>
+                      <td align="right" style="font-size:13px;font-weight:600;color:#111827;">${provider}</td>
+                    </tr></table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                      <td style="font-size:12px;color:#6b7280;">Remetente (email_from)</td>
+                      <td align="right" style="font-size:13px;font-weight:600;color:#111827;">${emailFrom}</td>
+                    </tr></table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 16px;background:#f9fafb;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                      <td style="font-size:12px;color:#6b7280;">Data/Hora do Teste</td>
+                      <td align="right" style="font-size:13px;font-weight:600;color:#111827;">${testedAt}</td>
+                    </tr></table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;
+                        border-left:3px solid #dbeafe;padding-left:10px;">
+                Teste iniciado pelo painel de administração do Kiwara Tech.
+                Nenhuma acção é necessária por parte da escola.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e5e7eb;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;">
+                Kiwara Tech · Diagnóstico automático · ${testedAt}
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td></tr>
+    </table>`;
+
+  /* ── 4. Envio síncrono — veredicto imediato ── */
+  const result = await sendSchoolEmail(
+    schoolIdNum,
+    destEmail,
+    `[TESTE] Diagnóstico de Configuração — ${escolaNome}`,
+    html
+  );
+
+  if (result.status === "SENT") {
+    return res.json({
+      success:    true,
+      message:    `E-mail de diagnóstico enviado com sucesso para ${destEmail}.`,
+      escola:     escolaNome,
+      school_id:  schoolIdNum,
+      provider,
+      email_from: emailFrom,
+      message_id: result.messageId ?? null,
+      log_id:     result.logId,
+      tested_at:  testedAt,
+    });
+  }
+
+  /* ── Falha: devolve o erro do MTA tal como chegou ── */
+  const rawError = result.erro ?? "Erro desconhecido.";
+
+  /*
+   * Classifica o código HTTP de retorno consoante a causa:
+   *   400 — problema de configuração ou credenciais (admin deve corrigir)
+   *   502 — credenciais válidas mas rejeição pelo fornecedor remoto
+   *   500 — erro inesperado no servidor
+   */
+  let httpStatus = 500;
+  if (rawError.includes("AUTH_CREDENTIALS") || rawError.includes("CONFIG")) httpStatus = 400;
+  else if (rawError.includes("SPF_DKIM") || rawError.includes("SPAM"))       httpStatus = 502;
+
+  return res.status(httpStatus).json({
+    success:         false,
+    error:           "Falha no envio do e-mail de teste. Verifique as credenciais e tente novamente.",
+    detalhe:         rawError,
+    escola:          escolaNome,
+    school_id:       schoolIdNum,
+    provider,
+    email_from:      emailFrom,
+    log_id:          result.logId,
+    tested_at:       testedAt,
+    accoes_sugeridas: httpStatus === 400
+      ? "Verifique smtp_host, smtp_user e smtp_password (ou sendgrid_api_key). Guarde novamente e repita o teste."
+      : httpStatus === 502
+        ? "As credenciais foram aceites mas o domínio foi rejeitado. Verifique os registos SPF/DKIM do domínio email_from."
+        : "Erro de conectividade. Verifique se o host SMTP está acessível a partir do servidor.",
+  });
 });
 
 /* ═══════════════════════════════════════════════════════════════════
