@@ -4099,7 +4099,7 @@ function SettingsView({ schoolId }: { schoolId: number }) {
    ComunicarAdminPanel — Comunicação unificada (portal + SMS) — Admin
 ══════════════════════════════════════════════════════════════════ */
 function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: { id: number; nome: string; turno: string }[] }) {
-  type AdminComunicarTab = "compor" | "publicados" | "sms_config" | "historico";
+  type AdminComunicarTab = "compor" | "publicados" | "sms_config" | "push_config" | "historico";
   const [tab, setTab] = useState<AdminComunicarTab>("compor");
 
   // ── Compor ──
@@ -4136,6 +4136,18 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
   const [savedConfig, setSavedConfig] = useState(false);
+
+  // ── Config. Push ──
+  const [pushActivo, setPushActivo]           = useState(false);
+  const [pushFallback, setPushFallback]       = useState(false);
+  const [pushProvider, setPushProvider]       = useState<"fcm" | "web_push" | "custom">("fcm");
+  const [pushFcmServerKey, setPushFcmServerKey] = useState("");
+  const [pushVapidPublic, setPushVapidPublic] = useState("");
+  const [pushVapidPrivate, setPushVapidPrivate] = useState("");
+  const [pushServiceUrl, setPushServiceUrl]   = useState("");
+  const [pushEventos, setPushEventos]         = useState<Record<string, boolean>>({ nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
+  const [savingPush, setSavingPush]           = useState(false);
+  const [savedPush, setSavedPush]             = useState(false);
 
   // ── Histórico ──
   const [logs, setLogs] = useState<any[]>([]);
@@ -4182,6 +4194,14 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
       setSmsSenderName(c.sms_sender_name ?? "KiwaraEsc");
       setEventos(c.eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
       setTemplates({ ...ADMIN_DEFAULT_TEMPLATES, ...(c.sms_templates ?? {}) });
+      setPushActivo(c.push_activo ?? false);
+      setPushFallback(c.push_fallback ?? false);
+      setPushProvider(c.push_provider ?? "fcm");
+      setPushFcmServerKey(c.push_fcm_server_key ?? "");
+      setPushVapidPublic(c.push_vapid_public ?? "");
+      setPushVapidPrivate(c.push_vapid_private ?? "");
+      setPushServiceUrl(c.push_service_url ?? "");
+      setPushEventos(c.push_eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
     });
   };
 
@@ -4200,6 +4220,28 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
     });
     setSavingConfig(false); setSavedConfig(true);
     setTimeout(() => setSavedConfig(false), 2500);
+  };
+
+  const savePushSettings = async () => {
+    if (!schoolSettings) return;
+    setSavingPush(true);
+    const comunicacao = {
+      ...(schoolSettings.comunicacao ?? {}),
+      push_activo: pushActivo, push_fallback: pushFallback,
+      push_provider: pushProvider,
+      push_fcm_server_key: pushFcmServerKey,
+      push_vapid_public: pushVapidPublic,
+      push_vapid_private: pushVapidPrivate,
+      push_service_url: pushServiceUrl,
+      push_eventos: pushEventos,
+    };
+    await api(`/admin/colegios/${schoolId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ settings: { comunicacao } }),
+    });
+    setSchoolSettings((prev: any) => prev ? { ...prev, comunicacao } : prev);
+    setSavingPush(false); setSavedPush(true);
+    setTimeout(() => setSavedPush(false), 2500);
   };
 
   const fetchLogs = (page: number) => {
@@ -4288,6 +4330,7 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
           { k: "compor" as AdminComunicarTab, label: "Compor" },
           { k: "publicados" as AdminComunicarTab, label: `Publicados${comunicados.length ? ` (${comunicados.length})` : ""}` },
           { k: "sms_config" as AdminComunicarTab, label: "Config. SMS" },
+          { k: "push_config" as AdminComunicarTab, label: "Push" },
           { k: "historico" as AdminComunicarTab, label: "Histórico" },
         ]).map(({ k, label }) => (
           <button key={k} onClick={() => setTab(k)}
@@ -4633,6 +4676,136 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
               className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
               {savingConfig ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedConfig ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
               {savedConfig ? "Guardado!" : "Guardar Configurações"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PUSH CONFIG ── */}
+      {tab === "push_config" && (
+        <div className="space-y-5">
+
+          {/* Activação */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-500"/> Push Notifications
+                </p>
+                <p className="text-sm text-slate-500 mt-0.5">Notificações em tempo real para o portal do encarregado</p>
+              </div>
+              <button onClick={() => setPushActivo(v => !v)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${pushActivo ? "bg-primary text-white" : "bg-slate-100 text-slate-600"}`}>
+                {pushActivo ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {pushActivo ? "Activado" : "Desactivado"}
+              </button>
+            </div>
+            <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-slate-900">Push Fallback</p>
+                <p className="text-sm text-slate-500">Ao publicar no portal, envia também push notification</p>
+              </div>
+              <button onClick={() => setPushFallback(v => !v)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${pushFallback ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-600"}`}>
+                {pushFallback ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+                {pushFallback ? "Activo" : "Inactivo"}
+              </button>
+            </div>
+          </div>
+
+          {/* Provedor */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Provedor de Push</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { v: "fcm" as const,      label: "FCM",       desc: "Firebase Cloud Messaging" },
+                { v: "web_push" as const, label: "Web Push",  desc: "VAPID (padrão W3C)" },
+                { v: "custom" as const,   label: "Personalizado", desc: "Endpoint próprio" },
+              ]).map(({ v, label, desc }) => (
+                <button key={v} onClick={() => setPushProvider(v)}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center text-xs transition-all ${pushProvider === v ? "bg-primary/10 border-primary text-primary" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300"}`}>
+                  <Zap className="w-4 h-4"/>
+                  <span className="font-semibold">{label}</span>
+                  <span className="text-[10px] leading-tight text-slate-400">{desc}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* FCM fields */}
+            {pushProvider === "fcm" && (
+              <div className="space-y-3 pt-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">FCM Server Key <span className="text-slate-400">(ou JSON da Service Account)</span></label>
+                  <textarea value={pushFcmServerKey} onChange={e => setPushFcmServerKey(e.target.value)} rows={3}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                    placeholder='{"type":"service_account","project_id":"..."}  ou  AAAA…'/>
+                  <p className="text-[10px] text-slate-400 mt-1">Obtenha em Firebase Console → Definições do Projecto → Contas de Serviço</p>
+                </div>
+              </div>
+            )}
+
+            {/* Web Push / VAPID fields */}
+            {pushProvider === "web_push" && (
+              <div className="space-y-3 pt-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">VAPID Public Key</label>
+                  <input value={pushVapidPublic} onChange={e => setPushVapidPublic(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="BNcRdreALRFXTkOOUHK1EtK2wtRpU2…"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">VAPID Private Key</label>
+                  <input type="password" value={pushVapidPrivate} onChange={e => setPushVapidPrivate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="••••••••••••••••••••••••••••••••"/>
+                  <p className="text-[10px] text-slate-400 mt-1">Gere com: <code className="bg-slate-100 px-1 rounded">npx web-push generate-vapid-keys</code></p>
+                </div>
+              </div>
+            )}
+
+            {/* Custom endpoint */}
+            {pushProvider === "custom" && (
+              <div className="space-y-3 pt-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint de Push</label>
+                  <input value={pushServiceUrl} onChange={e => setPushServiceUrl(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="https://push.meuservidor.ao/send"/>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Eventos */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <h3 className="font-semibold text-slate-900">Eventos que enviam Push</h3>
+            <div className="space-y-3">
+              {ADMIN_SMS_EVENTS.map(ev => (
+                <div key={ev.key} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                  <p className="text-sm font-medium text-slate-800">{ev.label}</p>
+                  <button onClick={() => setPushEventos(prev => ({ ...prev, [ev.key]: !prev[ev.key] }))}
+                    className={`w-10 h-5 rounded-full transition-colors relative ${pushEventos[ev.key] ? "bg-primary" : "bg-slate-300"}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${pushEventos[ev.key] ? "translate-x-5" : ""}`}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Info FCM global */}
+          <div className="bg-amber-50 rounded-2xl border border-amber-200 p-4 flex gap-3">
+            <Zap className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/>
+            <div className="text-xs text-amber-800 space-y-1">
+              <p className="font-semibold">Credenciais globais vs. por escola</p>
+              <p>Se deixar os campos acima em branco com FCM, o sistema usa as credenciais FCM globais configuradas em <strong>Push Notifications</strong> no menu lateral. Preencha aqui apenas se esta escola usar credenciais Firebase dedicadas.</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={savePushSettings} disabled={savingPush}
+              className="flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+              {savingPush ? <RefreshCw className="w-4 h-4 animate-spin"/> : savedPush ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+              {savedPush ? "Guardado!" : "Guardar Configurações Push"}
             </button>
           </div>
         </div>
