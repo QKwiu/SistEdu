@@ -7953,23 +7953,11 @@ const DDStatusBadge = memo(function DDStatusBadge({ s }: { s: string }) {
 });
 
 function DDCancelamentosView({ token }: { token: string }) {
-  const [ddTab, setDdTab]       = useState<"mandatos"|"pain008"|"pain002"|"reconciliacao">("mandatos");
+  const [ddTab, setDdTab]       = useState<"mandatos"|"reconciliacao">("mandatos");
   const [mandates, setMandates] = useState<DDMandate[]>([]);
   const [stats, setStats]       = useState<DDStats | null>(null);
   const [loadingM, setLoadingM] = useState(true);
   const [filterS, setFilterS]   = useState("todos");
-
-  // PAIN.008
-  const [p8Date, setP8Date]         = useState(() => { const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().slice(0,10); });
-  const [p8MaxBatch, setP8MaxBatch] = useState("500");
-  const [p8Loading, setP8Loading]   = useState(false);
-  const [p8Result, setP8Result]     = useState<any>(null);
-
-  // PAIN.002
-  const [p2Json, setP2Json]       = useState("");
-  const [p2Date, setP2Date]       = useState(() => new Date().toISOString().slice(0,10));
-  const [p2Loading, setP2Loading] = useState(false);
-  const [p2Result, setP2Result]   = useState<any>(null);
 
   // Reconciliação
   const [recon, setRecon]         = useState<DDReconReport[]>([]);
@@ -8000,34 +7988,6 @@ function DDCancelamentosView({ token }: { token: string }) {
   useEffect(() => { loadMandates(); }, [loadMandates]);
   useEffect(() => { if (ddTab === "reconciliacao") loadRecon(); }, [ddTab, loadRecon]);
 
-  const genPain008 = async () => {
-    setP8Loading(true); setP8Result(null);
-    try {
-      const r = await fetch(`${API}/school/dd/pain008/generate`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ collection_date: p8Date, max_batch: Number(p8MaxBatch) }),
-      });
-      setP8Result(await r.json());
-    } catch (e: any) { setP8Result({ error: e.message }); }
-    finally { setP8Loading(false); }
-  };
-
-  const processPain002 = async () => {
-    setP2Loading(true); setP2Result(null);
-    try {
-      let entries: any[];
-      try { entries = JSON.parse(p2Json); } catch { setP2Result({ error: "JSON inválido. Verifique o formato." }); setP2Loading(false); return; }
-      const r = await fetch(`${API}/school/dd/pain002/process`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ entries, report_date: p2Date }),
-      });
-      setP2Result(await r.json());
-    } catch (e: any) { setP2Result({ error: e.message }); }
-    finally { setP2Loading(false); loadMandates(); }
-  };
-
   const transitionMandate = async (id: number, newStatus: string, motivo: string) => {
     await fetch(`${API}/school/dd/mandates/${id}/transition`, {
       method: "PUT",
@@ -8041,8 +8001,6 @@ function DDCancelamentosView({ token }: { token: string }) {
 
   const SUB_TABS = [
     { key: "mandatos",      label: "Mandatos",     icon: <ArrowLeftRight className="w-3.5 h-3.5"/> },
-    { key: "pain008",       label: "PAIN.008",     icon: <FileText className="w-3.5 h-3.5"/> },
-    { key: "pain002",       label: "PAIN.002",     icon: <FileCheck className="w-3.5 h-3.5"/> },
     { key: "reconciliacao", label: "Reconciliação",icon: <BarChart3 className="w-3.5 h-3.5"/> },
   ] as const;
 
@@ -8052,9 +8010,9 @@ function DDCancelamentosView({ token }: { token: string }) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <ArrowLeftRight className="w-5 h-5 text-primary"/> Débito Directo — EMIS SDD
+            <ArrowLeftRight className="w-5 h-5 text-primary"/> Débito Directo
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Motor ISO 20022 · PAIN.008 / PAIN.002</p>
+          <p className="text-sm text-slate-500 mt-0.5">Gestão de mandatos e reconciliação</p>
         </div>
         <button onClick={loadMandates} className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
           <RefreshCw className={`w-4 h-4 ${loadingM ? "animate-spin" : ""}`}/>
@@ -8152,132 +8110,6 @@ function DDCancelamentosView({ token }: { token: string }) {
               ))}
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── TAB: PAIN.008 ── */}
-      {ddTab === "pain008" && (
-        <div className="space-y-5">
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800 leading-relaxed">
-            <p className="font-bold mb-1 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5"/> Gerador PAIN.008 — ISO 20022</p>
-            Gera o ficheiro XML de inicialização de débito directo para submeter à EMIS. Valida automaticamente IBANs angolanos, BICs, pré-notificações obrigatórias e janela de submissão.
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Débito <span className="text-red-500">*</span></label>
-                <input type="date" value={p8Date} onChange={e => setP8Date(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
-                <p className="text-xs text-slate-400 mt-1">Deve ser dia útil (sem fins de semana ou feriados angolanos)</p>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Máximo por batch</label>
-                <input type="number" min={1} max={500} value={p8MaxBatch} onChange={e => setP8MaxBatch(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
-                <p className="text-xs text-slate-400 mt-1">Máximo 500 instruções por ficheiro PAIN.008</p>
-              </div>
-            </div>
-
-            <button onClick={genPain008} disabled={p8Loading || !p8Date}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
-              {p8Loading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <FileText className="w-4 h-4"/>}
-              {p8Loading ? "A gerar ficheiro..." : "Gerar PAIN.008"}
-            </button>
-
-            {p8Result && (
-              <div className={`border rounded-xl p-4 ${p8Result.error ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
-                {p8Result.error ? (
-                  <p className="text-xs text-red-700 font-semibold">{p8Result.error}</p>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2 mb-3">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600"/>
-                      <p className="text-sm font-bold text-emerald-800">PAIN.008 gerado com sucesso</p>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-                      <div><p className="text-slate-500">Registos</p><p className="font-bold text-slate-800">{p8Result.total_records}</p></div>
-                      <div><p className="text-slate-500">Total</p><p className="font-bold text-slate-800">{Number(p8Result.total_amount ?? 0).toLocaleString("pt-AO")} AOA</p></div>
-                      <div><p className="text-slate-500">Batch Ref.</p><p className="font-mono text-slate-600 text-[10px]">{p8Result.batch_ref}</p></div>
-                    </div>
-                    {p8Result.validation_errors?.length > 0 && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
-                        <p className="text-xs font-semibold text-amber-700 mb-1">Avisos de validação ({p8Result.validation_errors.length}):</p>
-                        {p8Result.validation_errors.slice(0,5).map((e: string, i: number) => (
-                          <p key={i} className="text-xs text-amber-600">• {e}</p>
-                        ))}
-                      </div>
-                    )}
-                    <button onClick={() => {
-                      const blob = new Blob([p8Result.xml ?? ""], { type: "application/xml" });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a"); a.href = url; a.download = `${p8Result.batch_ref}.xml`; a.click();
-                      URL.revokeObjectURL(url);
-                    }} className="flex items-center gap-2 px-4 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-xl text-xs font-semibold hover:bg-emerald-50 transition-colors">
-                      <Download className="w-3.5 h-3.5"/> Descarregar XML
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── TAB: PAIN.002 ── */}
-      {ddTab === "pain002" && (
-        <div className="space-y-5">
-          <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-xs text-violet-800 leading-relaxed">
-            <p className="font-bold mb-1 flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5"/> Reconciliação PAIN.002 — Resultado EMIS</p>
-            Cole abaixo o array JSON com os resultados da EMIS (ACSC = aceite, RJCT = rejeitado, RTRN = devolvido). O motor actualiza automaticamente o estado dos mandatos, propinas e dispara notificações.
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Data do Relatório</label>
-              <input type="date" value={p2Date} onChange={e => setP2Date(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"/>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Entradas PAIN.002 <span className="text-slate-400 font-normal">(array JSON)</span>
-              </label>
-              <textarea value={p2Json} onChange={e => setP2Json(e.target.value)} rows={8}
-                placeholder={`[\n  { "end_to_end_id": "E2E-...", "status": "ACSC" },\n  { "end_to_end_id": "E2E-...", "status": "RJCT", "rejection_code": "AM04", "rejection_reason": "Fundos insuficientes" }\n]`}
-                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"/>
-              <p className="text-xs text-slate-400 mt-1">Campos: end_to_end_id, status (ACSC/RJCT/RTRN), rejection_code (opcional), rejection_reason (opcional)</p>
-            </div>
-
-            <button onClick={processPain002} disabled={p2Loading || !p2Json.trim()}
-              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-50 shadow-sm">
-              {p2Loading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCheck className="w-4 h-4"/>}
-              {p2Loading ? "A processar..." : "Processar PAIN.002"}
-            </button>
-
-            {p2Result && (
-              <div className={`border rounded-xl p-4 ${p2Result.error ? "bg-red-50 border-red-200" : "bg-violet-50 border-violet-200"}`}>
-                {p2Result.error ? (
-                  <p className="text-xs text-red-700 font-semibold">{p2Result.error}</p>
-                ) : (
-                  <>
-                    <p className="text-sm font-bold text-violet-800 mb-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-violet-600"/> Reconciliação concluída</p>
-                    <div className="grid grid-cols-4 gap-3 text-xs">
-                      <div className="text-center"><p className="text-emerald-600 font-bold text-lg">{p2Result.aceite}</p><p className="text-slate-500">ACSC</p></div>
-                      <div className="text-center"><p className="text-red-500 font-bold text-lg">{p2Result.rejeitado}</p><p className="text-slate-500">RJCT</p></div>
-                      <div className="text-center"><p className="text-amber-500 font-bold text-lg">{p2Result.devolvido}</p><p className="text-slate-500">RTRN</p></div>
-                      <div className="text-center"><p className="text-slate-500 font-bold text-lg">{p2Result.pendente}</p><p className="text-slate-500">Pendente</p></div>
-                    </div>
-                    {p2Result.erros?.length > 0 && (
-                      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                        <p className="text-xs font-semibold text-amber-700 mb-1">Erros ({p2Result.erros.length}):</p>
-                        {p2Result.erros.slice(0,5).map((e: string, i: number) => <p key={i} className="text-xs text-amber-600">• {e}</p>)}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
