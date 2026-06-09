@@ -28,7 +28,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").map(s => s
 app.use(cors({
   origin: allowedOrigins.length ? allowedOrigins : true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Webhook-Signature"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Webhook-Signature", "X-Idempotency-Key"],
   credentials: true,
 }));
 

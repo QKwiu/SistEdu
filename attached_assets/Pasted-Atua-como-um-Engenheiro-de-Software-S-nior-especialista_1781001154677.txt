@@ -1,0 +1,23 @@
+Atua como um Engenheiro de Software Sénior especialista em Cibersegurança e Arquitetura de APIs. Preciso de blindar os endpoints da minha aplicação hospedada no Replit, com foco especial nas rotas do motor de Split Payment e integrações sensíveis. 
+
+Gera o código modular para os seguintes Middlewares e mecanismos de segurança, utilizando as melhores práticas de produção:
+
+1. CAMADA DE REDE (IP Whitelisting & CORS Restritivo)
+- Cria um Middleware de Whitelist de IPs que intercepte as requisições e rejeite imediatamente com HTTP 403 (Forbidden) qualquer tráfego que não pertença aos blocos regulamentares da EMIS/Bancos em Angola: '196.46.0.0/16' e '197.156.64.0/18'.
+- Configura o CORS (Cross-Origin Resource Sharing) de forma explícita para aceitar requisições APENAS do domínio da aplicação (bloqueando o wildcard '*').
+
+2. CAMADA DE INTEGRIDADE (Idempotência Rígida)
+- Cria um Middleware de Idempotência que exija obrigatoriamente um UUID v4 no Header da requisição ('X-Idempotency-Key').
+- O mecanismo deve verificar na base de dados se a chave já foi processada. Se sim, devolve a resposta em cache (HTTP 200/201) sem reexecutar o motor de split. Se não existir, regista a chave antes de prosseguir, prevenindo ataques de Replay.
+
+3. CAMADA DE CRIPTOGRAFIA (Gestão de Chaves e Secrets)
+- Demonstra como ler de forma segura as chaves de API e credenciais do Firebase/Bancos a partir da memória de runtime (process.env / os.environ) utilizando a funcionalidade nativa de 'Secrets' do Replit.
+- Cria uma função utilitária de Criptografia Simétrica (ex: AES-256-GCM) para encriptar dados sensíveis dos comerciantes antes de guardar no Banco de Dados e decriptar apenas em memória durante a execução.
+
+4. CAMADA DE PROTEÇÃO CONTRA ABUSOS (Rate Limiting & Sanitização)
+- Implementa um limitador de taxa (Rate Limiting) restritivo para rotas financeiras (ex: máximo de 10 requisições por minuto por IP/Token).
+- Adiciona validação estrita de esquema (Schema Validation) com tratamento de erros explícito para garantir que payloads malformados ou com caracteres de injeção SQL sejam rejeitados na borda com HTTP 400 (Bad Request).
+
+Regras de Entrega:
+- O código deve ser totalmente modular, limpo, documentado com comentários técnicos explicativos e fácil de acoplar às rotas do Replit.
+- Indica quais as dependências ou pacotes adicionais que precisam de ser instalados.

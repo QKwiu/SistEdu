@@ -18,6 +18,7 @@ import directDebitRouter, { runDirectDebitMigration } from "./direct-debit";
 import splitPayRouter, { runSplitPayMigration } from "./splitpay";
 import backupRouter from "./backup";
 import { runBackupMigration, startBackupScheduler } from "../services/backup.service";
+import { runIdempotencyMigration } from "../middlewares/idempotency";
 
 const router: IRouter = Router();
 
@@ -65,5 +66,8 @@ runSplitPayMigration().catch(err =>
 runBackupMigration()
   .then(() => startBackupScheduler())
   .catch(err => console.error("[backup migration]", err));
+runIdempotencyMigration().catch(err =>
+  console.error("[idempotency migration]", err)
+);
 
 export default router;

@@ -2,6 +2,9 @@ import { Router } from "express";
 import { pool } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { schoolAuth, getSchoolFromToken } from "../middlewares/school-auth";
+import { financialLimiter } from "../lib/rate-limiters";
+import { idempotencyMiddleware } from "../middlewares/idempotency";
+import { validateSchema, splitpayTransacaoSchema } from "../middlewares/validate-schema";
 
 const router = Router();
 
@@ -247,7 +250,13 @@ router.post("/school/splitpay/simular", schoolAuth, async (req: any, res) => {
 /* ═══════════════════════════════════════════
    POST /school/splitpay/transacoes
    ═══════════════════════════════════════════ */
-router.post("/school/splitpay/transacoes", schoolAuth, async (req: any, res) => {
+router.post(
+  "/school/splitpay/transacoes",
+  financialLimiter,              // 1. Rejeita > 10 req/min por IP+token
+  schoolAuth,                    // 2. Verifica sessão escolar
+  validateSchema(splitpayTransacaoSchema), // 3. Valida e sanitiza o payload (bloqueia injecção SQL)
+  idempotencyMiddleware,         // 4. Previne replay attacks via X-Idempotency-Key
+  async (req: any, res) => {
   try {
     const school = await getSchoolFromToken(req.schoolToken);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
