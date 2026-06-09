@@ -7474,9 +7474,93 @@ interface SimResultMerchant {
   aviso: string | null;
 }
 
+interface DDConfig {
+  environment?: "sandbox" | "producao";
+  protocol?: "SOAP" | "REST" | "AMBOS";
+  protocol_version?: string;
+  soap_url?: string;
+  rest_url?: string;
+  oauth_url?: string;
+  timeout?: string;
+  auth_type?: "basic" | "oauth2" | "cert";
+  ws_username?: string;
+  ws_password?: string;
+  client_id?: string;
+  client_secret?: string;
+  cert_filename?: string;
+  cert_content?: string;
+  key_filename?: string;
+  key_content?: string;
+  cert_password?: string;
+  cert_expiry?: string;
+  verify_ssl?: boolean;
+  creditor_id?: string;
+  creditor_name?: string;
+  nif?: string;
+  settlement_iban?: string;
+  creditor_bic?: string;
+  creditor_address?: string;
+  sdd_scheme?: "CORE" | "B2B";
+  test_debtor_iban?: string;
+  test_debtor_name?: string;
+  test_debtor_bic?: string;
+  test_mandate_id?: string;
+  test_amount?: string;
+  test_creditor_ref?: string;
+  test_debit_date?: string;
+}
+
+interface SystemParams {
+  environment?: "sandbox" | "producao";
+  taxa_comissao_pct?: string;
+  taxa_irt_pct?: string;
+  irt_activo?: boolean;
+  irt_tipo?: "retencao_fonte" | "isento" | "diferido";
+  irt_periodicidade?: "mensal" | "trimestral";
+  irt_codigo_agt?: string;
+  irt_threshold_isencao_kz?: string;
+  irt_codigo_rendimento?: "prestacao_servicos" | "comissoes" | "outros_rendimentos";
+  conta_transito?: string;
+  conta_plataforma_iban?: string;
+  conta_comerciante_iban?: string;
+  bna_lei_referencia?: string;
+  cod_instituicao_financeira?: string;
+  canal_gpo_activo?: boolean;
+  canal_referencia_activo?: boolean;
+  canal_sdd_activo?: boolean;
+  gpo_capture_mode?: "imediata" | "manual";
+  gpo_captura_timeout_h?: string;
+  ref_entidade_padrao?: string;
+  ref_prazo_dias?: string;
+  sdd_pre_notificacao_d1?: boolean;
+  sdd_confirmacao_d0?: boolean;
+  sptr_liquidacao_imediata?: boolean;
+  sptr_janela1_hora?: string;
+  sptr_janela2_hora?: string;
+  sptr_janela3_hora?: string;
+  sptr_processar_fds_feriados?: boolean;
+  sptr_feriados_csv?: string;
+  webhook_url?: string;
+  webhook_secret?: string;
+  webhook_retry_max?: string;
+  notificacao_email_admin?: string;
+  idempotency_window_min?: string;
+  max_retry_attempts?: string;
+  log_level?: "off" | "normal" | "verbose" | "debug";
+  modo_manutencao?: boolean;
+  auto_settlement_enabled?: boolean;
+}
+
+interface EmisConfigState {
+  gpo: Record<string, unknown>;
+  mcx: Record<string, unknown>;
+  debito_direto: DDConfig;
+  split_payment: SystemParams;
+}
+
 function ConfiguracoesTecnicasView() {
   const [tab, setTab] = useState<EmisSection>("gpo");
-  const [config, setConfig] = useState<Record<string, Record<string, unknown>>>({ gpo: {}, mcx: {}, debito_direto: {}, split_payment: {} });
+  const [config, setConfig] = useState<EmisConfigState>({ gpo: {}, mcx: {}, debito_direto: {}, split_payment: {} });
   const [saving, setSaving] = useState<EmisSection | null>(null);
   const [saved, setSaved] = useState<EmisSection | null>(null);
   const [testing, setTesting] = useState<EmisSection | null>(null);
@@ -7511,7 +7595,7 @@ function ConfiguracoesTecnicasView() {
   }, [tab]);
 
   const update = (section: EmisSection, key: string, value: unknown) =>
-    setConfig(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } }));
+    setConfig(prev => ({ ...prev, [section]: { ...prev[section], [key]: value } } as EmisConfigState));
 
   const save = async (section: EmisSection) => {
     setSaving(section);
@@ -7530,7 +7614,7 @@ function ConfiguracoesTecnicasView() {
   const field = (section: EmisSection, key: string, label: string, opts?: {
     type?: string; placeholder?: string; hint?: string; secret?: boolean;
   }) => {
-    const val = String(config[section]?.[key] ?? "");
+    const val = String((config[section] as Record<string, unknown>)?.[key] ?? "");
     const isSecret = opts?.secret;
     const shown = showSecret[`${section}.${key}`];
     return (
@@ -7858,9 +7942,9 @@ function ConfiguracoesTecnicasView() {
 
       {/* DD Tab */}
       {tab === "debito_direto" && (() => {
-        const dd = config.debito_direto ?? {};
-        const upd = (k: string, v: unknown) => update("debito_direto", k, v);
-        const fld = (k: string, label: string, opts?: { placeholder?: string; hint?: string; secret?: boolean; type?: string; required?: boolean }) => {
+        const dd: DDConfig = config.debito_direto;
+        const upd = (k: keyof DDConfig, v: unknown) => update("debito_direto", k, v);
+        const fld = (k: keyof DDConfig, label: string, opts?: { placeholder?: string; hint?: string; secret?: boolean; type?: string; required?: boolean }) => {
           const val = String(dd[k] ?? "");
           const isSecret = opts?.secret;
           const shown = showSecret[`dd.${k}`];
@@ -7888,7 +7972,7 @@ function ConfiguracoesTecnicasView() {
             </div>
           );
         };
-        const sel = (k: string, label: string, options: {v: string; l: string}[], opts?: { hint?: string; required?: boolean }) => (
+        const sel = (k: keyof DDConfig, label: string, options: {v: string; l: string}[], opts?: { hint?: string; required?: boolean }) => (
           <div key={k}>
             <label className="block text-xs font-semibold text-slate-600 mb-1">
               {label}{opts?.required && <span className="text-red-500 ml-0.5">*</span>}
@@ -7900,19 +7984,22 @@ function ConfiguracoesTecnicasView() {
             {opts?.hint && <p className="text-xs text-slate-400 mt-1">{opts.hint}</p>}
           </div>
         );
-        const tog = (k: string, label: string, hint?: string) => (
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <div>
-              <p className="text-xs font-semibold text-slate-700">{label}</p>
-              {hint && <p className="text-xs text-slate-400">{hint}</p>}
+        const tog = (k: keyof DDConfig, label: string, hint?: string) => {
+          const togVal = dd[k] as boolean | undefined;
+          return (
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <p className="text-xs font-semibold text-slate-700">{label}</p>
+                {hint && <p className="text-xs text-slate-400">{hint}</p>}
+              </div>
+              <button type="button" onClick={() => upd(k, !togVal)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${togVal ? "bg-emerald-500" : "bg-slate-300"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${togVal ? "translate-x-4" : "translate-x-0"}`}/>
+              </button>
             </div>
-            <button type="button" onClick={() => upd(k, !dd[k])}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${dd[k] ? "bg-emerald-500" : "bg-slate-300"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${dd[k] ? "translate-x-4" : "translate-x-0"}`}/>
-            </button>
-          </div>
-        );
-        const protocol = String(dd.protocol ?? "SOAP");
+          );
+        };
+        const protocol = dd.protocol ?? "SOAP";
         const showSOAP = protocol === "SOAP" || protocol === "AMBOS";
         const showREST  = protocol === "REST"  || protocol === "AMBOS";
 
@@ -7966,7 +8053,7 @@ function ConfiguracoesTecnicasView() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Timeout (segundos) <span className="text-red-500">*</span></label>
                   <input type="number" min={5} max={120}
-                    value={String(dd.timeout ?? "30")}
+                    value={dd.timeout ?? "30"}
                     onChange={e => upd("timeout", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
                   <p className="text-xs text-slate-400 mt-1">Segundos antes de abandonar a ligação (recomendado: 30)</p>
@@ -7983,7 +8070,7 @@ function ConfiguracoesTecnicasView() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {fld("ws_username","Username",{placeholder:"Fornecido pela EMIS",hint:"Identificador de utilizador do Web Service"})}
                 {fld("ws_password","Password",{secret:true,hint:"Armazenada com hash — nunca exposta ao browser"})}
-                {(String(dd.auth_type ?? "basic") === "oauth2" || String(dd.auth_type ?? "") === "") && <>
+                {((dd.auth_type ?? "basic") === "oauth2" || (dd.auth_type ?? "") === "") && <>
                   {fld("client_id","Client ID",{placeholder:"Fornecido pela EMIS (apenas REST/OAuth2)",hint:"Identificador da aplicação"})}
                   {fld("client_secret","Client Secret",{secret:true,hint:"Segredo OAuth2 — apenas REST"})}
                 </>}
@@ -8002,7 +8089,7 @@ function ConfiguracoesTecnicasView() {
                   <label className="flex items-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-3 py-3 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/30 transition-all">
                     <Upload className="w-4 h-4 text-slate-400"/>
                     <span className="text-xs text-slate-500">
-                      {dd.cert_filename ? String(dd.cert_filename) : "Clique para carregar certificado"}
+                      {dd.cert_filename || "Clique para carregar certificado"}
                     </span>
                     <input type="file" accept=".pem,.pfx,.cer,.crt,.p12" className="hidden"
                       onChange={e => {
@@ -8013,14 +8100,14 @@ function ConfiguracoesTecnicasView() {
                         reader.readAsDataURL(f);
                       }}/>
                   </label>
-                  {!!dd.cert_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.cert_filename)}</p>}
+                  {dd.cert_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{dd.cert_filename}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Chave Privada <span className="text-slate-400 font-normal">(.key)</span></label>
                   <label className="flex items-center gap-2 border-2 border-dashed border-slate-300 rounded-xl px-3 py-3 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/30 transition-all">
                     <Lock className="w-4 h-4 text-slate-400"/>
                     <span className="text-xs text-slate-500">
-                      {dd.key_filename ? String(dd.key_filename) : "Clique para carregar chave privada"}
+                      {dd.key_filename || "Clique para carregar chave privada"}
                     </span>
                     <input type="file" accept=".key,.pem" className="hidden"
                       onChange={e => {
@@ -8031,15 +8118,15 @@ function ConfiguracoesTecnicasView() {
                         reader.readAsDataURL(f);
                       }}/>
                   </label>
-                  {!!dd.key_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{String(dd.key_filename)}</p>}
+                  {dd.key_filename && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>{dd.key_filename}</p>}
                 </div>
                 {fld("cert_password","Password do Certificado",{secret:true,hint:"Apenas se o certificado estiver protegido por password"})}
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Expiração</label>
-                  <input type="date" value={String(dd.cert_expiry ?? "")} onChange={e => upd("cert_expiry", e.target.value)}
+                  <input type="date" value={dd.cert_expiry ?? ""} onChange={e => upd("cert_expiry", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
-                  {!!dd.cert_expiry && (() => {
-                    const daysLeft = Math.ceil((new Date(String(dd.cert_expiry)).getTime() - Date.now()) / 86400000);
+                  {dd.cert_expiry && (() => {
+                    const daysLeft = Math.ceil((new Date(dd.cert_expiry as string).getTime() - Date.now()) / 86400000);
                     return daysLeft <= 30
                       ? <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/>Expira em {daysLeft} dias</p>
                       : <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/>Válido por {daysLeft} dias</p>;
@@ -8078,7 +8165,7 @@ function ConfiguracoesTecnicasView() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Valor de Teste (AOA)</label>
                   <input type="number" min={0.01} step={0.01}
-                    value={String(dd.test_amount ?? "1.00")}
+                    value={dd.test_amount ?? "1.00"}
                     onChange={e => upd("test_amount", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
                   <p className="text-xs text-slate-400 mt-1">Valor simbólico para testar envio — ex: 1.00 AOA</p>
@@ -8088,7 +8175,7 @@ function ConfiguracoesTecnicasView() {
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Data de Débito (teste)</label>
                   <div className="flex items-center gap-2">
                     <input type="date"
-                      value={String(dd.test_debit_date ?? "")}
+                      value={dd.test_debit_date ?? ""}
                       onChange={e => upd("test_debit_date", e.target.value)}
                       className="flex-1 border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
                     <button type="button"
@@ -8149,10 +8236,10 @@ function ConfiguracoesTecnicasView() {
 
       {/* ── Split Payment Tab ── */}
       {tab === "split_payment" && (() => {
-        const sp = config.split_payment ?? {};
-        const upd = (k: string, v: unknown) => update("split_payment", k, v);
+        const sp: SystemParams = config.split_payment;
+        const upd = (k: keyof SystemParams, v: unknown) => update("split_payment", k, v);
 
-        const spField = (k: string, label: string, opts?: { placeholder?: string; hint?: string; secret?: boolean; type?: string; required?: boolean }) => {
+        const spField = (k: keyof SystemParams, label: string, opts?: { placeholder?: string; hint?: string; secret?: boolean; type?: string; required?: boolean }) => {
           const val = String(sp[k] ?? "");
           const isSecret = opts?.secret;
           const shown = showSecret[`sp.${k}`];
@@ -8181,18 +8268,21 @@ function ConfiguracoesTecnicasView() {
           );
         };
 
-        const spToggle = (k: string, label: string, hint?: string) => (
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <div>
-              <p className="text-xs font-semibold text-slate-700">{label}</p>
-              {hint && <p className="text-xs text-slate-400 leading-snug">{hint}</p>}
+        const spToggle = (k: keyof SystemParams, label: string, hint?: string) => {
+          const togVal = sp[k] as boolean | undefined;
+          return (
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <p className="text-xs font-semibold text-slate-700">{label}</p>
+                {hint && <p className="text-xs text-slate-400 leading-snug">{hint}</p>}
+              </div>
+              <button type="button" onClick={() => upd(k, !togVal)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${togVal ? "bg-indigo-500" : "bg-slate-300"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${togVal ? "translate-x-4" : "translate-x-0"}`}/>
+              </button>
             </div>
-            <button type="button" onClick={() => upd(k, !sp[k])}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${sp[k] ? "bg-indigo-500" : "bg-slate-300"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${sp[k] ? "translate-x-4" : "translate-x-0"}`}/>
-            </button>
-          </div>
-        );
+          );
+        };
 
         const spSecHeader = (letter: string, title: string, desc: string, color: string) => (
           <div className="flex items-start gap-3 pb-4 mb-5 border-b border-slate-100">
@@ -8247,7 +8337,7 @@ function ConfiguracoesTecnicasView() {
                   </label>
                   <div className="relative">
                     <input type="number" min={0} max={100} step={0.01}
-                      value={String(sp.taxa_comissao_pct ?? "5.00")}
+                      value={sp.taxa_comissao_pct ?? "5.00"}
                       onChange={e => upd("taxa_comissao_pct", e.target.value)}
                       className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 pr-8"/>
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
@@ -8261,7 +8351,7 @@ function ConfiguracoesTecnicasView() {
                   </label>
                   <div className="relative">
                     <input type="number" min={0} max={100} step={0.01}
-                      value={String(sp.taxa_irt_pct ?? "6.50")}
+                      value={sp.taxa_irt_pct ?? "6.50"}
                       onChange={e => upd("taxa_irt_pct", e.target.value)}
                       className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 pr-8"/>
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
@@ -8284,7 +8374,7 @@ function ConfiguracoesTecnicasView() {
                   <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${!sp.irt_activo ? "opacity-40 pointer-events-none" : ""}`}>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Regime de Tributação</label>
-                      <select value={String(sp.irt_tipo ?? "retencao_fonte")} onChange={e => upd("irt_tipo", e.target.value)}
+                      <select value={sp.irt_tipo ?? "retencao_fonte"} onChange={e => upd("irt_tipo", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white">
                         <option value="retencao_fonte">Retenção na Fonte — artigo 67.º CIRT</option>
                         <option value="isento">Isento — entidade sem fins lucrativos</option>
@@ -8294,7 +8384,7 @@ function ConfiguracoesTecnicasView() {
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Periodicidade de Reporte AGT</label>
-                      <select value={String(sp.irt_periodicidade ?? "mensal")} onChange={e => upd("irt_periodicidade", e.target.value)}
+                      <select value={sp.irt_periodicidade ?? "mensal"} onChange={e => upd("irt_periodicidade", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white">
                         <option value="mensal">Mensal — até ao dia 10 do mês seguinte</option>
                         <option value="trimestral">Trimestral — artigo 71.º CIRT</option>
@@ -8303,7 +8393,7 @@ function ConfiguracoesTecnicasView() {
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Código Contribuinte AGT <span className="text-red-500">*</span></label>
-                      <input value={String(sp.irt_codigo_agt ?? "")}
+                      <input value={sp.irt_codigo_agt ?? ""}
                         onChange={e => upd("irt_codigo_agt", e.target.value)}
                         placeholder="Ex: 5400123456"
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30"/>
@@ -8312,14 +8402,14 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Limiar de Isenção (Kz)</label>
                       <input type="number" min={0} step={100}
-                        value={String(sp.irt_threshold_isencao_kz ?? "0")}
+                        value={sp.irt_threshold_isencao_kz ?? "0"}
                         onChange={e => upd("irt_threshold_isencao_kz", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30"/>
                       <p className="text-xs text-slate-400 mt-1">Comissões abaixo deste valor ficam isentas de retenção (0 = sempre retém)</p>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Código de Rendimento AGT</label>
-                      <select value={String(sp.irt_codigo_rendimento ?? "prestacao_servicos")} onChange={e => upd("irt_codigo_rendimento", e.target.value)}
+                      <select value={sp.irt_codigo_rendimento ?? "prestacao_servicos"} onChange={e => upd("irt_codigo_rendimento", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 bg-white">
                         <option value="prestacao_servicos">Prestação de Serviços — código 108</option>
                         <option value="comissoes">Comissões e Corretagens — código 112</option>
@@ -8332,8 +8422,8 @@ function ConfiguracoesTecnicasView() {
 
                 {/* Resumo calculado */}
                 {(() => {
-                  const comissao = parseFloat(String(sp.taxa_comissao_pct ?? 5));
-                  const irt = parseFloat(String(sp.taxa_irt_pct ?? 6.5));
+                  const comissao = parseFloat(sp.taxa_comissao_pct ?? "5");
+                  const irt = parseFloat(sp.taxa_irt_pct ?? "6.5");
                   const exemplo = 10000; // 100,00 AOA em cêntimos / como referência: 10 000 Kz
                   const comissaoVal = (exemplo * comissao / 100).toFixed(2);
                   const irtVal = (exemplo * comissao / 100 * irt / 100).toFixed(2);
@@ -8373,7 +8463,7 @@ function ConfiguracoesTecnicasView() {
                     IBAN de Trânsito / Escrow <span className="text-red-500">*</span>
                     <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">conta_transito</code></span>
                   </label>
-                  <input value={String(sp.conta_transito ?? "")}
+                  <input value={sp.conta_transito ?? ""}
                     onChange={e => upd("conta_transito", e.target.value)}
                     placeholder="AO06 0044 0000 0000 0000 0000 0"
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
@@ -8384,7 +8474,7 @@ function ConfiguracoesTecnicasView() {
                     IBAN da Plataforma (Comissões) <span className="text-red-500">*</span>
                     <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">conta_plataforma_iban</code></span>
                   </label>
-                  <input value={String(sp.conta_plataforma_iban ?? "")}
+                  <input value={sp.conta_plataforma_iban ?? ""}
                     onChange={e => upd("conta_plataforma_iban", e.target.value)}
                     placeholder="AO06 0040 0000 0000 0000 0000 0"
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
@@ -8397,7 +8487,7 @@ function ConfiguracoesTecnicasView() {
                     IBAN do Comerciante (Escola) <span className="text-red-500">*</span>
                     <span className="font-normal text-slate-400 ml-1">— <code className="bg-slate-100 px-1 rounded text-[10px]">conta_comerciante_iban</code></span>
                   </label>
-                  <input value={String(sp.conta_comerciante_iban ?? "")}
+                  <input value={sp.conta_comerciante_iban ?? ""}
                     onChange={e => upd("conta_comerciante_iban", e.target.value)}
                     placeholder="AO06 0006 0000 0000 0000 0000 0"
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
@@ -8437,13 +8527,13 @@ function ConfiguracoesTecnicasView() {
               {/* Parâmetros por canal */}
               <div className="mt-5 space-y-4">
                 {/* GPO */}
-                {!!sp.canal_gpo_activo && (
+                {sp.canal_gpo_activo && (
                   <div className="border border-blue-100 bg-blue-50/50 rounded-xl p-4">
                     <p className="text-xs font-bold text-blue-700 mb-3 flex items-center gap-1.5"><Globe className="w-3.5 h-3.5"/> Parâmetros GPO</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Modo de Captura</label>
-                        <select value={String(sp.gpo_capture_mode ?? "imediata")} onChange={e => upd("gpo_capture_mode", e.target.value)}
+                        <select value={sp.gpo_capture_mode ?? "imediata"} onChange={e => upd("gpo_capture_mode", e.target.value)}
                           className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30 bg-white">
                           <option value="imediata">Imediata (D+0) — captura automática após autorização</option>
                           <option value="manual">Manual — captura explícita via API</option>
@@ -8453,7 +8543,7 @@ function ConfiguracoesTecnicasView() {
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Timeout de Captura (horas)</label>
                         <input type="number" min={1} max={168}
-                          value={String(sp.gpo_captura_timeout_h ?? "24")}
+                          value={sp.gpo_captura_timeout_h ?? "24"}
                           onChange={e => upd("gpo_captura_timeout_h", e.target.value)}
                           className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30"/>
                         <p className="text-xs text-slate-400 mt-1">Após este prazo a transacção expira automaticamente</p>
@@ -8463,13 +8553,13 @@ function ConfiguracoesTecnicasView() {
                 )}
 
                 {/* REFERENCIA */}
-                {!!sp.canal_referencia_activo && (
+                {sp.canal_referencia_activo && (
                   <div className="border border-purple-100 bg-purple-50/50 rounded-xl p-4">
                     <p className="text-xs font-bold text-purple-700 mb-3 flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5"/> Parâmetros Referência Multicaixa</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Entidade Padrão</label>
-                        <input value={String(sp.ref_entidade_padrao ?? "")}
+                        <input value={sp.ref_entidade_padrao ?? ""}
                           onChange={e => upd("ref_entidade_padrao", e.target.value)}
                           placeholder="Ex: 11111"
                           className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30"/>
@@ -8478,7 +8568,7 @@ function ConfiguracoesTecnicasView() {
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Prazo Padrão de Referências (dias)</label>
                         <input type="number" min={1} max={365}
-                          value={String(sp.ref_prazo_dias ?? "3")}
+                          value={sp.ref_prazo_dias ?? "3"}
                           onChange={e => upd("ref_prazo_dias", e.target.value)}
                           className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30"/>
                         <p className="text-xs text-slate-400 mt-1">Dias antes de expirar (usados se escola não definir)</p>
@@ -8488,7 +8578,7 @@ function ConfiguracoesTecnicasView() {
                 )}
 
                 {/* SDD */}
-                {!!sp.canal_sdd_activo && (
+                {sp.canal_sdd_activo && (
                   <div className="border border-emerald-100 bg-emerald-50/50 rounded-xl p-4">
                     <p className="text-xs font-bold text-emerald-700 mb-3 flex items-center gap-1.5"><ArrowLeftRight className="w-3.5 h-3.5"/> Parâmetros SDD</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -8534,7 +8624,7 @@ function ConfiguracoesTecnicasView() {
                     <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${sp.sptr_liquidacao_imediata ? "translate-x-5" : "translate-x-0"}`}/>
                   </button>
                 </div>
-                {!!sp.sptr_liquidacao_imediata && (
+                {sp.sptr_liquidacao_imediata && (
                   <p className="text-xs text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2 mt-2 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0"/> Modo imediato activo — as janelas abaixo são ignoradas. Garanta que o SLA do banco parceiro está contratualmente assegurado.
                   </p>
@@ -8558,7 +8648,7 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Hora de Envio SPTR</label>
                       <input type="time"
-                        value={String(sp.sptr_janela1_hora ?? "08:00")}
+                        value={sp.sptr_janela1_hora ?? "08:00"}
                         onChange={e => upd("sptr_janela1_hora", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
                       <p className="text-xs text-slate-400 mt-1">Hora de envio do lote de instruções ao SPTR</p>
@@ -8587,7 +8677,7 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Hora de Envio SPTR</label>
                       <input type="time"
-                        value={String(sp.sptr_janela2_hora ?? "12:00")}
+                        value={sp.sptr_janela2_hora ?? "12:00"}
                         onChange={e => upd("sptr_janela2_hora", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/30"/>
                       <p className="text-xs text-slate-400 mt-1">Hora de envio do segundo lote ao SPTR</p>
@@ -8595,7 +8685,7 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Corte de Recepção (início)</label>
                       <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50">
-                        <span className="text-xs font-mono text-slate-600">{String(sp.sptr_janela1_hora ?? "08:00")} + 1 min</span>
+                        <span className="text-xs font-mono text-slate-600">{sp.sptr_janela1_hora ?? "08:00"} + 1 min</span>
                         <span className="text-[10px] text-slate-400">— calculado</span>
                       </div>
                       <p className="text-xs text-slate-400 mt-1">Captura instruções recebidas após a Janela 1</p>
@@ -8616,7 +8706,7 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Hora de Envio SPTR</label>
                       <input type="time"
-                        value={String(sp.sptr_janela3_hora ?? "17:00")}
+                        value={sp.sptr_janela3_hora ?? "17:00"}
                         onChange={e => upd("sptr_janela3_hora", e.target.value)}
                         className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"/>
                       <p className="text-xs text-slate-400 mt-1">Hora de envio do terceiro lote ao SPTR (última janela do dia)</p>
@@ -8624,7 +8714,7 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Corte de Recepção (início)</label>
                       <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50">
-                        <span className="text-xs font-mono text-slate-600">{String(sp.sptr_janela2_hora ?? "12:00")} + 1 min</span>
+                        <span className="text-xs font-mono text-slate-600">{sp.sptr_janela2_hora ?? "12:00"} + 1 min</span>
                         <span className="text-[10px] text-slate-400">— calculado</span>
                       </div>
                       <p className="text-xs text-slate-400 mt-1">Captura instruções recebidas após a Janela 2</p>
@@ -8655,7 +8745,7 @@ function ConfiguracoesTecnicasView() {
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1">Feriados Nacionais (Angola)</label>
                       <textarea
-                        value={String(sp.sptr_feriados_csv ?? "2026-01-01,2026-02-04,2026-03-08,2026-04-04,2026-05-01,2026-06-01,2026-09-17,2026-11-02,2026-11-11,2026-12-25")}
+                        value={sp.sptr_feriados_csv ?? "2026-01-01,2026-02-04,2026-03-08,2026-04-04,2026-05-01,2026-06-01,2026-09-17,2026-11-02,2026-11-11,2026-12-25"}
                         onChange={e => upd("sptr_feriados_csv", e.target.value)}
                         rows={3}
                         placeholder="AAAA-MM-DD, separados por vírgula"
@@ -8689,7 +8779,7 @@ function ConfiguracoesTecnicasView() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Janela de Idempotência (min)</label>
                   <input type="number" min={1} max={1440}
-                    value={String(sp.idempotency_window_min ?? "60")}
+                    value={sp.idempotency_window_min ?? "60"}
                     onChange={e => upd("idempotency_window_min", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
                   <p className="text-xs text-slate-400 mt-1">Pedidos duplicados dentro desta janela são rejeitados</p>
@@ -8697,14 +8787,14 @@ function ConfiguracoesTecnicasView() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Máx. Tentativas por Transacção</label>
                   <input type="number" min={1} max={10}
-                    value={String(sp.max_retry_attempts ?? "3")}
+                    value={sp.max_retry_attempts ?? "3"}
                     onChange={e => upd("max_retry_attempts", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
                   <p className="text-xs text-slate-400 mt-1">Após este limite a transacção passa a FAILED</p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Nível de Logging</label>
-                  <select value={String(sp.log_level ?? "normal")} onChange={e => upd("log_level", e.target.value)}
+                  <select value={sp.log_level ?? "normal"} onChange={e => upd("log_level", e.target.value)}
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 bg-white">
                     <option value="off">Off — sem logs</option>
                     <option value="normal">Normal — erros + estados</option>
