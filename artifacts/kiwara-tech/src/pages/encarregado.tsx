@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1943,21 +1943,6 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [storeCheckoutLoading, setStoreCheckoutLoading] = useState(false);
   const [storeCheckoutError, setStoreCheckoutError] = useState("");
 
-  // Push Notifications FCM
-  const {
-    permission:         pushPermission,
-    loading:            pushLoading,
-    error:              pushError,
-    requestPermission:  requestPushPermission,
-  } = usePushNotifications(token);
-  const [pushBannerDismissed, setPushBannerDismissed] = useState(
-    () => localStorage.getItem("kw_push_dismissed") === "1"
-  );
-  const showPushBanner =
-    !pushBannerDismissed &&
-    pushPermission === "default" &&
-    typeof Notification !== "undefined";
-
   const headers = { Authorization:`Bearer ${token}`, "Content-Type":"application/json" };
 
   const loadStudents = useCallback(async () => {
@@ -2202,42 +2187,6 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   return (
     <div translate="no" className="min-h-screen bg-gray-50 md:flex">
-
-      {/* ── Banner de opt-in Push Notifications ── */}
-      <AnimatePresence>
-        {showPushBanner && (
-          <motion.div
-            key="push-banner"
-            initial={{ opacity: 0, y: -48 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -48 }}
-            transition={{ duration: 0.25 }}
-            className="fixed top-0 left-0 right-0 z-[60] bg-blue-600 text-white px-4 py-2.5 flex items-center gap-3 shadow-lg"
-          >
-            <Bell size={16} className="shrink-0" />
-            <p className="flex-1 text-sm font-medium">
-              Activa notificações para receber alertas de facturas e comunicados da escola.
-            </p>
-            {pushError && (
-              <span className="text-xs text-red-200 hidden sm:inline">{pushError}</span>
-            )}
-            <button
-              onClick={requestPushPermission}
-              disabled={pushLoading}
-              className="shrink-0 bg-white text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-50 disabled:opacity-60 transition-colors"
-            >
-              {pushLoading ? "A activar…" : "Activar"}
-            </button>
-            <button
-              onClick={() => { setPushBannerDismissed(true); localStorage.setItem("kw_push_dismissed","1"); }}
-              className="shrink-0 p-1 rounded hover:bg-white/20 transition-colors"
-              aria-label="Fechar"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <aside className="hidden md:flex w-80 bg-slate-900 text-white flex-col shrink-0">
         <div className="h-16 px-6 border-b border-white/10 flex items-center gap-3">
@@ -3455,6 +3404,38 @@ export default function EncarregadoPortal() {
   const [token, setToken] = useState<string|null>(null);
   const [guardian, setGuardian] = useState<Guardian|null>(null);
 
+  // ── Push Notifications FCM ───────────────────────────────────────────────
+  // O hook vive aqui, no root, para ter acesso ao token logo após o login
+  // e disparar o pedido de permissão uma única vez por sessão.
+  const {
+    permission:        pushPermission,
+    requestPermission: requestPushPermission,
+  } = usePushNotifications(token);
+
+  // Ref para garantir que o pedido de permissão só é feito uma vez por sessão,
+  // mesmo em React Strict Mode (que monta/desmonta componentes duas vezes em dev).
+  const pushRequestedRef = useRef(false);
+
+  useEffect(() => {
+    // Condições para disparar o pedido nativo de permissão:
+    //  1. O utilizador chegou ao dashboard (login bem-sucedido ou sessão restaurada)
+    //  2. Existe um token de sessão válido (para registar o token FCM no backend)
+    //  3. A permissão ainda não foi decidida ("default") — se já for "granted" ou
+    //     "denied", não voltamos a perguntar; o hook renova o token FCM silenciosamente
+    //  4. Ainda não pedimos nesta sessão (evita duplicados em Strict Mode)
+    if (screen !== "dashboard") return;
+    if (!token) return;
+    if (pushPermission !== "default") return;
+    if (pushRequestedRef.current) return;
+
+    pushRequestedRef.current = true;
+
+    // Disparo assíncrono: não bloqueia a navegação para o dashboard.
+    // O hook trata internamente todos os erros (permissão negada, SW indisponível, etc.).
+    requestPushPermission();
+  }, [screen, token, pushPermission, requestPushPermission]);
+  // ────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     const saved = getGuardianToken();
     if (!saved) return;
@@ -3471,11 +3452,16 @@ export default function EncarregadoPortal() {
   const handleLogout = () => {
     clearGuardianToken();
     setToken(null); setGuardian(null); setScreen("login");
+    // Repõe o ref para que numa nova sessão o pedido volte a ser feito
+    // (cenário: utilizador faz logout e entra com outra conta no mesmo browser)
+    pushRequestedRef.current = false;
   };
 
   const handleLoginSuccess = (t: string, g: Guardian) => {
     setToken(t); setGuardian(g);
     setScreen(g.first_login ? "change-password" : "dashboard");
+    // Nota: o useEffect acima detectará a mudança de screen → "dashboard"
+    // e disparará requestPushPermission() automaticamente.
   };
 
   const handlePasswordChanged = () => {
