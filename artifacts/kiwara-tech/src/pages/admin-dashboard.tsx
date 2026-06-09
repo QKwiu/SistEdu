@@ -3689,7 +3689,7 @@ function SectionCard({ title, icon, children, onSave, saving, saved }: {
 }
 
 function SettingsView({ schoolId }: { schoolId: number }) {
-  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico";
+  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico"|"banco";
   const STABS: { id: STab; label: string; icon: React.ReactNode }[] = [
     { id: "financeiro",   label: "Financeiro",    icon: <Banknote className="w-4 h-4"/> },
     { id: "pagamento",    label: "Pagamento",     icon: <CreditCard className="w-4 h-4"/> },
@@ -3699,6 +3699,7 @@ function SettingsView({ schoolId }: { schoolId: number }) {
     { id: "dashboard",    label: "Dashboard",     icon: <BarChart3 className="w-4 h-4"/> },
     { id: "permissoes",   label: "Permissões",    icon: <Lock className="w-4 h-4"/> },
     { id: "tecnico",      label: "Técnico",       icon: <Globe className="w-4 h-4"/> },
+    { id: "banco",        label: "Banco",         icon: <Landmark className="w-4 h-4"/> },
   ];
 
   const [tab, setTab] = useState<STab>("financeiro");
@@ -4091,6 +4092,469 @@ function SettingsView({ schoolId }: { schoolId: number }) {
           )}
         </SectionCard>
       )}
+
+      {/* ── BANCO ── */}
+      {tab === "banco" && (
+        <BancoIntegracaoPanel schoolId={schoolId} />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BancoIntegracaoPanel — Integração Bancária Bilateral
+══════════════════════════════════════════════════════════════════ */
+function BancoIntegracaoPanel({ schoolId }: { schoolId: number }) {
+  type IntegrationMode = "FILE" | "SPTR";
+  type BankCode = "BFA" | "BAI" | "BIC" | "BDA" | "ATL" | "SOL" | "OUTRO";
+  type FileFormat = "TXT_PADRAO" | "MT940" | "CSV" | "CAMT053";
+  type SyncInterval = "hourly" | "daily" | "manual";
+
+  const BANKS: { code: BankCode; label: string }[] = [
+    { code: "BFA",   label: "BFA — Banco de Fomento Angola" },
+    { code: "BAI",   label: "BAI — Banco Angolano de Investimentos" },
+    { code: "BIC",   label: "BIC — Banco BIC" },
+    { code: "BDA",   label: "BDA — Banco de Desenvolvimento de Angola" },
+    { code: "ATL",   label: "ATL — Atlântico" },
+    { code: "SOL",   label: "SOL — Banco SOL" },
+    { code: "OUTRO", label: "Outro Banco Parceiro" },
+  ];
+
+  /* ── estado geral ── */
+  const [mode, setMode]         = useState<IntegrationMode>("FILE");
+  const [bankCode, setBankCode] = useState<BankCode>("BFA");
+  const [isActive, setIsActive] = useState(false);
+
+  /* ── credenciais FILE ── */
+  const [sftpHost, setSftpHost]         = useState("");
+  const [sftpPort, setSftpPort]         = useState(22);
+  const [sftpUser, setSftpUser]         = useState("");
+  const [sftpPassword, setSftpPassword] = useState("");
+  const [sftpPath, setSftpPath]         = useState("/");
+  const [fileFormat, setFileFormat]     = useState<FileFormat>("TXT_PADRAO");
+  const [syncInterval, setSyncInterval] = useState<SyncInterval>("daily");
+
+  /* ── credenciais SPTR ── */
+  const [clientId, setClientId]                 = useState("");
+  const [clientSecret, setClientSecret]         = useState("");
+  const [sptrEndpointUrl, setSptrEndpointUrl]   = useState("");
+  const [webhookToken, setWebhookToken]         = useState("");
+  const [certPem, setCertPem]                   = useState("");
+
+  /* ── UI ── */
+  const [showSftpPass, setShowSftpPass]         = useState(false);
+  const [showClientSecret, setShowClientSecret] = useState(false);
+  const [saving, setSaving]                     = useState(false);
+  const [saved, setSaved]                       = useState(false);
+  const [testing, setTesting]                   = useState(false);
+  const [testResult, setTestResult]             = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+  const [error, setError]                       = useState("");
+  const [uploadFile, setUploadFile]             = useState<File | null>(null);
+  const [uploading, setUploading]               = useState(false);
+  const [uploadResult, setUploadResult]         = useState<any>(null);
+  const [loading, setLoading]                   = useState(true);
+  const fileRef                                 = useRef<HTMLInputElement>(null);
+
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+
+  /* ── carregar config existente ── */
+  useEffect(() => {
+    setLoading(true);
+    api(`/admin/colegios/${schoolId}/bank-config`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.configs?.length) {
+          const cfg = d.configs[0];
+          setBankCode(cfg.bank_code ?? "BFA");
+          setMode(cfg.integration_mode ?? "FILE");
+          setIsActive(cfg.is_active ?? false);
+          const c = cfg.credentials ?? {};
+          if (cfg.integration_mode === "FILE") {
+            setSftpHost(c.sftp_host ?? "");
+            setSftpPort(c.sftp_port ?? 22);
+            setSftpUser(c.sftp_user ?? "");
+            setSftpPassword(c.sftp_password ?? "");
+            setSftpPath(c.sftp_path ?? "/");
+            setFileFormat(c.file_format ?? "TXT_PADRAO");
+            setSyncInterval(c.sync_interval ?? "daily");
+          } else {
+            setClientId(c.client_id ?? "");
+            setClientSecret(c.client_secret ?? "");
+            setSptrEndpointUrl(c.sptr_endpoint_url ?? "");
+            setWebhookToken(c.webhook_token ?? "");
+            setCertPem(c.cert_pem ?? "");
+          }
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [schoolId]);
+
+  const handleSave = async () => {
+    setSaving(true); setError(""); setSaved(false);
+    const credentials = mode === "FILE"
+      ? { sftp_host: sftpHost, sftp_port: sftpPort, sftp_user: sftpUser,
+          sftp_password: sftpPassword, sftp_path: sftpPath,
+          file_format: fileFormat, sync_interval: syncInterval }
+      : { client_id: clientId, client_secret: clientSecret,
+          sptr_endpoint_url: sptrEndpointUrl, webhook_token: webhookToken, cert_pem: certPem };
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/bank-config`, {
+        method: "PUT",
+        body: JSON.stringify({ bank_code: bankCode, integration_mode: mode, is_active: isActive, credentials }),
+      });
+      const d = await r.json();
+      if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 2500); }
+      else setError(d.error ?? "Erro ao guardar.");
+    } finally { setSaving(false); }
+  };
+
+  const handleTest = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/bank/test-connection`, {
+        method: "POST",
+        body: JSON.stringify({ bank_code: bankCode }),
+      });
+      const d = await r.json();
+      setTestResult({
+        success: d.success ?? r.ok,
+        message: d.mensagem ?? d.erro ?? d.error ?? "Resposta inesperada.",
+        latency: d.latencia_ms,
+      });
+    } catch (e: any) {
+      setTestResult({ success: false, message: e.message });
+    } finally { setTesting(false); }
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    setUploading(true); setUploadResult(null);
+    const fd = new FormData();
+    fd.append("statement_file", uploadFile);
+    fd.append("school_id", String(schoolId));
+    fd.append("bank_code", bankCode);
+    fd.append("file_format", fileFormat);
+    const token = getAdminToken();
+    try {
+      const r = await fetch(`${API}/admin/bank/upload-statement`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      setUploadResult(await r.json());
+    } catch (e: any) {
+      setUploadResult({ success: false, error: e.message });
+    } finally { setUploading(false); }
+  };
+
+  if (loading) return (
+    <div className="py-14 text-center">
+      <RefreshCw className="w-5 h-5 animate-spin text-primary mx-auto mb-2"/>
+      <p className="text-sm text-slate-400">A carregar configuração bancária…</p>
+    </div>
+  );
+
+  const callbackUrl = `${window.location.origin}/api/bank/sptr-callback`;
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Cabeçalho ── */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shrink-0">
+            <Landmark className="w-5 h-5 text-white"/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-slate-900">Integração Bancária Bilateral</h3>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Configure a comunicação directa com o banco parceiro para conciliação automática de pagamentos.
+            </p>
+          </div>
+          <button
+            onClick={() => setIsActive(v => !v)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors shrink-0 ${
+              isActive ? "bg-green-500 text-white hover:bg-green-600" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+            }`}>
+            {isActive ? <ToggleRight className="w-5 h-5"/> : <ToggleLeft className="w-5 h-5"/>}
+            {isActive ? "Activo" : "Inactivo"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0"/>{error}
+        </div>
+      )}
+
+      {/* ── Configuração Geral ── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+          <Settings2 className="w-4 h-4 text-primary"/>Configuração Geral
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Banco Parceiro</label>
+            <select value={bankCode} onChange={e => setBankCode(e.target.value as BankCode)} className={inp}>
+              {BANKS.map(b => <option key={b.code} value={b.code}>{b.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Modo de Integração</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => { setMode("FILE"); setTestResult(null); }}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                  mode === "FILE"
+                    ? "bg-primary text-white border-primary shadow-sm"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"
+                }`}>
+                <FileText className="w-4 h-4"/>Ficheiros
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode("SPTR"); setTestResult(null); }}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                  mode === "SPTR"
+                    ? "bg-primary text-white border-primary shadow-sm"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"
+                }`}>
+                <Wifi className="w-4 h-4"/>Tempo Real
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Descrição do modo */}
+        <div className={`rounded-xl p-3 text-sm flex items-start gap-2 ${
+          mode === "FILE"
+            ? "bg-amber-50 border border-amber-200 text-amber-800"
+            : "bg-green-50 border border-green-200 text-green-800"
+        }`}>
+          {mode === "FILE"
+            ? <><FileSpreadsheet className="w-4 h-4 shrink-0 mt-0.5"/>
+                <span><b>Modo Ficheiros Periódicos</b> — O banco envia extratos de liquidação via SFTP.
+                A plataforma lê e processa automaticamente com a recorrência configurada.</span></>
+            : <><Zap className="w-4 h-4 shrink-0 mt-0.5"/>
+                <span><b>Modo SPTR (Tempo Real)</b> — O banco notifica a plataforma via webhook a cada
+                liquidação. Split imediato após cada pagamento confirmado.</span></>
+          }
+        </div>
+      </div>
+
+      {/* ── Campos FILE ── */}
+      {mode === "FILE" && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+          <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Server className="w-4 h-4 text-slate-500"/>Servidor SFTP
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Host SFTP</label>
+              <input value={sftpHost} onChange={e => setSftpHost(e.target.value)} className={inp} placeholder="sftp.banco.ao"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Porto</label>
+              <input type="number" value={sftpPort} onChange={e => setSftpPort(Number(e.target.value))}
+                className={inp} min={1} max={65535}/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Utilizador</label>
+              <input value={sftpUser} onChange={e => setSftpUser(e.target.value)} className={inp} placeholder="kiwara_user"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Password SFTP</label>
+              <div className="relative">
+                <input type={showSftpPass ? "text" : "password"} value={sftpPassword}
+                  onChange={e => setSftpPassword(e.target.value)} className={inp} placeholder="••••••••••••"/>
+                <button type="button" onClick={() => setShowSftpPass(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showSftpPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Directório Remoto</label>
+              <input value={sftpPath} onChange={e => setSftpPath(e.target.value)} className={inp} placeholder="/extratos/kiwara"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Formato do Ficheiro</label>
+              <select value={fileFormat} onChange={e => setFileFormat(e.target.value as FileFormat)} className={inp}>
+                <option value="TXT_PADRAO">TXT Padrão Bancário</option>
+                <option value="MT940">MT940 (SWIFT)</option>
+                <option value="CSV">CSV</option>
+                <option value="CAMT053">CAMT.053 (XML ISO 20022)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Recorrência de Leitura</label>
+              <select value={syncInterval} onChange={e => setSyncInterval(e.target.value as SyncInterval)} className={inp}>
+                <option value="hourly">De hora a hora</option>
+                <option value="daily">Diária (à meia-noite)</option>
+                <option value="manual">Manual / Sob demanda</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Upload manual */}
+          <div className="border-t border-slate-100 pt-4">
+            <h5 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+              <Upload className="w-4 h-4"/>Processar Extrato Manualmente
+            </h5>
+            <div className="flex items-center gap-3">
+              <label className="flex-1 cursor-pointer">
+                <div className={`border-2 border-dashed rounded-xl p-4 text-center transition-colors ${
+                  uploadFile ? "border-primary bg-primary/5" : "border-slate-200 hover:border-primary/40"
+                }`}>
+                  <input ref={fileRef} type="file" className="hidden"
+                    accept=".txt,.csv,.mt940,.sta,.camt,.xml"
+                    onChange={e => setUploadFile(e.target.files?.[0] ?? null)}/>
+                  {uploadFile
+                    ? <p className="text-sm font-medium text-primary">
+                        {uploadFile.name}
+                        <span className="text-slate-400 font-normal ml-1">({(uploadFile.size / 1024).toFixed(1)} KB)</span>
+                      </p>
+                    : <p className="text-sm text-slate-400">
+                        <Upload className="w-4 h-4 inline mr-1.5 -mt-0.5"/>
+                        Clique para seleccionar o ficheiro de extrato (.txt, .csv, .mt940)
+                      </p>
+                  }
+                </div>
+              </label>
+              <button onClick={handleUpload} disabled={!uploadFile || uploading}
+                className="px-4 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 flex items-center gap-2 shrink-0 transition-colors">
+                {uploading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4"/>}
+                {uploading ? "A processar…" : "Processar"}
+              </button>
+            </div>
+
+            {uploadResult && (
+              <div className={`mt-3 rounded-xl p-3 text-sm flex items-start gap-2 ${
+                uploadResult.success
+                  ? "bg-green-50 border border-green-200 text-green-800"
+                  : "bg-red-50 border border-red-200 text-red-700"
+              }`}>
+                {uploadResult.success
+                  ? <><CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0"/>
+                      <span>
+                        <b>{uploadResult.transacoes_detectadas}</b> transacções detectadas ·{" "}
+                        <b className="text-green-700">{uploadResult.reconciliadas}</b> reconciliadas ·{" "}
+                        <b>{uploadResult.nao_encontradas}</b> não encontradas
+                      </span></>
+                  : <><AlertCircle className="w-4 h-4 mt-0.5 shrink-0"/>
+                      <span>{uploadResult.error ?? uploadResult.message ?? "Erro desconhecido."}</span></>
+                }
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Campos SPTR ── */}
+      {mode === "SPTR" && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+          <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-slate-500"/>Credenciais API SPTR
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Client ID</label>
+              <input value={clientId} onChange={e => setClientId(e.target.value)} className={inp} placeholder="kiwara-client-id"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Client Secret</label>
+              <div className="relative">
+                <input type={showClientSecret ? "text" : "password"} value={clientSecret}
+                  onChange={e => setClientSecret(e.target.value)} className={inp} placeholder="••••••••••••••••"/>
+                <button type="button" onClick={() => setShowClientSecret(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showClientSecret ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                </button>
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint SPTR</label>
+              <input value={sptrEndpointUrl} onChange={e => setSptrEndpointUrl(e.target.value)}
+                className={inp} placeholder="https://api.banco.ao/sptr/v1"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Webhook Token de Segurança</label>
+              <p className="text-xs text-slate-400 mb-1">
+                Token secreto que o banco envia no cabeçalho{" "}
+                <code className="bg-slate-100 px-1 rounded font-mono">X-Webhook-Token</code>{" "}
+                para autenticar cada notificação em tempo real.
+              </p>
+              <input value={webhookToken} onChange={e => setWebhookToken(e.target.value)}
+                className={inp} placeholder="mínimo 16 caracteres aleatórios"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Certificado Digital X.509 (opcional)</label>
+              <textarea value={certPem} onChange={e => setCertPem(e.target.value)} rows={4}
+                className="border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full resize-none"
+                placeholder={"-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"}/>
+            </div>
+          </div>
+
+          {/* URL de Callback */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+              <Network className="w-3.5 h-3.5"/>URL de Callback a registar no banco
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-lg font-mono text-slate-700 flex-1 overflow-x-auto whitespace-nowrap">
+                {callbackUrl}
+              </code>
+              <button onClick={() => navigator.clipboard?.writeText(callbackUrl)}
+                title="Copiar URL"
+                className="p-1.5 text-slate-400 hover:text-primary transition-colors shrink-0">
+                <Copy className="w-4 h-4"/>
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Cabeçalhos obrigatórios em cada chamada:{" "}
+              <code className="bg-white px-1 rounded font-mono">X-Webhook-Token</code>{" · "}
+              <code className="bg-white px-1 rounded font-mono">X-School-Id: {schoolId}</code>{" · "}
+              <code className="bg-white px-1 rounded font-mono">X-Bank-Code: {bankCode}</code>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Resultado do teste ── */}
+      {testResult && (
+        <div className={`rounded-xl p-4 flex items-start gap-3 text-sm ${
+          testResult.success
+            ? "bg-green-50 border border-green-200 text-green-800"
+            : "bg-red-50 border border-red-200 text-red-700"
+        }`}>
+          {testResult.success
+            ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0"/>
+            : <AlertCircle className="w-4 h-4 mt-0.5 shrink-0"/>}
+          <div>
+            <p className="font-semibold">{testResult.success ? "Ligação estabelecida com sucesso!" : "Falha na ligação"}</p>
+            <p className="text-xs mt-0.5 opacity-80">{testResult.message}</p>
+            {testResult.latency !== undefined && (
+              <p className="text-xs opacity-60 mt-0.5">Latência: {testResult.latency}ms</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Barra de acções ── */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <button onClick={handleTest} disabled={testing}
+          className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors">
+          {testing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <FlaskConical className="w-4 h-4"/>}
+          {testing ? "A testar ligação…" : "Testar Ligação"}
+        </button>
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : saved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+          {saved ? "Guardado!" : "Guardar Configuração"}
+        </button>
+      </div>
     </div>
   );
 }

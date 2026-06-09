@@ -21,6 +21,7 @@ import { runBackupMigration, startBackupScheduler } from "../services/backup.ser
 import { runIdempotencyMigration } from "../middlewares/idempotency";
 import emailRouter from "./email";
 import { runEmailMigration } from "../services/email.service";
+import bankRouter, { runBankMigration } from "./bank";
 
 const router: IRouter = Router();
 
@@ -43,6 +44,7 @@ router.use(directDebitRouter);
 router.use(splitPayRouter);
 router.use(backupRouter);
 router.use(emailRouter);
+router.use(bankRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>
@@ -74,6 +76,9 @@ runIdempotencyMigration().catch(err =>
 );
 runEmailMigration().catch(err =>
   console.error("[email migration]", err)
+);
+runBankMigration().catch(err =>
+  console.error("[bank migration]", err)
 );
 
 export default router;

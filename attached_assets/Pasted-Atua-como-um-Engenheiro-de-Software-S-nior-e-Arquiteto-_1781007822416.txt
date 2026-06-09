@@ -1,0 +1,27 @@
+Atua como um Engenheiro de Software Sénior e Arquiteto de Soluções SaaS. Preciso de implementar uma ecrã no Perfil Admin, dentro do menu 'Configurações Técnicas', para gerir a Integração API Bilateral com o Banco Comercial Angolano Parceiro. O sistema deve suportar dois modelos de conciliação: Assíncrono (via Ficheiros Periódicos) e Síncrono (via Endpoint SPTR em Tempo Real).
+
+Gera a arquitetura do Front-end (UI/UX) e o modelo de dados Back-end seguindo estes requisitos:
+
+1. COMPONENTES DA INTERFACE (Ecrã de Configuração no Front-end)
+Cria a estrutura visual (React/Vite) contendo:
+- Seletor de Modo de Integração (Tabs ou Radio Buttons):
+    * Modo A: 'Ficheiros Periódicos' (Extratos Bancários/Ficheiros de Liquidação).
+    * Modo B: 'Tempo Real (SPTR - Sistema de Pagamentos em Tempo Real)'.
+- Campos Dinâmicos por Modo:
+    * Se Ficheiros: Inputs para configurar a recorrência da leitura (Horária, Diária), formato do ficheiro (ex: TXT Padrão Bancário, MT940, CSV) e credenciais do servidor SFTP seguro para onde o banco envia os ficheiros.
+    * Se SPTR (Tempo Real): Inputs para as credenciais da API do Banco (Client ID, Client Secret, URL do Endpoint SPTR, Webhook Token de Segurança) e upload do Certificado Digital X.509 (.pem/.crt).
+
+2. MODELO DE DADOS (Camada de Persistência Back-end)
+Define o esquema de banco de dados (SQL ou ORM) para a tabela `bank_integration_configs`:
+- `school_id`, `bank_code` (Ex: BFA, BAI, BIC), `integration_mode` (ENUM: 'FILE', 'SPTR').
+- `credentials` (Objeto JSON Criptografado para armazenar as chaves de API ou dados do SFTP).
+- `is_active` (Boolean) e `last_sync_at` (Timestamp).
+
+3. LOGICA DO MOTOR DE RECONCILIAÇÃO (Endpoints do Back-end)
+- Rota para o Fluxo SPTR: `POST /api/v1/bank/sptr-callback` -> Um endpoint de webhook protegido que recebe as notificações de liquidação em tempo real enviadas pelo banco parceiro e dispara o motor de split imediatamente.
+- Rota para o Fluxo de Ficheiros: `POST /api/v1/bank/upload-statement` -> Endpoint para processamento manual ou automático (via Cron Job) que lê o ficheiro de extrato e faz o cruzamento das transações em lote.
+
+4. FEEDBACK DE DIAGNÓSTICO (Botão 'Testar Conexão')
+- Inclui na UI um botão para testar a comunicação bilateral de forma síncrona. O back-end deve disparar uma chamada 'Ping' para o endpoint do banco (ou tentar ler o SFTP) e devolver o estado de sucesso (HTTP 200) ou a mensagem de erro detalhada da rede bancária.
+
+Gera o código de forma modular, limpa e focada em segurança financeira, ideal para o ecossistema do Replit.
