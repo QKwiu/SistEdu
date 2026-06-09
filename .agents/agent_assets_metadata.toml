@@ -36,3 +36,9 @@ id = "qGCceg4Ksi_xB84O1AtW0"
 uri = "file://relatorio-kiwara-tech.pdf"
 type = "pdf"
 title = "Relatório de Funcionalidades — Kiwara Tech"
+
+[[outputs]]
+id = "lpmqJAXO0DQGSF-KPXQ7E"
+uri = "file://scripts/Kiwara_Tech_Funcionalidades.pdf"
+type = "pdf"
+title = "Kiwara Tech — Relatório de Funcionalidades"
