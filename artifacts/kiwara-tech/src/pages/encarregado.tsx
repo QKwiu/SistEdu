@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -1942,6 +1943,21 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [storeCheckoutLoading, setStoreCheckoutLoading] = useState(false);
   const [storeCheckoutError, setStoreCheckoutError] = useState("");
 
+  // Push Notifications FCM
+  const {
+    permission:         pushPermission,
+    loading:            pushLoading,
+    error:              pushError,
+    requestPermission:  requestPushPermission,
+  } = usePushNotifications(token);
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(
+    () => localStorage.getItem("kw_push_dismissed") === "1"
+  );
+  const showPushBanner =
+    !pushBannerDismissed &&
+    pushPermission === "default" &&
+    typeof Notification !== "undefined";
+
   const headers = { Authorization:`Bearer ${token}`, "Content-Type":"application/json" };
 
   const loadStudents = useCallback(async () => {
@@ -2186,6 +2202,43 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   return (
     <div translate="no" className="min-h-screen bg-gray-50 md:flex">
+
+      {/* ── Banner de opt-in Push Notifications ── */}
+      <AnimatePresence>
+        {showPushBanner && (
+          <motion.div
+            key="push-banner"
+            initial={{ opacity: 0, y: -48 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -48 }}
+            transition={{ duration: 0.25 }}
+            className="fixed top-0 left-0 right-0 z-[60] bg-blue-600 text-white px-4 py-2.5 flex items-center gap-3 shadow-lg"
+          >
+            <Bell size={16} className="shrink-0" />
+            <p className="flex-1 text-sm font-medium">
+              Activa notificações para receber alertas de facturas e comunicados da escola.
+            </p>
+            {pushError && (
+              <span className="text-xs text-red-200 hidden sm:inline">{pushError}</span>
+            )}
+            <button
+              onClick={requestPushPermission}
+              disabled={pushLoading}
+              className="shrink-0 bg-white text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-50 disabled:opacity-60 transition-colors"
+            >
+              {pushLoading ? "A activar…" : "Activar"}
+            </button>
+            <button
+              onClick={() => { setPushBannerDismissed(true); localStorage.setItem("kw_push_dismissed","1"); }}
+              className="shrink-0 p-1 rounded hover:bg-white/20 transition-colors"
+              aria-label="Fechar"
+            >
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <aside className="hidden md:flex w-80 bg-slate-900 text-white flex-col shrink-0">
         <div className="h-16 px-6 border-b border-white/10 flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>

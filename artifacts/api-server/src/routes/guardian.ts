@@ -995,6 +995,49 @@ router.get("/guardian/horario", authMiddleware, async (req: any, res) => {
   res.json(r.rows);
 });
 
+/* ─── POST /guardian/fcm/subscribe — registo de token FCM do dispositivo ─── */
+router.post("/guardian/fcm/subscribe", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { token, platform = "web" } = req.body as { token?: string; platform?: string };
+  if (!token || typeof token !== "string" || token.trim().length < 10) {
+    return res.status(400).json({ error: "Token FCM inválido." });
+  }
+
+  const allowedPlatforms = ["web", "android", "ios"];
+  const safePlatform = allowedPlatforms.includes(platform) ? platform : "web";
+
+  await pool.query(
+    `INSERT INTO fcm_device_tokens (school_id, user_type, user_id, token, platform, updated_at)
+     VALUES ($1, 'guardian', $2, $3, $4, NOW())
+     ON CONFLICT (user_type, user_id, token)
+     DO UPDATE SET platform=$4, updated_at=NOW()`,
+    [guardian.school_id, guardian.id, token.trim(), safePlatform]
+  );
+
+  return res.json({ ok: true, message: "Dispositivo registado para notificações." });
+});
+
+/* ─── DELETE /guardian/fcm/subscribe — remoção de token (logout / opt-out) ─── */
+router.delete("/guardian/fcm/subscribe", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { token } = req.body as { token?: string };
+  if (!token || typeof token !== "string") {
+    return res.status(400).json({ error: "Token FCM inválido." });
+  }
+
+  await pool.query(
+    `DELETE FROM fcm_device_tokens
+     WHERE user_type='guardian' AND user_id=$1 AND token=$2`,
+    [guardian.id, token.trim()]
+  );
+
+  return res.json({ ok: true, message: "Dispositivo removido." });
+});
+
 /* ─── GET /guardian/provas ─── */
 router.get("/guardian/provas", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
