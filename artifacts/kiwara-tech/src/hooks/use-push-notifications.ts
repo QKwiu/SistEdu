@@ -51,24 +51,36 @@ async function registerSW(): Promise<ServiceWorkerRegistration> {
   return navigator.serviceWorker.register(SW_PATH, { scope: "/" });
 }
 
-/** Envia o token FCM ao backend do portal do encarregado. */
+/**
+ * Envia o token FCM ao backend via POST /school/fcm/subscribe.
+ *
+ * Payload conforme spec:
+ *   token_fcm   — token FCM gerado pelo Firebase SDK
+ *   device_type — "web" | "mobile_android" | "mobile_ios"
+ *
+ * Espera HTTP 201 em caso de sucesso; lança erro explícito em qualquer outro caso.
+ */
 async function subscribeTokenOnBackend(
-  token: string,
+  fcmToken: string,
   authToken: string
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/guardian/fcm/subscribe`, {
+  const res = await fetch(`${API_BASE}/school/fcm/subscribe`, {
     method:  "POST",
     headers: {
-      "Content-Type":  "application/json",
-      Authorization:   `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+      Authorization:  `Bearer ${authToken}`,
     },
-    body: JSON.stringify({ token, platform: "web" }),
+    body: JSON.stringify({
+      token_fcm:   fcmToken,
+      device_type: "web",
+    }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string }).error ?? `Backend devolveu HTTP ${res.status}`
-    );
+
+  if (res.status !== 201) {
+    const body = await res.json().catch(() => ({})) as { error?: string; detalhes?: unknown };
+    const detail = body.error ?? `Backend devolveu HTTP ${res.status}`;
+    console.error("[subscribeTokenOnBackend] Erro:", detail, body.detalhes ?? "");
+    throw new Error(detail);
   }
 }
 
