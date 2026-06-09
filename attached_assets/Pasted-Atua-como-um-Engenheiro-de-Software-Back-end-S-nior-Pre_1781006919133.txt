@@ -1,0 +1,23 @@
+Atua como um Engenheiro de Software Back-end Sénior. Preciso de implementar um módulo de envio de e-mails assíncrono que suporte tanto SMTP padrão como a API do SendGrid. A configuração das credenciais deve ser totalmente dinâmica e carregada por escola (tenant) através do campo `email_sender` na base de dados.
+
+Gera a arquitetura e o código limpo seguindo estes requisitos:
+
+1. ESTRUTURA DE DADOS DE CONFIGURAÇÃO (Camada de Dados)
+Demonstra como os dados de configuração de e-mail devem estar estruturados na tabela `school_configurations` para cada escola:
+- `provider_type` (Enum: 'SMTP' ou 'SENDGRID')
+- `email_from` (String: O e-mail público que aparece como remetente)
+- `smtp_host`, `smtp_port`, `smtp_user`, `smtp_password` (Campos criptografados para o cenário SMTP)
+- `sendgrid_api_key` (Campo criptografado para o cenário SendGrid)
+
+2. FÁBRICA DE TRANSPORTE DINÂMICA (Dynamic Mailer Factory)
+- Cria uma função ou classe `MailFactory.get_transporter(school_id)` que intercepta a requisição, procura as credenciais da escola correspondente na base de dados, faz a decriptação segura das chaves em memória e instancia o cliente correto (Nodemailer para SMTP ou `@sendgrid/mail` para SendGrid).
+
+3. SERVIÇO DE ENVIO ASSÍNCRONO (Background Mailer Service)
+- Cria a função principal `send_school_email(school_id, to, subject, html_body)`.
+- Este serviço deve rodar em segundo plano (background task) para não bloquear a thread principal da API do Replit.
+- Deve carregar o transportador dinâmico da escola, injetar o `email_from` correto no cabeçalho e disparar o e-mail.
+
+4. TRATAMENTO DE ERROS E AUDITORIA
+- Captura falhas comuns (como credenciais expiradas, rejeição de SPF/DKIM do domínio da escola ou rejeição por spam) e grava o estado do envio numa tabela `email_logs` com os status: 'PENDING', 'SENT' ou 'FAILED' (juntamente com o log de erro do provedor).
+
+Gera o código de forma modular, focado em isolamento entre escolas (multi-tenancy) e ideal para rodar no ambiente do Replit.

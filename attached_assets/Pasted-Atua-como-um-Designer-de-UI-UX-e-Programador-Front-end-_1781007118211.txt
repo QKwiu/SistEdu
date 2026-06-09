@@ -1,0 +1,27 @@
+Atua como um Designer de UI/UX e Programador Front-end Sénior especialista em Transacional Email Marketing. Preciso dos templates de e-mail em HTML responsivo (com CSS inline) para todos os estados do ciclo de vida de faturação do nosso sistema de gestão escolar.
+
+Gera o código estruturado para os seguintes 4 templates obrigatórios:
+
+1. NOVA FATURA / PROPINAS EMITIDAS
+- Objetivo: Notificar o encarregado de que há um novo documento para pagamento.
+- Elementos Visuais: Card de destaque com o Valor Total (AOA), Data de Vencimento bem visível e as Referências Multicaixa / Dados de IBAN para pagamento (conforme o canal de captação definido).
+
+2. PAGAMENTO CONFIRMADO (Recibo Digital)
+- Objetivo: Confirmar a boa cobrança e a reconciliação automática com sucesso.
+- Elementos Visuais: Mensagem de sucesso (estilo verde confiável), resumo do que foi pago (ex: "Mensalidade de Março") e um botão de ação proeminente para 'Descarregar Recibo Oficial'.
+
+3. ATRASO DE PAGAMENTO (Aviso de Cobrança / Inadimplência)
+- Objetivo: Alertar o encarregado sobre faturas vencidas e a aplicação de juros de mora/multas.
+- Elementos Visuais: Tom formal mas cortês (estilo alerta amigável), detalhe do valor original vs. valor atualizado com a multa (conforme a tabela 'multa_regras') e link direto para regularização rápida.
+
+4. NOTA INFORMATIVA / COMUNICADO GERAL
+- Objetivo: Template genérico reutilizável para o envio de comunicados e circulares da direção da escola.
+- Elementos Visuais: Cabeçalho focado na marca da instituição, corpo de texto limpo com tipografia legível e rodapé institucional com contactos.
+
+Requisitos Técnicos de Engenharia de E-mail:
+- Todo o CSS deve ser estritamente inline (garantindo compatibilidade com Gmail, Outlook e Mail de iOS).
+- Utiliza tabelas HTML (<table>) para a estrutura estrutural de forma a evitar quebras de layout.
+- Deixa placeholders dinâmicos claros utilizando a sintaxe de chaves duplas para o motor de templates (ex: {{nome_encarregado}}, {{nome_escola}}, {{valor_aoa}}, {{data_vencimento}}, {{referencia_atm}}).
+- O design deve ser minimalista, elegante, corporativo e adaptável a ecrãs escuros (Dark Mode).
+
+Gera os códigos HTML completos prontos a ser injetados no nosso serviço de envio dinâmico (SMTP/SendGrid).
