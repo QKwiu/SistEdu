@@ -22,6 +22,7 @@ import { runIdempotencyMigration } from "../middlewares/idempotency";
 import emailRouter from "./email";
 import { runEmailMigration } from "../services/email.service";
 import bankRouter, { runBankMigration } from "./bank";
+import sddRouter, { runSddMigration } from "./sdd";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,7 @@ router.use(splitPayRouter);
 router.use(backupRouter);
 router.use(emailRouter);
 router.use(bankRouter);
+router.use(sddRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>
@@ -79,6 +81,9 @@ runEmailMigration().catch(err =>
 );
 runBankMigration().catch(err =>
   console.error("[bank migration]", err)
+);
+runSddMigration().catch(err =>
+  console.error("[sdd migration]", err)
 );
 
 export default router;

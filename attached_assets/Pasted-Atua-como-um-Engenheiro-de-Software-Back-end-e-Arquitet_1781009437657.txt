@@ -1,0 +1,21 @@
+Atua como um Engenheiro de Software Back-end e Arquiteto de Sistemas Financeiros Sénior. Em continuidade com o ecrã e o motor de Débitos Diretos (SDD ISO 20022 XML) já estruturados, preciso de implementar a lógica de negócio para a 'Gestão do Ciclo de Vida do Mandato' e a 'Reconciliação Automática de Lotes'.
+
+Gera o código modular e a especificação das tabelas para o Back-end seguindo estes requisitos:
+
+1. GESTÃO DO CICLO DE VIDA DO MANDATO (Automação Baseada em Tempo)
+Implementa os triggers automáticos (ex: Cron Jobs ou Workers agendados) para as 3 fases do fluxo:
+- Fase D-1 (Pré-notificação Obrigatória): 24 horas antes do envio do lote ao banco, um script deve disparar automaticamente um e-mail transacional (utilizando o template de Nova Fatura) e uma Push Notification ao encarregado, alertando-o de que o débito de X valor será efetuado na sua conta no dia seguinte.
+- Fase D+0 (Execução do Débito): No dia estipulado, o sistema altera o estado das faturas incluídas no lote de 'PENDING' para 'PROCESSING', bloqueando qualquer tentativa de pagamento duplicado por outros canais.
+- Retorno de Falha: Define a máquina de estados para atualizar o mandato do cliente para 'SUSPENDED' caso ocorram 3 falhas consecutivas de liquidação por saldo insuficiente.
+
+2. RECONCILIAÇÃO AUTOMÁTICA DE RETORNOS (Processamento de Ficheiros pain.002)
+Cria o serviço de processamento e parsing para os ficheiros de resposta enviados pelo banco parceiro:
+- Endpoint/Worker de Escuta: `POST /api/v1/sdd/process-bank-return`. Este serviço deve ler e processar o ficheiro XML de resposta do banco (padrão ISO 20022 `pain.002.001.03` ou formato de extrato equivalente).
+- Lógica de Cruzamento (Matching): O script deve percorrer o ficheiro, extrair o ID único da transação original (`EndToEndId`) e cruzar com o registo correspondente na nossa tabela `invoice_items`.
+
+3. REGRAS DE ATUALIZAÇÃO DO LEDGER (Confirmados vs. Rejeitados)
+O motor de reconciliação deve aplicar estritamente as seguintes regras de negócio ao ler o retorno:
+- Se Confirmado (Sucesso): Altera o status da fatura para 'PAID', regista a entrada no livro de receitas do colégio, gera o Recibo Digital e dispara o e-mail de 'Pagamento Confirmado' ao encarregado.
+- Se Rejeitado (Falha): Identifica o motivo bancário através do código de erro (ex: 'MS03' - Saldo Insuficiente, 'AC04' - Conta Encerrada). Altera o status da fatura de volta para 'OVERDUE', aplica a respetiva multa de mora parametrizada e dispara o e-mail de 'Atraso de Pagamento'.
+
+Gera o código de forma limpa, idempotente (para garantir que processar o mesmo ficheiro duas vezes não duplica os lançamentos) e com logs detalhados de auditoria para o ambiente do Replit.

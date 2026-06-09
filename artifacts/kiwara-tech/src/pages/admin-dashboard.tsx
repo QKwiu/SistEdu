@@ -3689,7 +3689,7 @@ function SectionCard({ title, icon, children, onSave, saving, saved }: {
 }
 
 function SettingsView({ schoolId }: { schoolId: number }) {
-  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico"|"banco";
+  type STab = "financeiro"|"pagamento"|"academico"|"encarregados"|"comunicacao"|"dashboard"|"permissoes"|"tecnico"|"banco"|"sdd";
   const STABS: { id: STab; label: string; icon: React.ReactNode }[] = [
     { id: "financeiro",   label: "Financeiro",    icon: <Banknote className="w-4 h-4"/> },
     { id: "pagamento",    label: "Pagamento",     icon: <CreditCard className="w-4 h-4"/> },
@@ -3700,6 +3700,7 @@ function SettingsView({ schoolId }: { schoolId: number }) {
     { id: "permissoes",   label: "Permissões",    icon: <Lock className="w-4 h-4"/> },
     { id: "tecnico",      label: "Técnico",       icon: <Globe className="w-4 h-4"/> },
     { id: "banco",        label: "Banco",         icon: <Landmark className="w-4 h-4"/> },
+    { id: "sdd",          label: "ISO 20022 SDD", icon: <FileText className="w-4 h-4"/> },
   ];
 
   const [tab, setTab] = useState<STab>("financeiro");
@@ -4096,6 +4097,11 @@ function SettingsView({ schoolId }: { schoolId: number }) {
       {/* ── BANCO ── */}
       {tab === "banco" && (
         <BancoIntegracaoPanel schoolId={schoolId} />
+      )}
+
+      {/* ── ISO 20022 SDD ── */}
+      {tab === "sdd" && (
+        <SddIso20022Panel schoolId={schoolId} />
       )}
     </div>
   );
@@ -4555,6 +4561,681 @@ function BancoIntegracaoPanel({ schoolId }: { schoolId: number }) {
           {saved ? "Guardado!" : "Guardar Configuração"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SddIso20022Panel — Geração e Submissão de Ficheiros ISO 20022
+   SDD pain.008.001.02 em Lote (Admin)
+══════════════════════════════════════════════════════════════════ */
+function SddIso20022Panel({ schoolId }: { schoolId: number }) {
+  type SddTab = "emissor" | "lotes" | "diagnostico";
+
+  /* ── navegação interna ── */
+  const [tab, setTab] = useState<SddTab>("emissor");
+
+  /* ── Aba 1: configuração do emissor ── */
+  const [cfg, setCfg] = useState({
+    creditor_id:      "",
+    creditor_name:    "",
+    creditor_iban:    "",
+    creditor_bic:     "",
+    sequence_type:    "RCUR" as "FRST" | "RCUR" | "FNAL" | "OOFF",
+    sftp_host:        "",
+    sftp_port:        22,
+    sftp_user:        "",
+    sftp_outbox_path: "/outbox",
+    sftp_inbox_path:  "/inbox",
+    sftp_password:    "",
+    ssh_private_key:  "",
+  });
+  const [cfgLoading, setCfgLoading] = useState(true);
+  const [cfgSaving,  setCfgSaving]  = useState(false);
+  const [cfgSaved,   setCfgSaved]   = useState(false);
+  const [cfgError,   setCfgError]   = useState("");
+
+  /* ── Aba 2: lotes ── */
+  const [batches,        setBatches]        = useState<any[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  const [collDate,       setCollDate]       = useState(() => {
+    const t = new Date(); t.setDate(t.getDate() + 3);
+    return t.toISOString().slice(0, 10);
+  });
+  const [generating, setGenerating] = useState(false);
+  const [genResult,  setGenResult]  = useState<any>(null);
+  const [genError,   setGenError]   = useState("");
+  const [submitting, setSubmitting] = useState<number | null>(null);
+  const [submitMsg,  setSubmitMsg]  = useState<{ id: number; ok: boolean; msg: string } | null>(null);
+
+  /* ── Aba 3: diagnóstico ── */
+  const [testing,    setTesting]    = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+
+  /* ── inp style ── */
+  const inp = "border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full";
+
+  /* ── Carregar configuração ── */
+  useEffect(() => {
+    if (tab !== "emissor" && tab !== "diagnostico") return;
+    setCfgLoading(true); setCfgError("");
+    api(`/admin/colegios/${schoolId}/sdd-config`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.config) setCfg(prev => ({ ...prev, ...d.config }));
+      })
+      .catch(() => setCfgError("Erro ao carregar configuração."))
+      .finally(() => setCfgLoading(false));
+  }, [schoolId, tab]);
+
+  /* ── Carregar lotes ── */
+  const loadBatches = useCallback(async () => {
+    setBatchesLoading(true);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/sdd/batches`);
+      const d = await r.json();
+      if (r.ok) setBatches(d.batches ?? []);
+    } finally { setBatchesLoading(false); }
+  }, [schoolId]);
+
+  useEffect(() => {
+    if (tab === "lotes") loadBatches();
+  }, [tab, loadBatches]);
+
+  /* ── Guardar configuração do emissor ── */
+  const saveCfg = async () => {
+    setCfgSaving(true); setCfgError(""); setCfgSaved(false);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/sdd-config`, {
+        method: "PUT", body: JSON.stringify(cfg),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao guardar.");
+      setCfgSaved(true); setTimeout(() => setCfgSaved(false), 3000);
+    } catch (e: any) { setCfgError(e.message); }
+    finally { setCfgSaving(false); }
+  };
+
+  /* ── Gerar lote XML ── */
+  const generateBatch = async () => {
+    setGenerating(true); setGenError(""); setGenResult(null);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/sdd/generate-batch`, {
+        method: "POST", body: JSON.stringify({ collection_date: collDate }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao gerar lote.");
+      setGenResult(d);
+      await loadBatches();
+    } catch (e: any) { setGenError(e.message); }
+    finally { setGenerating(false); }
+  };
+
+  /* ── Download XML ── */
+  const downloadXml = (batchId: number, batchRef: string) => {
+    const token = typeof window !== "undefined"
+      ? localStorage.getItem("admin_token") ?? ""
+      : "";
+    const url = `${(window as any).__API_BASE__ ?? ""}/api/v1/admin/colegios/${schoolId}/sdd/batches/${batchId}/download`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.setAttribute("data-auth", token);
+    /* Abrir com Authorization Header via fetch e blob */
+    api(`/admin/colegios/${schoolId}/sdd/batches/${batchId}/download`)
+      .then(r => r.blob())
+      .then(blob => {
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = href; link.download = `${batchRef}.xml`;
+        document.body.appendChild(link); link.click();
+        document.body.removeChild(link); URL.revokeObjectURL(href);
+      });
+    void a;
+  };
+
+  /* ── Submeter ao banco via SFTP ── */
+  const submitBatch = async (batchId: number) => {
+    setSubmitting(batchId); setSubmitMsg(null);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/sdd/batches/${batchId}/submit`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro na submissão.");
+      setSubmitMsg({ id: batchId, ok: true, msg: d.mensagem ?? "Submetido." });
+      await loadBatches();
+    } catch (e: any) {
+      setSubmitMsg({ id: batchId, ok: false, msg: e.message });
+    } finally { setSubmitting(null); }
+  };
+
+  /* ── Testar ligação SFTP ── */
+  const testConnection = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const r = await api(`/admin/colegios/${schoolId}/sdd/test-connection`, { method: "POST" });
+      const d = await r.json();
+      setTestResult(d);
+    } catch (e: any) {
+      setTestResult({ success: false, erro: e.message });
+    } finally { setTesting(false); }
+  };
+
+  /* ── badge status do lote ── */
+  const StatusBadge = ({ status }: { status: string }) => {
+    const map: Record<string, { bg: string; text: string; label: string }> = {
+      DRAFT:      { bg: "bg-slate-100",  text: "text-slate-600",  label: "Rascunho"  },
+      SUBMITTED:  { bg: "bg-blue-100",   text: "text-blue-700",   label: "Submetido" },
+      PROCESSED:  { bg: "bg-emerald-100",text: "text-emerald-700",label: "Processado"},
+      ERROR:      { bg: "bg-red-100",    text: "text-red-700",    label: "Erro"      },
+    };
+    const s = map[status] ?? { bg: "bg-slate-100", text: "text-slate-600", label: status };
+    return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${s.bg} ${s.text}`}>{s.label}</span>;
+  };
+
+  /* ── sub-tab bar ── */
+  const TABS: { id: SddTab; label: string; icon: React.ReactNode }[] = [
+    { id: "emissor",     label: "Parâmetros do Emissor",  icon: <KeyRound className="w-3.5 h-3.5"/> },
+    { id: "lotes",       label: "Processamento do Lote",  icon: <Layers className="w-3.5 h-3.5"/> },
+    { id: "diagnostico", label: "Testes de Conexão",      icon: <FlaskConical className="w-3.5 h-3.5"/> },
+  ];
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Cabeçalho ── */}
+      <div className="flex items-start gap-3 bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-100 rounded-2xl p-4">
+        <div className="w-9 h-9 bg-violet-600 rounded-xl flex items-center justify-center shrink-0">
+          <FileText className="w-5 h-5 text-white"/>
+        </div>
+        <div>
+          <h3 className="font-bold text-slate-900 text-sm">ISO 20022 SDD — pain.008.001.02</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Geração e submissão de ficheiros de débito directo em lote para o banco parceiro via SFTP seguro.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Navegação por sub-tabs ── */}
+      <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+              tab === t.id
+                ? "bg-white text-violet-700 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}>
+            {t.icon}{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ════════════════════════════════════════════
+          ABA 1 — PARÂMETROS DO EMISSOR
+      ════════════════════════════════════════════ */}
+      {tab === "emissor" && (
+        <div className="space-y-5">
+          {cfgLoading ? (
+            <div className="flex justify-center py-10">
+              <RefreshCw className="w-6 h-6 text-slate-400 animate-spin"/>
+            </div>
+          ) : (
+            <>
+              {/* Identificação do credor */}
+              <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                  <Landmark className="w-4 h-4 text-violet-600"/>
+                  <span className="text-sm font-semibold text-slate-800">Identificação do Credor</span>
+                </div>
+                <div className="px-5 py-4 space-y-4">
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                        Identificador do Credor (ID Escola no Banco) *
+                      </label>
+                      <input className={inp} placeholder="ex: AO00ZZZ000000001" maxLength={35}
+                        value={cfg.creditor_id} onChange={e => setCfg(p => ({ ...p, creditor_id: e.target.value }))}/>
+                      <p className="text-xs text-slate-400 mt-1">Código atribuído pelo banco ao abrigo do contrato SDD.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Nome do Credor *</label>
+                      <input className={inp} placeholder="Nome da Escola" maxLength={70}
+                        value={cfg.creditor_name} onChange={e => setCfg(p => ({ ...p, creditor_name: e.target.value }))}/>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">IBAN da Conta de Liquidação *</label>
+                      <input className={inp} placeholder="AO0600000000000000000000000" maxLength={35}
+                        value={cfg.creditor_iban} onChange={e => setCfg(p => ({ ...p, creditor_iban: e.target.value.toUpperCase().replace(/\s/g,"") }))}/>
+                      <p className="text-xs text-slate-400 mt-1">Angola: AO06 + 21 dígitos numéricos.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">BIC/SWIFT da Instituição *</label>
+                      <input className={inp} placeholder="ex: BFAOAOLUXXXX" maxLength={11}
+                        value={cfg.creditor_bic} onChange={e => setCfg(p => ({ ...p, creditor_bic: e.target.value.toUpperCase() }))}/>
+                      <p className="text-xs text-slate-400 mt-1">4 letras banco + 2 país + 2 localização (+ 3 branch).</p>
+                    </div>
+                  </div>
+
+                  <div className="max-w-xs">
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Tipo de Sequência Padrão</label>
+                    <select className={inp}
+                      value={cfg.sequence_type}
+                      onChange={e => setCfg(p => ({ ...p, sequence_type: e.target.value as typeof cfg.sequence_type }))}>
+                      <option value="FRST">FRST — Primeiro débito do mandato</option>
+                      <option value="RCUR">RCUR — Débito recorrente (propinas mensais)</option>
+                      <option value="FNAL">FNAL — Último débito do mandato</option>
+                      <option value="OOFF">OOFF — Débito único (one-off)</option>
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">Utilizado como fallback quando o sistema não determina a sequência automaticamente.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Credenciais SFTP */}
+              <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                  <Server className="w-4 h-4 text-violet-600"/>
+                  <span className="text-sm font-semibold text-slate-800">Canal de Envio — SFTP Seguro</span>
+                  <span className="ml-auto text-xs text-slate-400">Credenciais cifradas com AES-256-GCM</span>
+                </div>
+                <div className="px-5 py-4 space-y-4">
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Host SFTP</label>
+                      <input className={inp} placeholder="sftp.banco-parceiro.ao" maxLength={255}
+                        value={cfg.sftp_host} onChange={e => setCfg(p => ({ ...p, sftp_host: e.target.value }))}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Porta</label>
+                      <input className={inp} type="number" min={1} max={65535}
+                        value={cfg.sftp_port} onChange={e => setCfg(p => ({ ...p, sftp_port: Number(e.target.value) }))}/>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">Utilizador SFTP</label>
+                    <input className={inp} placeholder="kiwara_escola_user" maxLength={100}
+                      value={cfg.sftp_user} onChange={e => setCfg(p => ({ ...p, sftp_user: e.target.value }))}/>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Directório de Envio (Outbox)</label>
+                      <input className={inp} placeholder="/outbox" maxLength={255}
+                        value={cfg.sftp_outbox_path} onChange={e => setCfg(p => ({ ...p, sftp_outbox_path: e.target.value }))}/>
+                      <p className="text-xs text-slate-400 mt-1">Onde os ficheiros pain.008 serão colocados.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1.5">Directório de Recepção (Inbox)</label>
+                      <input className={inp} placeholder="/inbox" maxLength={255}
+                        value={cfg.sftp_inbox_path} onChange={e => setCfg(p => ({ ...p, sftp_inbox_path: e.target.value }))}/>
+                      <p className="text-xs text-slate-400 mt-1">Onde o banco deposita ficheiros pain.002 de resultado.</p>
+                    </div>
+                  </div>
+
+                  {/* Autenticação — separador visual */}
+                  <div className="border-t border-slate-100 pt-4">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Autenticação</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1.5">Password SFTP</label>
+                        <input className={inp} type="password" placeholder="••••••••"
+                          value={cfg.sftp_password} onChange={e => setCfg(p => ({ ...p, sftp_password: e.target.value }))}/>
+                        <p className="text-xs text-slate-400 mt-1">Deixar em branco para manter a palavra-passe guardada.</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1.5">Chave SSH Privada (PEM)</label>
+                        <textarea
+                          className={`${inp} h-20 font-mono text-xs resize-none`}
+                          placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}
+                          value={cfg.ssh_private_key}
+                          onChange={e => setCfg(p => ({ ...p, ssh_private_key: e.target.value }))}/>
+                        <p className="text-xs text-slate-400 mt-1">Alternativa à password. Se preenchido, tem prioridade.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {cfgError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0"/>
+                  <p className="text-red-700 text-sm">{cfgError}</p>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button onClick={saveCfg} disabled={cfgSaving}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 transition-colors">
+                  {cfgSaving ? <RefreshCw className="w-4 h-4 animate-spin"/> : cfgSaved ? <CheckCircle2 className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+                  {cfgSaved ? "Configuração Guardada!" : "Guardar Configuração SDD"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════
+          ABA 2 — PROCESSAMENTO DO LOTE
+      ════════════════════════════════════════════ */}
+      {tab === "lotes" && (
+        <div className="space-y-5">
+
+          {/* Gerar novo lote */}
+          <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-violet-600"/>
+              <span className="text-sm font-semibold text-slate-800">Gerar Ficheiro XML ISO 20022</span>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div className="flex items-end gap-4">
+                <div className="flex-1 max-w-xs">
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Data de Débito (Dia Útil)</label>
+                  <input type="date" className={inp} value={collDate}
+                    onChange={e => setCollDate(e.target.value)}/>
+                  <p className="text-xs text-slate-400 mt-1">
+                    A data deve ser um dia útil angolano e ter pelo menos 3 dias de antecedência (FRST: 5 dias).
+                  </p>
+                </div>
+                <button onClick={generateBatch} disabled={generating}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 transition-colors whitespace-nowrap">
+                  {generating ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4"/>}
+                  Gerar Ficheiro XML ISO 20022
+                </button>
+              </div>
+
+              {genError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0"/>
+                  <p className="text-red-700 text-sm">{genError}</p>
+                </div>
+              )}
+
+              {genResult && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600"/>
+                    <p className="font-semibold text-emerald-800 text-sm">
+                      Lote {genResult.batch_ref} gerado com sucesso!
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mt-2">
+                    {[
+                      { label: "Transacções",  value: genResult.total_records },
+                      { label: "Total (AOA)",   value: Number(genResult.total_amount).toLocaleString("pt-AO", { minimumFractionDigits: 2 }) },
+                      { label: "Avisos",        value: genResult.validation_errors?.length ?? 0 },
+                    ].map(c => (
+                      <div key={c.label} className="bg-white rounded-lg p-3 text-center">
+                        <p className="text-lg font-bold text-slate-800">{c.value}</p>
+                        <p className="text-xs text-slate-500">{c.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {genResult.validation_errors?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs font-semibold text-amber-700 mb-1">Instruções excluídas por erro de validação:</p>
+                      <ul className="text-xs text-amber-600 space-y-0.5 pl-4 list-disc">
+                        {genResult.validation_errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Lista de lotes */}
+          <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-violet-600"/>
+                <span className="text-sm font-semibold text-slate-800">Histórico de Lotes</span>
+                <span className="ml-1 bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full">{batches.length}</span>
+              </div>
+              <button onClick={loadBatches} disabled={batchesLoading}
+                className="text-slate-400 hover:text-slate-600 transition-colors">
+                <RefreshCw className={`w-4 h-4 ${batchesLoading ? "animate-spin" : ""}`}/>
+              </button>
+            </div>
+
+            {submitMsg && (
+              <div className={`mx-5 mt-4 flex items-center gap-2 rounded-xl p-3 ${submitMsg.ok ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}>
+                {submitMsg.ok
+                  ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0"/>
+                  : <AlertCircle className="w-4 h-4 text-red-500 shrink-0"/>}
+                <p className={`text-sm ${submitMsg.ok ? "text-emerald-700" : "text-red-700"}`}>{submitMsg.msg}</p>
+              </div>
+            )}
+
+            {batchesLoading ? (
+              <div className="flex justify-center py-10">
+                <RefreshCw className="w-5 h-5 text-slate-400 animate-spin"/>
+              </div>
+            ) : batches.length === 0 ? (
+              <div className="py-10 text-center">
+                <FileText className="w-10 h-10 text-slate-200 mx-auto mb-3"/>
+                <p className="text-slate-400 text-sm">Nenhum lote gerado ainda.</p>
+                <p className="text-slate-400 text-xs mt-1">Utilize o formulário acima para gerar o primeiro ficheiro XML.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      {["Referência", "Data", "Transacções", "Total (AOA)", "Estado", "Ações"].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {batches.map(b => (
+                      <tr key={b.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs text-violet-700 bg-violet-50 px-2 py-0.5 rounded">{b.batch_ref}</span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                          {new Date(b.created_at).toLocaleDateString("pt-AO", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" })}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="font-semibold text-slate-800">{b.total_records}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-slate-800 whitespace-nowrap">
+                          {Number(b.total_amount).toLocaleString("pt-AO", { minimumFractionDigits: 2 })} AOA
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={b.status}/>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {/* Download XML */}
+                            <button
+                              onClick={() => downloadXml(b.id, b.batch_ref)}
+                              title="Descarregar XML pain.008"
+                              className="flex items-center gap-1 px-2 py-1.5 text-xs text-violet-700 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors font-medium">
+                              <Download className="w-3 h-3"/>XML
+                            </button>
+                            {/* Submeter ao banco */}
+                            {b.status === "DRAFT" && (
+                              <button
+                                onClick={() => submitBatch(b.id)}
+                                disabled={submitting === b.id}
+                                title="Submeter ao banco via SFTP"
+                                className="flex items-center gap-1 px-2 py-1.5 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors font-medium disabled:opacity-60">
+                                {submitting === b.id
+                                  ? <RefreshCw className="w-3 h-3 animate-spin"/>
+                                  : <Upload className="w-3 h-3"/>}
+                                Submeter ao Banco
+                              </button>
+                            )}
+                            {b.status === "SUBMITTED" && (
+                              <span className="text-xs text-blue-600 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3"/>
+                                {b.submitted_at ? new Date(b.submitted_at).toLocaleDateString("pt-AO", { day:"2-digit", month:"short" }) : "Submetido"}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════
+          ABA 3 — DIAGNÓSTICO E TESTES
+      ════════════════════════════════════════════ */}
+      {tab === "diagnostico" && (
+        <div className="space-y-5">
+
+          {/* Painel de informação da configuração */}
+          {!cfgLoading && cfg.sftp_host && (
+            <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                <Network className="w-4 h-4 text-violet-600"/>
+                <span className="text-sm font-semibold text-slate-800">Configuração SFTP Activa</span>
+              </div>
+              <div className="px-5 py-4 grid grid-cols-2 gap-3 text-sm">
+                {[
+                  { label: "Host",     value: cfg.sftp_host },
+                  { label: "Porta",    value: String(cfg.sftp_port) },
+                  { label: "Utilizador", value: cfg.sftp_user || "—" },
+                  { label: "Outbox",   value: cfg.sftp_outbox_path },
+                  { label: "Inbox",    value: cfg.sftp_inbox_path },
+                  { label: "Auth",     value: cfg.ssh_private_key ? "Chave SSH" : "Password" },
+                ].map(r => (
+                  <div key={r.label} className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 w-20 shrink-0">{r.label}:</span>
+                    <span className="font-mono text-xs text-slate-700 truncate">{r.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {cfgLoading && (
+            <div className="flex justify-center py-10">
+              <RefreshCw className="w-6 h-6 text-slate-400 animate-spin"/>
+            </div>
+          )}
+
+          {!cfgLoading && !cfg.sftp_host && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5"/>
+              <div>
+                <p className="font-semibold text-amber-900 text-sm">Host SFTP não configurado</p>
+                <p className="text-amber-700 text-xs mt-0.5">Configure os parâmetros do emissor na aba <strong>Parâmetros do Emissor</strong> antes de testar.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Botão de teste */}
+          <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+              <FlaskConical className="w-4 h-4 text-violet-600"/>
+              <span className="text-sm font-semibold text-slate-800">Teste de Ligação Bancária</span>
+            </div>
+            <div className="px-5 py-5 space-y-4">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Autentica-se no servidor SFTP do banco parceiro, verifica as directorias de envio (outbox)
+                e recepção (inbox) de ficheiros de retorno pain.002, e devolve o resultado em tempo real.
+              </p>
+
+              <button onClick={testConnection} disabled={testing || !cfg.sftp_host}
+                className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 transition-colors">
+                {testing ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wifi className="w-4 h-4"/>}
+                Testar Conexão Bancária
+              </button>
+
+              {testResult && (
+                <div className={`rounded-2xl border p-4 space-y-3 ${
+                  testResult.success
+                    ? "bg-emerald-50 border-emerald-200"
+                    : "bg-red-50 border-red-200"
+                }`}>
+                  {/* Header resultado */}
+                  <div className="flex items-center gap-2">
+                    {testResult.success
+                      ? <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0"/>
+                      : <AlertCircle className="w-5 h-5 text-red-500 shrink-0"/>}
+                    <p className={`font-semibold text-sm ${testResult.success ? "text-emerald-800" : "text-red-800"}`}>
+                      {testResult.success ? testResult.mensagem : (testResult.erro ?? testResult.error)}
+                    </p>
+                  </div>
+
+                  {testResult.success && (
+                    <>
+                      {/* Latência */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500">Latência:</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          testResult.latencia_ms < 500
+                            ? "bg-emerald-100 text-emerald-700"
+                            : testResult.latencia_ms < 1500
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-red-100 text-red-700"
+                        }`}>{testResult.latencia_ms} ms</span>
+                      </div>
+
+                      {/* Directorias */}
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { label: "Outbox (envio pain.008)",   ok: testResult.outbox_ok },
+                          { label: "Inbox (recepção pain.002)", ok: testResult.inbox_ok  },
+                        ].map(d => (
+                          <div key={d.label} className={`flex items-center gap-2 p-3 rounded-xl ${d.ok ? "bg-emerald-100" : "bg-amber-100"}`}>
+                            {d.ok
+                              ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0"/>
+                              : <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0"/>}
+                            <div>
+                              <p className={`text-xs font-semibold ${d.ok ? "text-emerald-800" : "text-amber-800"}`}>
+                                {d.ok ? "Acessível" : "Não encontrado"}
+                              </p>
+                              <p className="text-xs text-slate-500">{d.label}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {testResult.warnings?.length > 0 && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                          <p className="text-xs font-semibold text-amber-700 mb-1">Avisos:</p>
+                          <ul className="text-xs text-amber-600 space-y-0.5 pl-3 list-disc">
+                            {testResult.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {!testResult.success && testResult.hint && (
+                    <p className="text-xs text-red-600 bg-red-100 rounded-lg px-3 py-2">
+                      <strong>Dica:</strong> {testResult.hint}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Informação sobre pain.002 */}
+          <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+            <p className="text-xs font-semibold text-slate-600 mb-2">Sobre os ficheiros de retorno pain.002</p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Após o banco processar o lote, deposita um ficheiro <code className="bg-white border border-slate-200 rounded px-1 text-violet-700">pain.002.001.03</code> no directório
+              inbox. Este ficheiro contém o resultado de cada transacção (ACSC — Aceite, RJCT — Rejeitada, RTRN — Devolvida).
+              O sistema processa automaticamente este ficheiro ao detectá-lo via polling e reconcilia as instruções de débito directo correspondentes.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

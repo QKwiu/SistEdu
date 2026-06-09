@@ -1,0 +1,24 @@
+Atua como um Engenheiro de Software Back-end e Front-end Sénior especialista em Sistemas de Pagamentos Bancários. Preciso de implementar uma nova ecrã no Perfil Admin, dentro do menu 'Configurações Técnicas', dedicada à 'Geração e Submissão de Ficheiros ISO 20022 XML para Débitos Diretos (SDD) em Lote'.
+
+Gera o código estruturado para o Front-end (React/Vite) e a lógica de processamento Back-end seguindo estes requisitos:
+
+1. CONFIGURAÇÃO DO FICHEIRO (Ecrã - Aba 1: Parâmetros do Emissor)
+Cria o formulário na UI e o modelo de dados para configurar os cabeçalhos obrigatórios do XML ISO 20022:
+- Identificador do Credor (Creditor Identifier / ID da Escola no Banco).
+- Nome do Credor, IBAN e respetivo código BIC/SWIFT da conta de liquidação.
+- Tipo de Sequência do Débito: Enum ('FRST' - Primeiro, 'RCUR' - Recorrente, 'FNAL' - Último).
+- Credenciais do Canal de Envio: Inputs para o servidor SFTP seguro do banco parceiro (Host, Porta, Utilizador, Chave SSH Privada) ou chaves da API de automação bancária.
+
+2. GERAÇÃO E SUBMISSÃO (Ecrã - Aba 2: Processamento do Lote)
+- Front-end: Desenha uma tabela que liste os lotes de propinas emitidos (Mês Corrente, Quantidade de Alunos, Valor Total em AOA) com um botão proeminente 'Gerar Ficheiro XML ISO 20022'.
+- Back-end: Cria o endpoint `POST /api/v1/sdd/generate-batch`. Este endpoint deve consultar as faturas pendentes dos encarregados que assinaram o mandato de débito direto, validar os IBANs dos clientes e gerar o ficheiro XML estritamente no padrão transacional 'pain.008.001.02'.
+- Fluxo de Envio: Após a geração, disponibiliza um botão 'Submeter ao Banco' que faz o upload automático do ficheiro XML para a diretoria correspondente no SFTP do banco parceiro e altera o status do lote para 'SUBMITTED'.
+
+3. DIAGNÓSTICO E TESTES (Ecrã - Aba 3: Testes de Conexão)
+- Adiciona um botão 'Testar Conexão Bancária'. Ao ser clicado, o back-end deve tentar autenticar-se no servidor SFTP do banco (ou fazer um ping à API bancária), validar se as diretorias de envio e receção de ficheiros de retorno (pain.002) estão acessíveis, e devolver o status 'Sucesso' ou o log de erro exato da ligação em tempo real.
+
+4. REGRAS DE INTEGRIDADE E SEGURANÇA
+- O código do back-end deve validar sintaticamente o XML contra o esquema XSD do ISO 20022 antes de o gravar, rejeitando o lote se existirem carateres especiais inválidos ou IBANs malformados.
+- Encripta todas as credenciais do SFTP/Banco no banco de dados utilizando criptografia simétrica (AES-256-GCM).
+
+Gera o código de forma totalmente modular, limpa e altamente comentada, ideal para o ecossistema do Replit.
