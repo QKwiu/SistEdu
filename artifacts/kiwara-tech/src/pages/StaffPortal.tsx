@@ -5,10 +5,12 @@ import {
   RefreshCw, Clock, AlertCircle, Upload, FileCheck, Building2,
   User, Shield, ChevronDown, Filter, KeyRound,
 } from "lucide-react";
+import {
+  getStaffToken, setStaffToken, clearStaffToken,
+  STAFF_SESSION_KEY,
+} from "@/lib/auth";
 
 const API = "/api";
-const STAFF_TOKEN_KEY = "kiwara_staff_token";
-const STAFF_SESSION_KEY = "kiwara_staff_session";
 
 interface StaffSession {
   id: number;
@@ -188,7 +190,7 @@ function printBaixaManualReceipt(
    MAIN COMPONENT
 ══════════════════════════════════════════ */
 export default function StaffPortal() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STAFF_TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => getStaffToken() || null);
   const [session, setSession] = useState<StaffSession | null>(() => {
     try {
       const raw = localStorage.getItem(STAFF_SESSION_KEY);
@@ -197,21 +199,21 @@ export default function StaffPortal() {
   });
 
   const handleLogin = (s: StaffSession, t: string) => {
-    localStorage.setItem(STAFF_TOKEN_KEY, t);
+    setStaffToken(t);
     localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(s));
     setToken(t);
     setSession(s);
   };
 
   const handleLogout = useCallback(async () => {
-    const t = localStorage.getItem(STAFF_TOKEN_KEY);
+    const t = getStaffToken();
     if (t) {
       fetch(`${API}/school/rbac/staff/logout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${t}` },
       }).catch(() => {});
     }
-    localStorage.removeItem(STAFF_TOKEN_KEY);
+    clearStaffToken();
     localStorage.removeItem(STAFF_SESSION_KEY);
     setToken(null);
     setSession(null);

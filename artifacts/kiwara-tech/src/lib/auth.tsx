@@ -79,6 +79,37 @@ export function clearAdminToken(): void {
   localStorage.removeItem(ADMIN_TOKEN_KEY);
 }
 
+/* ─── Staff token helpers ─── */
+export const STAFF_TOKEN_KEY = "kiwara_staff_token";
+export const STAFF_SESSION_KEY = "kiwara_staff_session";
+
+export function getStaffToken(): string {
+  return localStorage.getItem(STAFF_TOKEN_KEY) ?? "";
+}
+
+export function setStaffToken(token: string): void {
+  localStorage.setItem(STAFF_TOKEN_KEY, token);
+}
+
+export function clearStaffToken(): void {
+  localStorage.removeItem(STAFF_TOKEN_KEY);
+}
+
+/* ─── Guardian token helpers ─── */
+export const GUARDIAN_TOKEN_KEY = "kiwara_guardian_token";
+
+export function getGuardianToken(): string {
+  return localStorage.getItem(GUARDIAN_TOKEN_KEY) ?? "";
+}
+
+export function setGuardianToken(token: string): void {
+  localStorage.setItem(GUARDIAN_TOKEN_KEY, token);
+}
+
+export function clearGuardianToken(): void {
+  localStorage.removeItem(GUARDIAN_TOKEN_KEY);
+}
+
 export function generateSchoolId(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let id = "SCH-";

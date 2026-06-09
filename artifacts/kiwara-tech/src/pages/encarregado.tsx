@@ -13,9 +13,9 @@ import {
   UtensilsCrossed, Image as ImageIcon, Play, Soup,
 } from "lucide-react";
 import { fmtCurrency, fmtDate as fmtShort, fmtDateLong as fmtDate } from "@/lib/format";
+import { getGuardianToken, setGuardianToken, clearGuardianToken } from "@/lib/auth";
 
 const API = "/api";
-const SESSION_KEY = "kiwara_guardian_token";
 
 /* ── Calendar cache (localStorage, 7-day TTL) ────────────────── */
 function calCache<T>(key: string): T | null {
@@ -1448,7 +1448,7 @@ function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) =>
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar sessão.");
-      localStorage.setItem(SESSION_KEY, data.token);
+      setGuardianToken(data.token);
       onSuccess(data.token, { ...data.guardian, first_login: data.first_login });
     } catch(err: any) { setError(err.message); }
     finally { setLoading(false); }
@@ -3403,7 +3403,7 @@ export default function EncarregadoPortal() {
   const [guardian, setGuardian] = useState<Guardian|null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(SESSION_KEY);
+    const saved = getGuardianToken();
     if (!saved) return;
     fetch(`${API}/guardian/me`, { headers:{ Authorization:`Bearer ${saved}` } })
       .then(r => r.ok ? r.json() : Promise.reject())
@@ -3412,11 +3412,11 @@ export default function EncarregadoPortal() {
         setGuardian(data);
         setScreen(data.first_login ? "change-password" : "dashboard");
       })
-      .catch(() => localStorage.removeItem(SESSION_KEY));
+      .catch(() => clearGuardianToken());
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem(SESSION_KEY);
+    clearGuardianToken();
     setToken(null); setGuardian(null); setScreen("login");
   };
 
