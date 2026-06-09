@@ -8595,7 +8595,7 @@ function AdminRBACView() {
 ════════════════════════════════════════════════════════════════ */
 
 type EmisSection = "gpo" | "mcx" | "debito_direto" | "split_payment";
-type ConfigTab = EmisSection | "sdd_iso20022";
+type ConfigTab = EmisSection | "sdd_iso20022" | "sdd_regras";
 
 interface ConnResult { ok: boolean; status?: number; message: string; latency_ms?: number }
 
@@ -8696,6 +8696,384 @@ interface EmisConfigState {
   mcx: Record<string, unknown>;
   debito_direto: DDConfig;
   split_payment: SystemParams;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SddMotorRegrasPanel — Regras do Motor de Pagamentos SDD
+════════════════════════════════════════════════════════════════ */
+interface SddRejeicaoCodigo {
+  code: string; descricao: string;
+  acao: "OVERDUE_MULTA" | "OVERDUE" | "SUSPENDER" | "CANCELAR";
+}
+interface SddEngineRules {
+  prenotif_activo: boolean; prenotif_horas_antes: number;
+  prenotif_email: boolean; prenotif_sms: boolean; prenotif_push: boolean;
+  exec_auto_transicao: boolean; exec_bloquear_canais: boolean;
+  falha_max_consecutivas: number; falha_suspender: boolean; falha_reativar_manual: boolean;
+  recon_auto_processar: boolean; recon_idempotency_horas: number;
+  sucesso_marcar_pago: boolean; sucesso_gerar_recibo: boolean; sucesso_email_confirmacao: boolean;
+  falha_marcar_vencido: boolean; falha_aplicar_multa: boolean; falha_email_aviso: boolean;
+  codigos_rejeicao: SddRejeicaoCodigo[];
+}
+
+const ACAO_LABELS: Record<string, string> = {
+  OVERDUE_MULTA: "Vencido + Multa",
+  OVERDUE:       "Marcar Vencido",
+  SUSPENDER:     "Suspender Mandato",
+  CANCELAR:      "Cancelar Mandato",
+};
+const ACAO_CLASSES: Record<string, string> = {
+  OVERDUE_MULTA: "bg-red-100 text-red-700",
+  OVERDUE:       "bg-amber-100 text-amber-700",
+  SUSPENDER:     "bg-orange-100 text-orange-700",
+  CANCELAR:      "bg-rose-100 text-rose-800",
+};
+const DEFAULT_SDD_RULES: SddEngineRules = {
+  prenotif_activo: true, prenotif_horas_antes: 24,
+  prenotif_email: true, prenotif_sms: false, prenotif_push: true,
+  exec_auto_transicao: true, exec_bloquear_canais: true,
+  falha_max_consecutivas: 3, falha_suspender: true, falha_reativar_manual: true,
+  recon_auto_processar: true, recon_idempotency_horas: 48,
+  sucesso_marcar_pago: true, sucesso_gerar_recibo: true, sucesso_email_confirmacao: true,
+  falha_marcar_vencido: true, falha_aplicar_multa: true, falha_email_aviso: true,
+  codigos_rejeicao: [
+    { code: "MS03", descricao: "Saldo insuficiente",                  acao: "OVERDUE_MULTA" },
+    { code: "AC04", descricao: "Conta encerrada",                     acao: "SUSPENDER"     },
+    { code: "MD01", descricao: "Débito não autorizado pelo devedor",  acao: "SUSPENDER"     },
+    { code: "MD06", descricao: "Mandato cancelado pelo devedor",      acao: "CANCELAR"      },
+    { code: "AM04", descricao: "Montante insuficiente",               acao: "OVERDUE_MULTA" },
+    { code: "FF01", descricao: "Formato de ficheiro inválido",        acao: "OVERDUE"       },
+    { code: "AG01", descricao: "Transação proibida nesta conta",      acao: "SUSPENDER"     },
+    { code: "FOCR", descricao: "Falha de autenticação EMIS",          acao: "SUSPENDER"     },
+  ],
+};
+
+function SddMotorRegrasPanel() {
+  const [rules, setRules] = useState<SddEngineRules>(DEFAULT_SDD_RULES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [saved, setSaved]     = useState(false);
+  const [error, setError]     = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api("/admin/sdd/engine-rules");
+        if (r.ok) { const d = await r.json(); if (d.rules) setRules({ ...DEFAULT_SDD_RULES, ...d.rules, codigos_rejeicao: d.rules.codigos_rejeicao ?? DEFAULT_SDD_RULES.codigos_rejeicao }); }
+      } catch { /* ignore */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const setField = <K extends keyof SddEngineRules>(key: K, val: SddEngineRules[K]) =>
+    setRules(r => ({ ...r, [key]: val }));
+  const toggle = (key: keyof SddEngineRules) =>
+    setRules(r => ({ ...r, [key]: !r[key] }));
+  const updateCodigo = (idx: number, field: keyof SddRejeicaoCodigo, val: string) =>
+    setRules(r => ({ ...r, codigos_rejeicao: r.codigos_rejeicao.map((c, i) => i === idx ? { ...c, [field]: val } : c) }));
+  const removeCodigo = (idx: number) =>
+    setRules(r => ({ ...r, codigos_rejeicao: r.codigos_rejeicao.filter((_, i) => i !== idx) }));
+  const addCodigo = () =>
+    setRules(r => ({ ...r, codigos_rejeicao: [...r.codigos_rejeicao, { code: "", descricao: "", acao: "OVERDUE" as const }] }));
+
+  const save = async () => {
+    setSaving(true); setError(""); setSaved(false);
+    try {
+      const r = await api("/admin/sdd/engine-rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rules) });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro ao guardar"); }
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  /* ── inline toggle ── */
+  const Tog = ({ field, disabled }: { field: keyof SddEngineRules; disabled?: boolean }) => (
+    <button onClick={() => !disabled && toggle(field)}
+      className={`relative inline-flex w-11 h-6 rounded-full transition-colors focus:outline-none shrink-0 ${rules[field] ? "bg-primary" : "bg-slate-200"} ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${rules[field] ? "translate-x-5" : ""}`}/>
+    </button>
+  );
+
+  /* ── stepper ── */
+  const Stepper = ({ field, min, max, step = 1, suffix = "" }: { field: keyof SddEngineRules; min: number; max: number; step?: number; suffix?: string }) => (
+    <div className="flex items-center gap-1.5">
+      <button onClick={() => setField(field, Math.max(min, (rules[field] as number) - step) as any)}
+        className="w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center text-sm font-bold transition-colors">−</button>
+      <span className="w-14 text-center font-bold text-slate-800 text-sm">{rules[field] as number}{suffix}</span>
+      <button onClick={() => setField(field, Math.min(max, (rules[field] as number) + step) as any)}
+        className="w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center text-sm font-bold transition-colors">+</button>
+    </div>
+  );
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <RefreshCw className="w-5 h-5 animate-spin text-primary mr-2"/>
+      <span className="text-sm text-slate-400">A carregar configuração do motor…</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+
+      {/* ─── D-1 Pré-notificação ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+              <Mail className="w-4 h-4 text-amber-600"/>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">Fase D-1 — Pré-notificação Obrigatória</h3>
+              <p className="text-xs text-slate-400">Avisar o encarregado antes do débito ser executado</p>
+            </div>
+          </div>
+          <Tog field="prenotif_activo"/>
+        </div>
+        <div className={`space-y-4 transition-opacity ${!rules.prenotif_activo ? "opacity-40 pointer-events-none" : ""}`}>
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-slate-800">Horas de antecedência</p>
+              <p className="text-xs text-slate-400 mt-0.5">Enviar notificação N horas antes do lote ser submetido ao banco</p>
+            </div>
+            <Stepper field="prenotif_horas_antes" min={1} max={72} step={1} suffix="h"/>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {([
+              { field: "prenotif_email" as const, icon: <Mail className="w-3.5 h-3.5"/>,       label: "E-mail" },
+              { field: "prenotif_sms"   as const, icon: <Smartphone className="w-3.5 h-3.5"/>, label: "SMS"    },
+              { field: "prenotif_push"  as const, icon: <Zap className="w-3.5 h-3.5"/>,        label: "Push"   },
+            ]).map(ch => (
+              <div key={ch.field} className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${rules[ch.field] ? "border-amber-200 bg-amber-50" : "border-slate-100 bg-slate-50"}`}>
+                <span className="flex items-center gap-1.5 text-xs font-medium text-slate-700">{ch.icon}{ch.label}</span>
+                <Tog field={ch.field}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── D+0 Execução ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+            <Zap className="w-4 h-4 text-blue-600"/>
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm">Fase D+0 — Execução do Débito</h3>
+            <p className="text-xs text-slate-400">Comportamento no dia em que o débito é executado</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {([
+            { field: "exec_auto_transicao"  as const, label: "Transição automática das facturas", desc: "Facturas passam de PENDING → PROCESSING ao iniciar o lote" },
+            { field: "exec_bloquear_canais" as const, label: "Bloquear outros canais de pagamento", desc: "Impede pagamentos duplicados enquanto o débito está em curso" },
+          ]).map(row => (
+            <div key={row.field} className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50">
+              <div className="flex-1 mr-4">
+                <p className="text-sm font-semibold text-slate-800">{row.label}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{row.desc}</p>
+              </div>
+              <Tog field={row.field}/>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── Máquina de Estados de Falha ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+            <ShieldOff className="w-4 h-4 text-red-600"/>
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm">Máquina de Estados de Falha</h3>
+            <p className="text-xs text-slate-400">Comportamento após falhas consecutivas de liquidação por saldo insuficiente</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-slate-800">Falhas até suspensão automática</p>
+              <p className="text-xs text-slate-400 mt-0.5">Número de falhas de liquidação consecutivas que accionam a suspensão do mandato</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setField("falha_max_consecutivas", Math.max(1, rules.falha_max_consecutivas - 1))}
+                className="w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center font-bold transition-colors">−</button>
+              <span className="w-9 text-center font-bold text-red-600 text-xl leading-none">{rules.falha_max_consecutivas}</span>
+              <button onClick={() => setField("falha_max_consecutivas", Math.min(10, rules.falha_max_consecutivas + 1))}
+                className="w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center font-bold transition-colors">+</button>
+            </div>
+          </div>
+          {([
+            { field: "falha_suspender"      as const, label: "Suspender mandato automaticamente", desc: "Aplica estado SUSP ao atingir o limite de falhas consecutivas" },
+            { field: "falha_reativar_manual" as const, label: "Requerer reactivação manual",       desc: "A escola deve aprovar manualmente para reactivar o mandato" },
+          ]).map(row => (
+            <div key={row.field} className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50">
+              <div className="flex-1 mr-4">
+                <p className="text-sm font-semibold text-slate-800">{row.label}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{row.desc}</p>
+              </div>
+              <Tog field={row.field}/>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── Reconciliação PAIN.002 ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+            <SlidersHorizontal className="w-4 h-4 text-violet-600"/>
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm">Reconciliação Automática — PAIN.002</h3>
+            <p className="text-xs text-slate-400">Processamento dos ficheiros de resposta ISO 20022 enviados pelo banco</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50">
+            <div className="flex-1 mr-4">
+              <p className="text-sm font-semibold text-slate-800">Processar retornos automaticamente</p>
+              <p className="text-xs text-slate-400 mt-0.5">O motor processa os ficheiros XML do banco sem intervenção manual</p>
+            </div>
+            <Tog field="recon_auto_processar"/>
+          </div>
+          <div className={`flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50 transition-opacity ${!rules.recon_auto_processar ? "opacity-40 pointer-events-none" : ""}`}>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-slate-800">Janela de idempotência</p>
+              <p className="text-xs text-slate-400 mt-0.5">Período em que o mesmo ficheiro PAIN.002 não é reprocessado (evita lançamentos duplicados)</p>
+            </div>
+            <Stepper field="recon_idempotency_horas" min={6} max={168} step={6} suffix="h"/>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Regras do Ledger ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+            <BarChart3 className="w-4 h-4 text-slate-600"/>
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm">Regras de Actualização do Ledger</h3>
+            <p className="text-xs text-slate-400">Acções automáticas após confirmação ou rejeição pelo banco</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600"/>
+              <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Débito Confirmado (Sucesso)</p>
+            </div>
+            <div className="space-y-3">
+              {([
+                { field: "sucesso_marcar_pago"         as const, label: "Marcar factura como PAGA"    },
+                { field: "sucesso_gerar_recibo"         as const, label: "Gerar recibo digital"        },
+                { field: "sucesso_email_confirmacao"    as const, label: "Enviar e-mail de confirmação" },
+              ]).map(row => (
+                <div key={row.field} className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-emerald-900">{row.label}</span>
+                  <Tog field={row.field}/>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle className="w-4 h-4 text-red-600"/>
+              <p className="text-xs font-bold text-red-800 uppercase tracking-wide">Débito Rejeitado (Falha)</p>
+            </div>
+            <div className="space-y-3">
+              {([
+                { field: "falha_marcar_vencido" as const, label: "Marcar factura como VENCIDA" },
+                { field: "falha_aplicar_multa"  as const, label: "Aplicar multa de mora"       },
+                { field: "falha_email_aviso"    as const, label: "Enviar e-mail de aviso"      },
+              ]).map(row => (
+                <div key={row.field} className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-red-900">{row.label}</span>
+                  <Tog field={row.field}/>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Códigos de Rejeição Bancária ─── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-4 h-4 text-orange-600"/>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">Códigos de Rejeição Bancária</h3>
+              <p className="text-xs text-slate-400">Mapeamento dos códigos ISO 20022 para acções do motor de pagamentos</p>
+            </div>
+          </div>
+          <button onClick={addCodigo}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors">
+            <Plus className="w-3.5 h-3.5"/> Adicionar
+          </button>
+        </div>
+        <div className="border border-slate-100 rounded-xl overflow-hidden">
+          <div className="grid grid-cols-[90px_1fr_168px_36px] bg-slate-50 border-b border-slate-100 px-4 py-2.5">
+            {["Código", "Descrição", "Acção do Motor", ""].map(h => (
+              <span key={h} className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{h}</span>
+            ))}
+          </div>
+          <div className="divide-y divide-slate-50">
+            {rules.codigos_rejeicao.map((c, idx) => (
+              <div key={idx} className="grid grid-cols-[90px_1fr_168px_36px] items-center px-4 py-2.5 gap-2">
+                <input value={c.code}
+                  onChange={e => updateCodigo(idx, "code", e.target.value.toUpperCase().slice(0, 6))}
+                  placeholder="MS03"
+                  className="font-mono text-xs font-bold text-slate-800 bg-transparent border-0 outline-none uppercase tracking-widest w-full"/>
+                <input value={c.descricao}
+                  onChange={e => updateCodigo(idx, "descricao", e.target.value)}
+                  placeholder="Descrição do código bancário"
+                  className="text-xs text-slate-600 bg-transparent border-0 outline-none min-w-0 pr-2 w-full"/>
+                <select value={c.acao}
+                  onChange={e => updateCodigo(idx, "acao", e.target.value as any)}
+                  className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg outline-none border-0 w-full ${ACAO_CLASSES[c.acao] ?? "bg-slate-100 text-slate-600"}`}>
+                  {Object.entries(ACAO_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                <button onClick={() => removeCodigo(idx)}
+                  className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors mx-auto">
+                  <X className="w-3.5 h-3.5"/>
+                </button>
+              </div>
+            ))}
+            {rules.codigos_rejeicao.length === 0 && (
+              <p className="px-4 py-8 text-center text-slate-400 text-xs">
+                Nenhum código configurado. Clique em "Adicionar" para definir o comportamento do motor face a rejeições bancárias.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Save bar ─── */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0"/>
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
+      <div className="flex items-center justify-end gap-4">
+        {saved && (
+          <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+            <CheckCircle2 className="w-4 h-4"/> Regras guardadas com sucesso
+          </span>
+        )}
+        <button onClick={save} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 transition-colors shadow-sm">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
+          {saving ? "A guardar…" : "Guardar Regras"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ConfiguracoesTecnicasView() {
@@ -8816,7 +9194,8 @@ function ConfiguracoesTecnicasView() {
     { key: "mcx",           label: "Referências MCX",   icon: <CreditCard className="w-4 h-4"/>,   color: "purple" },
     { key: "debito_direto", label: "Débito Direto",      icon: <ArrowLeftRight className="w-4 h-4"/>, color: "emerald" },
     { key: "split_payment", label: "Split Payment",      icon: <Layers className="w-4 h-4"/>,       color: "indigo" },
-    { key: "sdd_iso20022",  label: "ISO 20022 SDD",      icon: <FileText className="w-4 h-4"/>,     color: "violet" },
+    { key: "sdd_iso20022",  label: "ISO 20022 SDD",      icon: <FileText className="w-4 h-4"/>,          color: "violet" },
+    { key: "sdd_regras",   label: "Regras do Motor SDD", icon: <SlidersHorizontal className="w-4 h-4"/>, color: "orange" },
   ];
 
   return (
@@ -10372,6 +10751,24 @@ function ConfiguracoesTecnicasView() {
           {sddSchoolId && (
             <SddIso20022Panel schoolId={sddSchoolId} />
           )}
+        </div>
+      )}
+
+      {/* ── Regras do Motor SDD ── */}
+      {tab === "sdd_regras" && (
+        <div className="space-y-5">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                <SlidersHorizontal className="w-4 h-4 text-orange-600"/>
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">Regras do Motor SDD</h3>
+                <p className="text-xs text-slate-500">Configuração global das regras de negócio do motor de pagamentos por Débito Directo</p>
+              </div>
+            </div>
+          </div>
+          <SddMotorRegrasPanel/>
         </div>
       )}
     </div>

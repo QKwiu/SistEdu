@@ -72,6 +72,51 @@ export async function runSddMigration(): Promise<void> {
     )
   `);
   console.log("[sdd migration] sdd_emissor_configs OK");
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sdd_engine_rules (
+      id                          SERIAL PRIMARY KEY,
+      -- D-1 Pré-notificação
+      prenotif_activo             BOOLEAN     NOT NULL DEFAULT TRUE,
+      prenotif_horas_antes        INTEGER     NOT NULL DEFAULT 24,
+      prenotif_email              BOOLEAN     NOT NULL DEFAULT TRUE,
+      prenotif_sms                BOOLEAN     NOT NULL DEFAULT FALSE,
+      prenotif_push               BOOLEAN     NOT NULL DEFAULT TRUE,
+      -- D+0 Execução
+      exec_auto_transicao         BOOLEAN     NOT NULL DEFAULT TRUE,
+      exec_bloquear_canais        BOOLEAN     NOT NULL DEFAULT TRUE,
+      -- Máquina de estados de falha
+      falha_max_consecutivas      INTEGER     NOT NULL DEFAULT 3,
+      falha_suspender             BOOLEAN     NOT NULL DEFAULT TRUE,
+      falha_reativar_manual       BOOLEAN     NOT NULL DEFAULT TRUE,
+      -- Reconciliação PAIN.002
+      recon_auto_processar        BOOLEAN     NOT NULL DEFAULT TRUE,
+      recon_idempotency_horas     INTEGER     NOT NULL DEFAULT 48,
+      -- Ledger — Débito confirmado
+      sucesso_marcar_pago         BOOLEAN     NOT NULL DEFAULT TRUE,
+      sucesso_gerar_recibo        BOOLEAN     NOT NULL DEFAULT TRUE,
+      sucesso_email_confirmacao   BOOLEAN     NOT NULL DEFAULT TRUE,
+      -- Ledger — Débito rejeitado
+      falha_marcar_vencido        BOOLEAN     NOT NULL DEFAULT TRUE,
+      falha_aplicar_multa         BOOLEAN     NOT NULL DEFAULT TRUE,
+      falha_email_aviso           BOOLEAN     NOT NULL DEFAULT TRUE,
+      -- Mapeamento de códigos de rejeição ISO 20022
+      codigos_rejeicao            JSONB       NOT NULL DEFAULT '[
+        {"code":"MS03","descricao":"Saldo insuficiente","acao":"OVERDUE_MULTA"},
+        {"code":"AC04","descricao":"Conta encerrada","acao":"SUSPENDER"},
+        {"code":"MD01","descricao":"Débito não autorizado pelo devedor","acao":"SUSPENDER"},
+        {"code":"MD06","descricao":"Mandato cancelado pelo devedor","acao":"CANCELAR"},
+        {"code":"AM04","descricao":"Montante insuficiente","acao":"OVERDUE_MULTA"},
+        {"code":"FF01","descricao":"Formato de ficheiro inválido","acao":"OVERDUE"},
+        {"code":"AG01","descricao":"Transação proibida nesta conta","acao":"SUSPENDER"},
+        {"code":"FOCR","descricao":"Falha de autenticação EMIS","acao":"SUSPENDER"}
+      ]'::jsonb,
+      actualizado_em              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      actualizado_por             TEXT        NOT NULL DEFAULT 'sistema'
+    )
+  `);
+  await pool.query(`INSERT INTO sdd_engine_rules (id) VALUES (1) ON CONFLICT DO NOTHING`);
+  console.log("[sdd migration] sdd_engine_rules OK");
 }
 
 /* ─── Utilitários ISO 20022 ───────────────────────────────────────────────── */
@@ -726,6 +771,84 @@ router.post("/admin/colegios/:id/sdd/test-connection", adminAuth, async (req, re
       erro:    e.message ?? "Falha na ligação SFTP.",
       hint:    "Verifique sftp_host, sftp_port, utilizador e password/chave SSH.",
     });
+  }
+});
+
+/* ─── GET /admin/sdd/engine-rules ─────────────────────────────────────────── */
+
+router.get("/admin/sdd/engine-rules", adminAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM sdd_engine_rules WHERE id=1");
+    return res.json({ rules: rows[0] ?? null });
+  } catch (e) {
+    console.error("[sdd/engine-rules GET]", e);
+    return res.status(500).json({ error: "Erro ao carregar regras do motor SDD." });
+  }
+});
+
+/* ─── PUT /admin/sdd/engine-rules ─────────────────────────────────────────── */
+
+router.put("/admin/sdd/engine-rules", adminAuth, async (req, res) => {
+  try {
+    const b = req.body;
+    const codigosJson = JSON.stringify(Array.isArray(b.codigos_rejeicao) ? b.codigos_rejeicao : []);
+
+    const updated = await pool.query(`
+      UPDATE sdd_engine_rules SET
+        prenotif_activo           = $1,
+        prenotif_horas_antes      = $2,
+        prenotif_email            = $3,
+        prenotif_sms              = $4,
+        prenotif_push             = $5,
+        exec_auto_transicao       = $6,
+        exec_bloquear_canais      = $7,
+        falha_max_consecutivas    = $8,
+        falha_suspender           = $9,
+        falha_reativar_manual     = $10,
+        recon_auto_processar      = $11,
+        recon_idempotency_horas   = $12,
+        sucesso_marcar_pago       = $13,
+        sucesso_gerar_recibo      = $14,
+        sucesso_email_confirmacao = $15,
+        falha_marcar_vencido      = $16,
+        falha_aplicar_multa       = $17,
+        falha_email_aviso         = $18,
+        codigos_rejeicao          = $19::jsonb,
+        actualizado_em            = NOW(),
+        actualizado_por           = 'admin'
+      WHERE id = 1
+      RETURNING id
+    `, [
+      Boolean(b.prenotif_activo),
+      Math.max(1, Math.min(72,  Number(b.prenotif_horas_antes) || 24)),
+      Boolean(b.prenotif_email),
+      Boolean(b.prenotif_sms),
+      Boolean(b.prenotif_push),
+      Boolean(b.exec_auto_transicao),
+      Boolean(b.exec_bloquear_canais),
+      Math.max(1, Math.min(10,  Number(b.falha_max_consecutivas) || 3)),
+      Boolean(b.falha_suspender),
+      Boolean(b.falha_reativar_manual),
+      Boolean(b.recon_auto_processar),
+      Math.max(1, Math.min(168, Number(b.recon_idempotency_horas) || 48)),
+      Boolean(b.sucesso_marcar_pago),
+      Boolean(b.sucesso_gerar_recibo),
+      Boolean(b.sucesso_email_confirmacao),
+      Boolean(b.falha_marcar_vencido),
+      Boolean(b.falha_aplicar_multa),
+      Boolean(b.falha_email_aviso),
+      codigosJson,
+    ]);
+
+    if (!updated.rowCount) {
+      return res.status(404).json({ error: "Registo de regras não encontrado (id=1)." });
+    }
+
+    console.log("[sdd/engine-rules] regras actualizadas pelo admin");
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("[sdd/engine-rules PUT]", e);
+    return res.status(500).json({ error: "Erro ao guardar regras do motor SDD." });
   }
 });
 
