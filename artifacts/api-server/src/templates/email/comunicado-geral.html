@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>{{assunto_comunicado}} — {{nome_escola}}</title>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .body-bg   { background-color: #0f172a !important; }
+      .wrapper   { background-color: #0f172a !important; }
+      .card      { background-color: #1e293b !important; }
+      .text-main { color: #f1f5f9 !important; }
+      .text-muted{ color: #94a3b8 !important; }
+      .divider   { border-color: #334155 !important; }
+      .footer-bg { background-color: #0f172a !important; }
+      .footer-txt{ color: #64748b !important; }
+      .badge     { background-color: #1e3a5f !important; color: #93c5fd !important; }
+    }
+  </style>
+</head>
+<body class="body-bg" style="margin:0;padding:0;background-color:#f8fafc;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+  <!-- Pre-header -->
+  <div style="display:none;font-size:1px;color:#f8fafc;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    {{assunto_comunicado}} — {{nome_escola}}
+  </div>
+
+  <table class="wrapper" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">
+
+          <!-- ── CABEÇALHO INSTITUCIONAL ── -->
+          <tr>
+            <td style="background-color:#0f172a;border-radius:12px 12px 0 0;padding:32px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <!-- Logo ou nome da escola -->
+                    <p style="margin:0 0 4px 0;font-size:11px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.45);">
+                      Comunicado Oficial
+                    </p>
+                    <h1 style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">
+                      {{nome_escola}}
+                    </h1>
+                    <p style="margin:4px 0 0 0;font-size:12px;color:rgba(255,255,255,0.5);">
+                      Ano Lectivo {{ano_letivo}}
+                    </p>
+                  </td>
+                  <td align="right" style="vertical-align:middle;">
+                    <!-- Badge de categoria -->
+                    <div class="badge" style="display:inline-block;background-color:rgba(59,130,246,0.2);color:#93c5fd;border-radius:20px;padding:5px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;border:1px solid rgba(59,130,246,0.3);white-space:nowrap;">
+                      {{categoria_comunicado}}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── TÍTULO DO COMUNICADO ── -->
+          <tr>
+            <td style="background-color:#1e293b;padding:0 40px 28px 40px;">
+              <div style="border-left:4px solid #3b82f6;padding-left:16px;">
+                <h2 style="margin:0;font-size:18px;font-weight:700;color:#f1f5f9;line-height:1.4;">
+                  {{assunto_comunicado}}
+                </h2>
+                <p style="margin:6px 0 0 0;font-size:12px;color:#64748b;">
+                  {{data_comunicado}} · Destinatários: {{audiencia_comunicado}}
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- ── CORPO PRINCIPAL ── -->
+          <tr>
+            <td class="card" style="background-color:#ffffff;padding:36px 40px;">
+
+              <!-- Saudação -->
+              <p class="text-main" style="margin:0 0 20px 0;font-size:15px;color:#374151;">
+                Estimado/a Encarregado/a de Educação,
+              </p>
+
+              <!-- Corpo do comunicado — HTML livre injectado pelo gestor -->
+              <div class="text-main" style="font-size:15px;color:#374151;line-height:1.75;">
+                {{corpo_comunicado}}
+              </div>
+
+              <!-- Separador -->
+              <hr class="divider" style="margin:32px 0;border:none;border-top:1px solid #e5e7eb;" />
+
+              <!-- Subscrição / Assinatura da Direcção -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <p class="text-muted" style="margin:0 0 4px 0;font-size:13px;color:#6b7280;">
+                      Com os melhores cumprimentos,
+                    </p>
+                    <p class="text-main" style="margin:0 0 2px 0;font-size:14px;font-weight:700;color:#111827;">
+                      {{nome_diretor}}
+                    </p>
+                    <p class="text-muted" style="margin:0;font-size:13px;color:#6b7280;">
+                      {{cargo_diretor}} · {{nome_escola}}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- ── BANNER DE CONTACTO ── -->
+          <tr>
+            <td style="background-color:#eff6ff;padding:20px 40px;border-top:1px solid #bfdbfe;border-bottom:1px solid #bfdbfe;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="20" style="vertical-align:middle;padding-right:12px;">
+                    <div style="font-size:18px;line-height:1;">💬</div>
+                  </td>
+                  <td style="vertical-align:middle;">
+                    <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.5;">
+                      Para esclarecimentos adicionais, contacte-nos em
+                      <a href="mailto:{{email_escola}}" style="color:#1d4ed8;font-weight:600;text-decoration:none;">{{email_escola}}</a>
+                      ou ligue para <strong>{{contacto_escola}}</strong>.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── RODAPÉ INSTITUCIONAL ── -->
+          <tr>
+            <td class="footer-bg" style="background-color:#0f172a;border-radius:0 0 12px 12px;padding:28px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <p class="footer-txt" style="margin:0 0 8px 0;font-size:12px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px;">
+                      {{nome_escola}}
+                    </p>
+                    <p class="footer-txt" style="margin:0 0 12px 0;font-size:11px;color:#475569;line-height:1.7;">
+                      {{morada_escola}}<br/>
+                      Tel: {{contacto_escola}} · E-mail: {{email_escola}}
+                    </p>
+                    <hr style="margin:0 0 12px 0;border:none;border-top:1px solid #1e293b;" />
+                    <p class="footer-txt" style="margin:0;font-size:10px;color:#334155;line-height:1.6;">
+                      Este e-mail foi enviado pelo sistema Kiwara Tech em nome de <strong style="color:#475569;">{{nome_escola}}</strong>.
+                      Caso não pretenda receber comunicações desta instituição, contacte a secretaria.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

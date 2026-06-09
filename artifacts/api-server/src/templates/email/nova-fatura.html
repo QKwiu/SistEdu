@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>Nova Fatura — {{nome_escola}}</title>
+  <style>
+    /* Dark mode — Apple Mail, Outlook 2019+ macOS, Samsung Mail */
+    @media (prefers-color-scheme: dark) {
+      .body-bg   { background-color: #0f172a !important; }
+      .wrapper   { background-color: #0f172a !important; }
+      .card      { background-color: #1e293b !important; border-color: #334155 !important; }
+      .text-main { color: #f1f5f9 !important; }
+      .text-muted{ color: #94a3b8 !important; }
+      .divider   { border-color: #334155 !important; }
+      .ref-box   { background-color: #0f172a !important; border-color: #334155 !important; }
+      .footer-bg { background-color: #0f172a !important; }
+      .footer-txt{ color: #64748b !important; }
+    }
+  </style>
+</head>
+<body class="body-bg" style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+  <!-- Pre-header (visível na caixa de entrada antes de abrir) -->
+  <div style="display:none;font-size:1px;color:#f1f5f9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    Nova fatura emitida — {{descricao_fatura}} — Valor: {{valor_aoa}} AOA
+  </div>
+
+  <table class="wrapper" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">
+
+          <!-- ── CABEÇALHO ── -->
+          <tr>
+            <td class="card" style="background-color:#1a56db;border-radius:12px 12px 0 0;padding:28px 40px;text-align:center;">
+              <p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.7);">
+                {{nome_escola}}
+              </p>
+              <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">
+                Nova Fatura Emitida
+              </h1>
+            </td>
+          </tr>
+
+          <!-- ── CORPO PRINCIPAL ── -->
+          <tr>
+            <td class="card" style="background-color:#ffffff;padding:36px 40px;">
+
+              <!-- Saudação -->
+              <p class="text-main" style="margin:0 0 20px 0;font-size:15px;color:#374151;">
+                Estimado/a <strong>{{nome_encarregado}}</strong>,
+              </p>
+              <p class="text-muted" style="margin:0 0 28px 0;font-size:14px;color:#6b7280;line-height:1.6;">
+                Informamos que foi emitida uma nova fatura referente ao(à) aluno(a)
+                <strong class="text-main" style="color:#111827;">{{nome_aluno}}</strong>.
+                Por favor, proceda ao pagamento até à data indicada para evitar encargos adicionais.
+              </p>
+
+              <!-- Card de valor -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border:1px solid #bfdbfe;border-radius:10px;margin-bottom:28px;">
+                <tr>
+                  <td style="padding:24px 28px;">
+                    <p class="text-muted" style="margin:0 0 4px 0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#3b82f6;">
+                      Valor a Pagar
+                    </p>
+                    <p style="margin:0 0 12px 0;font-size:36px;font-weight:800;color:#1d4ed8;letter-spacing:-1px;">
+                      {{valor_aoa}} <span style="font-size:18px;font-weight:600;">AOA</span>
+                    </p>
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding-right:24px;">
+                          <p style="margin:0;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Descrição</p>
+                          <p style="margin:4px 0 0 0;font-size:14px;font-weight:600;color:#111827;">{{descricao_fatura}}</p>
+                        </td>
+                        <td>
+                          <p style="margin:0;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Vencimento</p>
+                          <p style="margin:4px 0 0 0;font-size:14px;font-weight:700;color:#dc2626;">{{data_vencimento}}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Referências de Pagamento -->
+              <p class="text-main" style="margin:0 0 14px 0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#374151;">
+                Referências de Pagamento
+              </p>
+
+              <!-- Multicaixa / ATM -->
+              <table class="ref-box" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="32" style="vertical-align:middle;padding-right:12px;">
+                          <!-- ATM icon -->
+                          <div style="width:32px;height:32px;background-color:#1a56db;border-radius:6px;text-align:center;line-height:32px;font-size:14px;color:#fff;font-weight:700;">M</div>
+                        </td>
+                        <td style="vertical-align:middle;">
+                          <p style="margin:0 0 2px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Multicaixa / ATM</p>
+                          <table role="presentation" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding-right:20px;">
+                                <p style="margin:0;font-size:11px;color:#9ca3af;">Entidade</p>
+                                <p class="text-main" style="margin:2px 0 0 0;font-size:15px;font-weight:700;color:#111827;letter-spacing:2px;">{{entidade_atm}}</p>
+                              </td>
+                              <td>
+                                <p style="margin:0;font-size:11px;color:#9ca3af;">Referência</p>
+                                <p class="text-main" style="margin:2px 0 0 0;font-size:15px;font-weight:700;color:#111827;letter-spacing:2px;">{{referencia_atm}}</p>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- IBAN (opcional — mostrar se disponível) -->
+              <table class="ref-box" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:28px;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="32" style="vertical-align:middle;padding-right:12px;">
+                          <div style="width:32px;height:32px;background-color:#059669;border-radius:6px;text-align:center;line-height:32px;font-size:12px;color:#fff;font-weight:700;">TB</div>
+                        </td>
+                        <td style="vertical-align:middle;">
+                          <p style="margin:0 0 2px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;">Transferência Bancária (IBAN)</p>
+                          <p class="text-main" style="margin:4px 0 0 0;font-size:13px;font-weight:600;color:#111827;letter-spacing:1px;word-break:break-all;">{{iban}}</p>
+                          <p style="margin:2px 0 0 0;font-size:11px;color:#9ca3af;">Referência: Fatura Nº {{numero_fatura}}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Nota -->
+              <p class="text-muted" style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;border-left:3px solid #e5e7eb;padding-left:12px;">
+                Após efectuar o pagamento, o sistema reconciliará automaticamente. Receberá uma confirmação por este canal.
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- ── RODAPÉ ── -->
+          <tr>
+            <td class="footer-bg" style="background-color:#f8fafc;border-radius:0 0 12px 12px;padding:24px 40px;border-top:1px solid #e5e7eb;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <p class="footer-txt" style="margin:0 0 4px 0;font-size:12px;color:#9ca3af;">
+                      <strong style="color:#6b7280;">{{nome_escola}}</strong>
+                    </p>
+                    <p class="footer-txt" style="margin:0;font-size:11px;color:#9ca3af;line-height:1.6;">
+                      {{morada_escola}} · {{contacto_escola}} · {{email_escola}}<br/>
+                      Ano Lectivo {{ano_letivo}} · Nº Fatura: <strong>{{numero_fatura}}</strong>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

@@ -1,0 +1,24 @@
+Atua como um Engenheiro de Software Back-end Sénior. Preciso de implementar um endpoint de diagnóstico e testes no backoffice administrativo: `POST /api/admin/school/email/test`. O objetivo é permitir que o administrador teste instantaneamente se as credenciais SMTP/SendGrid salvas de uma escola estão operacionais (similar ao teste de envio de SMS).
+
+Gera o código limpo e a especificação seguindo estes requisitos:
+
+1. SEGURANÇA E CONTROLO DE ACESSO (Middleware)
+- O endpoint deve ser protegido por um middleware de autenticação restrito a administradores do sistema/backoffice (`isAdmin`).
+- Bloqueia e rejeita qualquer tentativa de acesso vinda de utilizadores comuns ou encarregados com HTTP 403 (Forbidden).
+
+2. PAYLOAD DE ENTRADA (Validação de Dados)
+O Body da requisição deve aceitar os seguintes campos estruturados:
+- `school_id` (String/Int, obrigatório): ID da escola cujas credenciais serão testadas.
+- `destination_email` (String, obrigatório): O e-mail que vai receber a mensagem de teste (ex: o e-mail do próprio administrador).
+
+3. LOGICA DE EXECUÇÃO SÍNCRONA (Diagnóstico em Tempo Real)
+Ao contrário do fluxo normal de produção (que roda em segundo plano), este endpoint de teste DEVE rodar de forma síncrona para devolver o veredicto imediatamente na resposta HTTP:
+- Passo A: Procura as configurações de e-mail da escola na tabela 'school_configurations' e decripta as chaves em memória.
+- Passo B: Instancia dinamicamente o transportador correto (Nodemailer ou SendGrid) utilizando a nossa 'MailFactory'.
+- Passo C: Tenta enviar um e-mail com um assunto padrão (ex: "[TESTE] Diagnóstico de Configuração - Escola X") e um corpo HTML minimalista informando a hora do teste.
+
+4. TRATAMENTO E RETORNO DE ERROS DETALHADO
+- Sucesso: Se o e-mail for aceite pelo provedor, devolve HTTP 200 OK com um JSON descritivo: `{ success: true, message: "E-mail enviado com sucesso" }`.
+- Falha: Captura o erro exato retornado pelo servidor SMTP ou SendGrid (ex: "AuthFailure", "ConnectionTimeout", "Invalid API Key") e devolve HTTP 400 ou 500 com o log de erro detalhado no JSON para que o administrador saiba exatamente o que corrigir.
+
+Gera o código de forma isolada, limpa e modular, ideal para o ecossistema do Replit.

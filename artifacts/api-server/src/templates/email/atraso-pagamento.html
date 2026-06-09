@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>Aviso de Pagamento em Atraso — {{nome_escola}}</title>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .body-bg   { background-color: #0f172a !important; }
+      .wrapper   { background-color: #0f172a !important; }
+      .card      { background-color: #1e293b !important; border-color: #334155 !important; }
+      .text-main { color: #f1f5f9 !important; }
+      .text-muted{ color: #94a3b8 !important; }
+      .row-alt   { background-color: #0f172a !important; }
+      .footer-bg { background-color: #0f172a !important; }
+      .footer-txt{ color: #64748b !important; }
+      .total-row { background-color: #1e293b !important; }
+      .btn-cta   { background-color: #b91c1c !important; }
+    }
+  </style>
+</head>
+<body class="body-bg" style="margin:0;padding:0;background-color:#fff7ed;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+  <!-- Pre-header -->
+  <div style="display:none;font-size:1px;color:#fff7ed;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    Aviso: Fatura {{numero_fatura}} em atraso — Total actualizado: {{total_com_multa}} AOA
+  </div>
+
+  <table class="wrapper" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fff7ed;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">
+
+          <!-- ── CABEÇALHO ── -->
+          <tr>
+            <td style="background-color:#b45309;border-radius:12px 12px 0 0;padding:28px 40px;text-align:center;">
+              <!-- Ícone de alerta -->
+              <div style="width:56px;height:56px;background-color:rgba(255,255,255,0.15);border-radius:50%;margin:0 auto 16px auto;text-align:center;line-height:50px;font-size:26px;border:3px solid rgba(255,255,255,0.3);">
+                ⚠
+              </div>
+              <p style="margin:0 0 6px 0;font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.7);">
+                {{nome_escola}}
+              </p>
+              <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">
+                Aviso de Pagamento em Atraso
+              </h1>
+              <p style="margin:8px 0 0 0;font-size:14px;color:rgba(255,255,255,0.85);">
+                Fatura vencida em <strong>{{data_vencimento_original}}</strong>
+              </p>
+            </td>
+          </tr>
+
+          <!-- ── BANDA URGÊNCIA ── -->
+          <tr>
+            <td style="background-color:#fef3c7;padding:14px 40px;border-left:4px solid #f59e0b;">
+              <p style="margin:0;font-size:13px;color:#92400e;line-height:1.5;">
+                <strong>Atenção:</strong> Esta é uma comunicação formal relativa a uma obrigação de pagamento pendente.
+                Regularize a situação o mais brevemente possível para evitar encargos adicionais.
+              </p>
+            </td>
+          </tr>
+
+          <!-- ── CORPO PRINCIPAL ── -->
+          <tr>
+            <td class="card" style="background-color:#ffffff;padding:36px 40px;">
+
+              <!-- Saudação -->
+              <p class="text-main" style="margin:0 0 8px 0;font-size:15px;color:#374151;">
+                Estimado/a <strong>{{nome_encarregado}}</strong>,
+              </p>
+              <p class="text-muted" style="margin:0 0 28px 0;font-size:14px;color:#6b7280;line-height:1.6;">
+                Vimos por este meio informar V. Exa. que a fatura referente ao(à) aluno(a)
+                <strong class="text-main" style="color:#111827;">{{nome_aluno}}</strong>
+                se encontra por liquidar, tendo ultrapassado a data de vencimento.
+                Nos termos do regulamento escolar, foram aplicados os encargos de mora em vigor.
+              </p>
+
+              <!-- Detalhe de valores -->
+              <p class="text-main" style="margin:0 0 14px 0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#374151;">
+                Resumo da Dívida
+              </p>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #fcd34d;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+                <!-- Linha 1: Valor original -->
+                <tr>
+                  <td style="padding:13px 16px;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td>
+                          <p style="margin:0;font-size:13px;color:#6b7280;">{{descricao_fatura}}</p>
+                          <p style="margin:2px 0 0 0;font-size:11px;color:#9ca3af;">Vencimento original: {{data_vencimento_original}}</p>
+                        </td>
+                        <td align="right">
+                          <p class="text-main" style="margin:0;font-size:13px;font-weight:600;color:#111827;">{{valor_original}} AOA</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <!-- Linha 2: Multa -->
+                <tr class="row-alt">
+                  <td style="padding:13px 16px;background-color:#fef9c3;border-bottom:1px solid #fcd34d;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td>
+                          <p style="margin:0;font-size:13px;color:#92400e;font-weight:600;">Multa / Juro de Mora</p>
+                          <p style="margin:2px 0 0 0;font-size:11px;color:#b45309;">{{descricao_multa}}</p>
+                        </td>
+                        <td align="right">
+                          <p style="margin:0;font-size:13px;font-weight:700;color:#b45309;">+ {{valor_multa}} AOA</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <!-- Linha 3: Total -->
+                <tr class="total-row">
+                  <td style="padding:16px;background-color:#fff7ed;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td>
+                          <p style="margin:0;font-size:14px;font-weight:700;color:#111827;">Total a Pagar Agora</p>
+                        </td>
+                        <td align="right">
+                          <p style="margin:0;font-size:22px;font-weight:800;color:#dc2626;letter-spacing:-0.5px;">
+                            {{total_com_multa}} <span style="font-size:13px;font-weight:600;">AOA</span>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA — Regularizar Pagamento -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td align="center">
+                    <a class="btn-cta" href="{{url_pagamento}}" target="_blank"
+                       style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:8px;letter-spacing:0.3px;">
+                      Regularizar Pagamento Agora
+                    </a>
+                    <p style="margin:10px 0 0 0;font-size:11px;color:#9ca3af;">
+                      Acesso ao portal do encarregado para pagamento seguro
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Nota legal / Próximos passos -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <p style="margin:0 0 8px 0;font-size:13px;font-weight:700;color:#991b1b;">Próximos Passos</p>
+                    <p class="text-muted" style="margin:0;font-size:13px;color:#6b7280;line-height:1.7;">
+                      1. Efectue o pagamento do valor total indicado acima.<br/>
+                      2. O sistema actualizará o estado automaticamente após confirmação.<br/>
+                      3. Para esclarecimentos, contacte a secretaria em <strong>{{email_escola}}</strong>.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- ── RODAPÉ ── -->
+          <tr>
+            <td class="footer-bg" style="background-color:#f8fafc;border-radius:0 0 12px 12px;padding:24px 40px;border-top:1px solid #e5e7eb;">
+              <p class="footer-txt" style="margin:0 0 4px 0;font-size:12px;color:#9ca3af;">
+                <strong style="color:#6b7280;">{{nome_escola}}</strong> · Comunicação Formal
+              </p>
+              <p class="footer-txt" style="margin:0;font-size:11px;color:#9ca3af;line-height:1.6;">
+                {{morada_escola}} · {{contacto_escola}} · {{email_escola}}<br/>
+                Nº Fatura: <strong>{{numero_fatura}}</strong> · Dias em atraso: <strong>{{dias_atraso}}</strong>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

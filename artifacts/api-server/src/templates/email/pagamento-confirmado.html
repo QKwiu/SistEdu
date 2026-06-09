@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>Pagamento Confirmado — {{nome_escola}}</title>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .body-bg   { background-color: #0f172a !important; }
+      .wrapper   { background-color: #0f172a !important; }
+      .card      { background-color: #1e293b !important; border-color: #334155 !important; }
+      .text-main { color: #f1f5f9 !important; }
+      .text-muted{ color: #94a3b8 !important; }
+      .divider   { border-color: #334155 !important; }
+      .row-alt   { background-color: #0f172a !important; }
+      .footer-bg { background-color: #0f172a !important; }
+      .footer-txt{ color: #64748b !important; }
+      .btn       { background-color: #166534 !important; }
+    }
+  </style>
+</head>
+<body class="body-bg" style="margin:0;padding:0;background-color:#f0fdf4;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+  <!-- Pre-header -->
+  <div style="display:none;font-size:1px;color:#f0fdf4;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    ✓ Pagamento recebido e confirmado — {{descricao_fatura}} — {{valor_aoa}} AOA
+  </div>
+
+  <table class="wrapper" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0fdf4;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">
+
+          <!-- ── CABEÇALHO ── -->
+          <tr>
+            <td style="background-color:#15803d;border-radius:12px 12px 0 0;padding:28px 40px;text-align:center;">
+              <!-- Ícone de sucesso -->
+              <div style="width:56px;height:56px;background-color:rgba(255,255,255,0.15);border-radius:50%;margin:0 auto 16px auto;text-align:center;line-height:56px;font-size:28px;">
+                ✓
+              </div>
+              <p style="margin:0 0 6px 0;font-size:12px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.7);">
+                {{nome_escola}}
+              </p>
+              <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;">
+                Pagamento Confirmado
+              </h1>
+              <p style="margin:8px 0 0 0;font-size:14px;color:rgba(255,255,255,0.85);">
+                Reconciliação automática efectuada com sucesso
+              </p>
+            </td>
+          </tr>
+
+          <!-- ── CORPO PRINCIPAL ── -->
+          <tr>
+            <td class="card" style="background-color:#ffffff;padding:36px 40px;">
+
+              <!-- Saudação -->
+              <p class="text-main" style="margin:0 0 8px 0;font-size:15px;color:#374151;">
+                Estimado/a <strong>{{nome_encarregado}}</strong>,
+              </p>
+              <p class="text-muted" style="margin:0 0 28px 0;font-size:14px;color:#6b7280;line-height:1.6;">
+                O seu pagamento foi recebido e processado com sucesso.
+                Obrigado pela pontualidade — o registo do(a) aluno(a)
+                <strong class="text-main" style="color:#111827;">{{nome_aluno}}</strong> está em dia.
+              </p>
+
+              <!-- Card de confirmação -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);border:1px solid #bbf7d0;border-radius:10px;margin-bottom:28px;">
+                <tr>
+                  <td style="padding:24px 28px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td>
+                          <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#16a34a;">Valor Pago</p>
+                          <p style="margin:0;font-size:34px;font-weight:800;color:#15803d;letter-spacing:-1px;">
+                            {{valor_aoa}} <span style="font-size:16px;font-weight:600;">AOA</span>
+                          </p>
+                        </td>
+                        <td align="right" style="vertical-align:middle;">
+                          <div style="background-color:#15803d;color:#ffffff;border-radius:20px;padding:6px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">
+                            PAGO
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Detalhes do pagamento -->
+              <p class="text-main" style="margin:0 0 14px 0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#374151;">
+                Detalhes do Recibo
+              </p>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+                <tr>
+                  <td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td><p style="margin:0;font-size:13px;color:#6b7280;">Descrição</p></td>
+                        <td align="right"><p class="text-main" style="margin:0;font-size:13px;font-weight:600;color:#111827;">{{descricao_fatura}}</p></td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr class="row-alt">
+                  <td style="padding:12px 16px;background-color:#f9fafb;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td><p style="margin:0;font-size:13px;color:#6b7280;">Nº Fatura</p></td>
+                        <td align="right"><p class="text-main" style="margin:0;font-size:13px;font-weight:600;color:#111827;">{{numero_fatura}}</p></td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td><p style="margin:0;font-size:13px;color:#6b7280;">Data do Pagamento</p></td>
+                        <td align="right"><p class="text-main" style="margin:0;font-size:13px;font-weight:600;color:#111827;">{{data_pagamento}}</p></td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr class="row-alt">
+                  <td style="padding:12px 16px;background-color:#f9fafb;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td><p style="margin:0;font-size:13px;color:#6b7280;">Método de Pagamento</p></td>
+                        <td align="right"><p class="text-main" style="margin:0;font-size:13px;font-weight:600;color:#111827;">{{metodo_pagamento}}</p></td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA — Descarregar Recibo -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td align="center">
+                    <a class="btn" href="{{url_recibo}}" target="_blank"
+                       style="display:inline-block;background-color:#15803d;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:8px;letter-spacing:0.3px;">
+                      ↓ Descarregar Recibo Oficial
+                    </a>
+                    <p style="margin:10px 0 0 0;font-size:11px;color:#9ca3af;">
+                      Link válido por 30 dias · Formato PDF
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Nota -->
+              <p class="text-muted" style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;border-left:3px solid #bbf7d0;padding-left:12px;">
+                Este e-mail serve como comprovativo digital de pagamento.
+                Guarde-o para os seus registos. Para qualquer esclarecimento, contacte a secretaria da escola.
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- ── RODAPÉ ── -->
+          <tr>
+            <td class="footer-bg" style="background-color:#f8fafc;border-radius:0 0 12px 12px;padding:24px 40px;border-top:1px solid #e5e7eb;">
+              <p class="footer-txt" style="margin:0 0 4px 0;font-size:12px;color:#9ca3af;">
+                <strong style="color:#6b7280;">{{nome_escola}}</strong>
+              </p>
+              <p class="footer-txt" style="margin:0;font-size:11px;color:#9ca3af;line-height:1.6;">
+                {{morada_escola}} · {{contacto_escola}} · {{email_escola}}<br/>
+                Ano Lectivo {{ano_letivo}} · Ref. interna: <strong>{{numero_fatura}}</strong>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
