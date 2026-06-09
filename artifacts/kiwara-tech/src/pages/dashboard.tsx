@@ -7922,20 +7922,15 @@ function ComunicadosEscolaView({ token }: { token: string }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DDCancelamentosView — Motor de Débito Directo (School Portal)
+   DDCancelamentosView — Débito Directo (School Portal)
+   Aprovação de pedidos de cancelamento feitos pelo encarregado
    ═══════════════════════════════════════════════════════════════ */
-interface DDSub {
-  id: number; encarregado_id: number; encarregado_nome: string; encarregado_telefone: string;
-  status: string; created_at: string; cancelled_at?: string; cancellation_requested_at?: string;
-}
 interface DDMandate {
   id: number; reference: string; encarregado_nome: string; telefone: string;
   status: string; iban: string; debit_day: number; created_at: string;
   susp_reason?: string; canc_reason?: string; last_collection_at?: string;
   cobranças_ok: number; cobranças_rejeitadas: number; total_cobrado: number;
 }
-interface DDStats { activos: string; suspensos: string; cancelados: string; expirados: string; pendentes: string; total_cobrado_aoa: string; total_rejeitadas: string; }
-interface DDReconReport { id: number; report_date: string; total_enviado: number; total_aceite: number; total_rejeitado: number; total_pendente: number; total_devolvido: number; }
 
 const DD_STATUS_MAP: Record<string, { label: string; cls: string }> = {
   ACTV:    { label: "Activo",          cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
@@ -7953,201 +7948,182 @@ const DDStatusBadge = memo(function DDStatusBadge({ s }: { s: string }) {
 });
 
 function DDCancelamentosView({ token }: { token: string }) {
-  const [ddTab, setDdTab]       = useState<"mandatos"|"reconciliacao">("mandatos");
   const [mandates, setMandates] = useState<DDMandate[]>([]);
-  const [stats, setStats]       = useState<DDStats | null>(null);
-  const [loadingM, setLoadingM] = useState(true);
-  const [filterS, setFilterS]   = useState("todos");
+  const [loading, setLoading]   = useState(true);
+  const [transitioning, setTransitioning] = useState<number | null>(null);
+  const [error, setError]       = useState("");
 
-  // Reconciliação
-  const [recon, setRecon]         = useState<DDReconReport[]>([]);
-  const [reconLoading, setReconLoading] = useState(false);
-
-  const loadMandates = useCallback(async () => {
-    setLoadingM(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const [mR, sR] = await Promise.all([
-        fetch(`${API}/school/dd/mandates?per_page=100`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API}/school/dd/stats`,                  { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-      if (mR.ok) { const d = await mR.json(); setMandates(d.mandates ?? []); }
-      if (sR.ok) setStats(await sR.json());
+      const r = await fetch(`${API}/school/dd/mandates?per_page=200`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) { const d = await r.json(); setMandates(d.mandates ?? []); }
     } catch { /* ignore */ }
-    finally { setLoadingM(false); }
+    finally { setLoading(false); }
   }, [token]);
 
-  const loadRecon = useCallback(async () => {
-    setReconLoading(true);
+  useEffect(() => { load(); }, [load]);
+
+  const doTransition = async (id: number, newStatus: string, motivo: string) => {
+    setTransitioning(id); setError("");
     try {
-      const r = await fetch(`${API}/school/dd/reconciliation`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) setRecon(await r.json());
-    } catch { /* ignore */ }
-    finally { setReconLoading(false); }
-  }, [token]);
-
-  useEffect(() => { loadMandates(); }, [loadMandates]);
-  useEffect(() => { if (ddTab === "reconciliacao") loadRecon(); }, [ddTab, loadRecon]);
-
-  const transitionMandate = async (id: number, newStatus: string, motivo: string) => {
-    await fetch(`${API}/school/dd/mandates/${id}/transition`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ new_status: newStatus, motivo }),
-    });
-    loadMandates();
+      const r = await fetch(`${API}/school/dd/mandates/${id}/transition`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ new_status: newStatus, motivo }),
+      });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro ao processar pedido."); }
+      await load();
+    } catch (e: any) { setError(e.message); }
+    finally { setTransitioning(null); }
   };
 
-  const filtered = filterS === "todos" ? mandates : mandates.filter(m => m.status === filterS);
+  // Pedidos de cancelamento = mandatos com canc_reason definido e ainda não cancelados
+  const pendentes = mandates.filter(m => m.canc_reason && m.status !== "CANC");
+  const activos   = mandates.filter(m => !m.canc_reason && m.status === "ACTV");
 
-  const SUB_TABS = [
-    { key: "mandatos",      label: "Mandatos",     icon: <ArrowLeftRight className="w-3.5 h-3.5"/> },
-    { key: "reconciliacao", label: "Reconciliação",icon: <BarChart3 className="w-3.5 h-3.5"/> },
-  ] as const;
+  const maskIban = (iban: string) => iban ? "···" + iban.slice(-4) : "—";
+
+  const MandateRow = ({ m, isPending }: { m: DDMandate; isPending?: boolean }) => (
+    <div className={`p-4 flex items-start gap-4 ${isPending ? "bg-amber-50/40" : ""}`}>
+      <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${
+        isPending ? "bg-amber-500" : m.status === "ACTV" ? "bg-emerald-500" : "bg-slate-300"
+      }`}/>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <p className="font-semibold text-slate-800 text-sm">{m.encarregado_nome}</p>
+            <p className="text-xs text-slate-400">{m.telefone}</p>
+          </div>
+          <DDStatusBadge s={isPending ? "cancellation_requested" : m.status}/>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+          <span><span className="font-medium text-slate-700">IBAN:</span> {maskIban(m.iban)}</span>
+          <span><span className="font-medium text-slate-700">Dia débito:</span> {m.debit_day}</span>
+          {m.canc_reason && (
+            <span className="col-span-2 text-amber-700">
+              <span className="font-medium">Motivo:</span> {m.canc_reason}
+            </span>
+          )}
+        </div>
+        {isPending && (
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => doTransition(m.id, "CANC", "Cancelamento aprovado pelo colégio")}
+              disabled={transitioning === m.id}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white text-xs font-semibold transition-colors">
+              {transitioning === m.id ? <RefreshCw className="w-3 h-3 animate-spin"/> : <X className="w-3 h-3"/>}
+              Aprovar Cancelamento
+            </button>
+            <button
+              onClick={() => doTransition(m.id, "ACTV", "Pedido de cancelamento recusado pelo colégio")}
+              disabled={transitioning === m.id}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50">
+              Recusar (Manter DD)
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex-1 p-6 max-w-4xl mx-auto w-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <ArrowLeftRight className="w-5 h-5 text-primary"/> Débito Directo
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Gestão de mandatos e reconciliação</p>
+          <p className="text-sm text-slate-500 mt-0.5">Aprovação de pedidos de cancelamento dos encarregados</p>
         </div>
-        <button onClick={loadMandates} className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
-          <RefreshCw className={`w-4 h-4 ${loadingM ? "animate-spin" : ""}`}/>
+        <button onClick={load} className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}/>
         </button>
       </div>
 
-      {/* Stats bar */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          {[
-            { label: "Activos",    val: stats.activos,    cls: "text-emerald-600" },
-            { label: "Suspensos",  val: stats.suspensos,  cls: "text-amber-600" },
-            { label: "Cancelados", val: stats.cancelados, cls: "text-red-500" },
-            { label: "Total cobrado", val: `${Number(stats.total_cobrado_aoa ?? 0).toLocaleString("pt-AO")} AOA`, cls: "text-blue-600" },
-          ].map(s => (
-            <div key={s.label} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
-              <p className="text-xs text-slate-400 mb-0.5">{s.label}</p>
-              <p className={`text-lg font-bold ${s.cls}`}>{s.val}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Sub-tabs */}
-      <div className="flex gap-1 mb-5 border-b border-slate-200">
-        {SUB_TABS.map(t => (
-          <button key={t.key} onClick={() => setDdTab(t.key as any)}
-            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-b-2 transition-all -mb-px ${
-              ddTab === t.key ? "border-primary text-primary" : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}>
-            {t.icon}{t.label}
-          </button>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[
+          { label: "Activos",                   val: activos.length,   cls: "text-emerald-600", bg: "bg-emerald-50" },
+          { label: "Cancelamento Pendente",      val: pendentes.length, cls: "text-amber-600",   bg: "bg-amber-50"   },
+          { label: "Cancelados",                 val: mandates.filter(m => m.status === "CANC").length, cls: "text-red-500", bg: "bg-red-50" },
+        ].map(s => (
+          <div key={s.label} className={`${s.bg} rounded-2xl p-4 text-center border border-white shadow-sm`}>
+            <p className={`text-2xl font-bold ${s.cls}`}>{s.val}</p>
+            <p className="text-xs text-slate-500 mt-0.5 leading-tight">{s.label}</p>
+          </div>
         ))}
       </div>
 
-      {/* ── TAB: MANDATOS ── */}
-      {ddTab === "mandatos" && (
-        <div className="space-y-4">
-          <div className="flex gap-2 flex-wrap">
-            {["todos","ACTV","SUSP","CANC","EXPRD"].map(f => (
-              <button key={f} onClick={() => setFilterS(f)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${filterS === f ? "bg-primary text-white border-primary" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                {f === "todos" ? "Todos" : f}
-              </button>
-            ))}
+      {/* Pending alert */}
+      {pendentes.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 mb-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5"/>
+          <div>
+            <p className="font-semibold text-amber-900 text-sm">
+              {pendentes.length} pedido{pendentes.length > 1 ? "s" : ""} de cancelamento pendente{pendentes.length > 1 ? "s" : ""}
+            </p>
+            <p className="text-amber-700 text-xs mt-0.5">
+              Verifique se há débitos em trânsito antes de aprovar. O cancelamento é definitivo — o encarregado pode readerir mais tarde.
+            </p>
           </div>
-
-          {loadingM ? (
-            <div className="flex items-center justify-center py-20 text-slate-400">
-              <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
-              <ArrowLeftRight className="w-8 h-8 opacity-30"/>
-              <p className="text-sm">Nenhum mandato encontrado.</p>
-              <p className="text-xs">Os encarregados aderem no portal do encarregado.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filtered.map(m => (
-                <div key={m.id} className={`bg-white border rounded-2xl p-4 shadow-sm ${m.status === "SUSP" ? "border-amber-200" : m.status === "CANC" ? "border-red-100" : "border-slate-200"}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <DDStatusBadge s={m.status}/>
-                        <span className="font-mono text-xs text-slate-400">{m.reference}</span>
-                        <span className="text-xs text-slate-400">{new Date(m.created_at).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"})}</span>
-                      </div>
-                      <p className="font-semibold text-slate-900 text-sm">{m.encarregado_nome}</p>
-                      <p className="text-xs text-slate-500">{m.telefone}</p>
-                      <div className="flex gap-4 mt-2 text-xs text-slate-400">
-                        <span>IBAN: <span className="font-mono text-slate-600">···{m.iban?.slice(-4)}</span></span>
-                        <span>Dia {m.debit_day}</span>
-                        <span className="text-emerald-600 font-medium">{m.cobranças_ok ?? 0} cobranças OK</span>
-                        {Number(m.total_cobrado) > 0 && <span className="text-emerald-600">{Number(m.total_cobrado).toLocaleString("pt-AO")} AOA</span>}
-                        {Number(m.cobranças_rejeitadas) > 0 && <span className="text-red-500">{m.cobranças_rejeitadas} rejeit.</span>}
-                      </div>
-                      {m.susp_reason && <p className="text-xs text-amber-600 mt-1">Suspenso: {m.susp_reason}</p>}
-                      {m.canc_reason && <p className="text-xs text-red-500 mt-1">Motivo: {m.canc_reason}</p>}
-                    </div>
-                    {m.status === "SUSP" && (
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button onClick={() => transitionMandate(m.id, "ACTV", "Reactivado pelo colégio")}
-                          className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 transition-colors">
-                          Reactivar
-                        </button>
-                        <button onClick={() => transitionMandate(m.id, "CANC", "Cancelado pelo colégio")}
-                          className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 transition-colors">
-                          Cancelar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* ── TAB: RECONCILIAÇÃO ── */}
-      {ddTab === "reconciliacao" && (
-        <div className="space-y-4">
-          {reconLoading ? (
-            <div className="flex items-center justify-center py-20 text-slate-400"><RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…</div>
-          ) : recon.length === 0 ? (
-            <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
-              <BarChart3 className="w-8 h-8 opacity-30"/>
-              <p className="text-sm">Nenhum relatório de reconciliação disponível.</p>
-              <p className="text-xs">Os relatórios são gerados automaticamente após processamento PAIN.002.</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    {["Data","Enviado","Aceite","Rejeitado","Devolvido","Pendente"].map(h => (
-                      <th key={h} className="px-4 py-3 text-left font-semibold text-slate-500">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {recon.map(r => (
-                    <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-800">{new Date(r.report_date).toLocaleDateString("pt-AO",{day:"2-digit",month:"short",year:"numeric"})}</td>
-                      <td className="px-4 py-3 text-slate-600">{r.total_enviado}</td>
-                      <td className="px-4 py-3 text-emerald-600 font-semibold">{r.total_aceite}</td>
-                      <td className="px-4 py-3 text-red-500 font-semibold">{r.total_rejeitado}</td>
-                      <td className="px-4 py-3 text-amber-500">{r.total_devolvido}</td>
-                      <td className="px-4 py-3 text-slate-400">{r.total_pendente}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 mb-4">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0"/>
+          <p className="text-red-700 text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-slate-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2"/> A carregar…
+        </div>
+      ) : mandates.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-slate-400 gap-2">
+          <ArrowLeftRight className="w-8 h-8 opacity-30"/>
+          <p className="text-sm">Nenhum mandato de débito directo.</p>
+          <p className="text-xs">Os encarregados aderem no portal do encarregado.</p>
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+          {/* Pedidos de cancelamento primeiro */}
+          {pendentes.length > 0 && (
+            <>
+              <div className="px-4 py-2 bg-amber-50 border-b border-amber-100">
+                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Pedidos de Cancelamento</p>
+              </div>
+              <div className="divide-y divide-amber-50">
+                {pendentes.map(m => <MandateRow key={m.id} m={m} isPending/>)}
+              </div>
+            </>
+          )}
+          {/* Mandatos activos */}
+          {activos.length > 0 && (
+            <>
+              <div className={`px-4 py-2 bg-slate-50 border-b border-slate-100 ${pendentes.length > 0 ? "border-t border-slate-200 mt-0" : ""}`}>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Mandatos Activos</p>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {activos.map(m => <MandateRow key={m.id} m={m}/>)}
+              </div>
+            </>
+          )}
+          {/* Cancelados / outros */}
+          {mandates.filter(m => m.status === "CANC").length > 0 && (
+            <>
+              <div className="px-4 py-2 bg-slate-50 border-t border-slate-200">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Cancelados</p>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {mandates.filter(m => m.status === "CANC").map(m => <MandateRow key={m.id} m={m}/>)}
+              </div>
+            </>
           )}
         </div>
       )}
