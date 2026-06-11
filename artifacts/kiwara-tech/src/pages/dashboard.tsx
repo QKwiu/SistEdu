@@ -1315,13 +1315,12 @@ function ModalFatura({ token, propinaId, onClose }: { token: string; propinaId: 
                 <p className="text-xs text-blue-600 mt-2 text-center">Válido até: {new Date(referencia.validade).toLocaleDateString("pt-AO")}</p>
               )}
             </div>
-          ) : propina.internal_reference && propina.status !== "pago" ? (
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-3">
-              <Hash className="w-4 h-4 text-slate-400 shrink-0"/>
+          ) : (propina.status !== "pago" && propina.status !== "pago_com_atraso") ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0"/>
               <div>
-                <p className="text-xs font-semibold text-slate-600">Referência interna</p>
-                <p className="font-mono text-xs text-slate-500">{propina.internal_reference}</p>
-                <p className="text-xs text-slate-400 mt-0.5">Gere uma referência bancária para pagamento via Multicaixa.</p>
+                <p className="text-xs font-semibold text-amber-700">Sem referência EMIS</p>
+                <p className="text-xs text-amber-600 mt-0.5">Solicite ao colégio a geração de uma referência Multicaixa.</p>
               </div>
             </div>
           ) : null}
@@ -3643,6 +3642,25 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
     setOpenMenu(null);
   };
 
+  const [gerarRefLoading, setGerarRefLoading] = useState<number | null>(null);
+  const handleGerarReferencia = async (p: Propina) => {
+    if (!token) return;
+    setGerarRefLoading(p.id);
+    try {
+      const r = await fetch(`${API}/school/propinas/${p.id}/gerar-referencia`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Erro ao gerar referência.");
+      setPropinas(prev => prev.map(x => x.id === p.id ? { ...x, ...d } : x));
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setGerarRefLoading(null);
+    }
+  };
+
   const filtered = propinas
     .filter(p => filterStatus === "todos" || p.status === filterStatus)
     .filter(p => !filterAluno || String(p.student_id) === filterAluno)
@@ -3789,8 +3807,6 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                   <td className="px-3 py-2.5 text-xs hidden xl:table-cell">
                     {p.ref_numero
                       ? <span className="font-mono text-slate-700">{p.entidade}/{p.ref_numero}</span>
-                      : p.internal_reference
-                      ? <span className="font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">{p.internal_reference}</span>
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-3 py-2.5">
@@ -3809,6 +3825,15 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                       </button>
                       {p.status !== "pago" && p.pagamento_origem !== "online" && (
                         <>
+                          {(p.status === "vencido" || p.status === "vencida") && (
+                            <button
+                              onClick={() => handleGerarReferencia(p)}
+                              disabled={gerarRefLoading === p.id}
+                              title="Gerar nova referência EMIS"
+                              className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-50">
+                              <RefreshCw className={`w-3.5 h-3.5 ${gerarRefLoading === p.id ? "animate-spin" : ""}`}/>
+                            </button>
+                          )}
                           <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
                             title="Dar baixa manual"
                             className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors">
@@ -3934,11 +3959,9 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
 
               {/* Reference */}
               <div className="bg-slate-50 rounded-xl p-4 space-y-2">
-                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Referência</p>
+                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Referência EMIS (Multicaixa)</p>
                 {detalhePropina.ref_numero
                   ? <p className="font-mono text-slate-800 font-semibold">{detalhePropina.entidade} / {detalhePropina.ref_numero}</p>
-                  : detalhePropina.internal_reference
-                  ? <p className="font-mono text-slate-600">{detalhePropina.internal_reference}</p>
                   : <p className="text-slate-400 text-sm italic">Sem referência gerada</p>}
                 <div className="flex gap-4 mt-2 pt-2 border-t border-slate-200">
                   <div>
@@ -4364,16 +4387,17 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const filtered = useMemo(
     () => propinas.filter(p => {
       if (search && !p.aluno_nome.toLowerCase().includes(search.toLowerCase()) &&
-          !p.internal_reference?.toLowerCase().includes(search.toLowerCase())) return false;
+          !p.ref_numero?.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     }),
     [propinas, search]
   );
 
   const statusBadge = (s: string) => {
-    if (s === "pago")     return <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">Paga</span>;
-    if (s === "vencido")  return <span className="px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 rounded-full border border-red-200">Vencida</span>;
-    return                       <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-700 rounded-full border border-amber-200">Pendente</span>;
+    if (s === "pago")            return <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">Paga</span>;
+    if (s === "pago_com_atraso") return <span className="px-2.5 py-1 text-xs font-semibold bg-orange-50 text-orange-700 rounded-full border border-orange-200">Paga c/ Atraso</span>;
+    if (s === "vencida" || s === "vencido") return <span className="px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 rounded-full border border-red-200">Vencida</span>;
+    return                                          <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-700 rounded-full border border-amber-200">Pendente</span>;
   };
 
   const alunosMultas = useMemo(() => {
@@ -4844,8 +4868,8 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                         <p className="text-xs text-red-600 mt-0.5">Inclui multa de {fmt(baixaModal.multa)}</p>
                       )}
                     </div>
-                    {baixaModal.internal_reference && (
-                      <span className="font-mono text-xs bg-white border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg">{baixaModal.internal_reference}</span>
+                    {baixaModal.ref_numero && (
+                      <span className="font-mono text-xs bg-white border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg">{baixaModal.entidade}/{baixaModal.ref_numero}</span>
                     )}
                   </div>
 
@@ -8761,6 +8785,96 @@ function LocalEmolumentosTab({ token }: { token: string }) {
 
       {/* ─── Multa regras panel ─── */}
       <SchoolMultaRegrasPanel token={token} initial={multaRegra} onSaved={r => setMultaRegra(r)} />
+
+      {/* ─── EMIS Settings panel ─── */}
+      <SchoolEmisSettingsPanel token={token} />
+    </div>
+  );
+}
+
+/* ─── School EMIS Settings Panel ─── */
+function SchoolEmisSettingsPanel({ token }: { token: string }) {
+  const [diaVenc, setDiaVenc] = useState("10");
+  const [diaGer, setDiaGer] = useState("20");
+  const [autoGer, setAutoGer] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  useEffect(() => {
+    fetch(`${API}/school/settings`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const p = d.propinas ?? {};
+        setDiaVenc(String(p.dia_vencimento ?? 10));
+        setDiaGer(String(p.dia_geracao_auto ?? 20));
+        setAutoGer(p.auto_geracao_referencia ?? false);
+      });
+  }, [token]);
+
+  const save = async () => {
+    setSaving(true); setError("");
+    try {
+      const cur = await fetch(`${API}/school/settings`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+      const patch = {
+        ...cur,
+        propinas: {
+          ...(cur.propinas ?? {}),
+          dia_vencimento: Number(diaVenc),
+          dia_geracao_auto: Number(diaGer),
+          auto_geracao_referencia: autoGer,
+        },
+      };
+      const r = await fetch(`${API}/school/settings`, { method: "PUT", headers: hdrs, body: JSON.stringify(patch) });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro ao guardar."); }
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch (err: any) { setError(err.message); }
+    finally { setSaving(false); }
+  };
+
+  const iCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300";
+
+  return (
+    <div className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <RefreshCw className="w-5 h-5 text-blue-600 shrink-0"/>
+        <h4 className="font-semibold text-blue-900">Configurações de Referências EMIS (Multicaixa)</h4>
+      </div>
+      <p className="text-xs text-blue-700 mb-5">
+        Configure o dia de vencimento e a geração automática mensal de referências. A data de vencimento é calculada no mês seguinte ao mês da propina (M+1), ajustada para dia útil.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Dia de vencimento (mês M+1)</label>
+          <input type="number" min="1" max="28" className={iCls} value={diaVenc} onChange={e => setDiaVenc(e.target.value)} placeholder="ex: 10"/>
+          <p className="text-xs text-slate-400 mt-1">Propina de Janeiro → referência vence a {diaVenc || "?"} de Fevereiro</p>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Dia de geração automática</label>
+          <input type="number" min="1" max="28" className={iCls} value={diaGer} onChange={e => setDiaGer(e.target.value)} placeholder="ex: 20"/>
+          <p className="text-xs text-slate-400 mt-1">Dia do mês em que são geradas as referências do mês seguinte</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mb-5">
+        <button type="button" onClick={() => setAutoGer(a => !a)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${autoGer ? "bg-blue-500" : "bg-slate-300"}`}>
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${autoGer ? "translate-x-6" : "translate-x-1"}`}/>
+        </button>
+        <span className="text-sm text-slate-600">
+          {autoGer ? "Geração automática de referências EMIS activa" : "Geração automática desactivada (manual)"}
+        </span>
+      </div>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-3">{error}</div>}
+      <button onClick={save} disabled={saving}
+        className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2">
+        {saving
+          ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar...</>
+          : saved
+          ? <><CheckCircle2 className="w-4 h-4"/>Guardado!</>
+          : "Guardar configurações EMIS"}
+      </button>
     </div>
   );
 }

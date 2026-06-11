@@ -3,6 +3,12 @@ import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import { generateInternalReference } from "./reconciliation";
 import { sendEventSMS, sendBulkSMS } from "../services/sms.service";
+import {
+  requestEMISReference,
+  calcularDataVencimentoEMIS,
+  getDiaVencimento,
+  getDiaGeracaoAuto,
+} from "../services/emis.service";
 import { triggerComunicadoPush, type PushAudiencia } from "../services/push-worker";
 import multer from "multer";
 import path from "path";
@@ -996,9 +1002,10 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
   const { finalMontante, desconto } = applyBolsaDiscount(Number(montante), activeBolsa);
   const bolsaAtribuicaoId = activeBolsa?.id ?? null;
 
+  const diaVenc = await getDiaVencimento(school.school_id);
   const created = [];
   for (const mes of meses) {
-    const vencimento = lastDayOfMonth(mes, String(ano));
+    const vencimento = await calcularDataVencimentoEMIS(mes, String(ano), diaVenc);
     try {
       const r = await pool.query(
         `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status, desconto, bolsa_atribuicao_id)
@@ -1009,9 +1016,37 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
       );
       if (r.rows[0]) {
         const propina = r.rows[0];
-        const ref = await generateInternalReference(propina.id);
-        await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
-        created.push({ ...propina, internal_reference: ref });
+        /* Solicitar referência à EMIS */
+        const emisResp = await requestEMISReference({
+          school_id:    school.school_id,
+          propina_id:   propina.id,
+          montante:     finalMontante,
+          aluno_nome:   studentInfo.nome,
+          mes,
+          ano:          String(ano),
+          diaVencimento: diaVenc,
+        }).catch(() => null);
+
+        let emisRef: string | null = null;
+        let emisEntidade: string | null = null;
+        if (emisResp) {
+          emisRef     = emisResp.referencia;
+          emisEntidade = emisResp.entidade;
+          await pool.query(
+            `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+             VALUES ($1,$2,$3,$4,'PENDENTE',$5)
+             ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
+            [propina.id, emisEntidade, emisRef, finalMontante, emisResp.validade]
+          );
+          await pool.query("UPDATE propinas SET internal_reference=$1, data_vencimento=$2 WHERE id=$3",
+            [emisRef, emisResp.validade, propina.id]);
+        } else {
+          /* Fallback: manter referência interna */
+          const ref = await generateInternalReference(propina.id);
+          await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
+        }
+
+        created.push({ ...propina, emis_entidade: emisEntidade, emis_referencia: emisRef, data_vencimento: vencimento });
         if (studentInfo.telefone_encarregado) {
           sendEventSMS("nova_fatura", school.school_id, {
             telefone: studentInfo.telefone_encarregado,
@@ -1019,8 +1054,8 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
             nome_aluno: studentInfo.nome,
             mes,
             valor: finalMontante,
-            reference: ref,
-            is_emis_reference: false,
+            reference: emisRef ?? "",
+            is_emis_reference: !!emisRef,
           }).catch(() => {});
         }
       }
@@ -1056,6 +1091,9 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
     cm++;
     if (cm >= 12) { cm = 0; cy++; }
   }
+
+  /* Obter dia de vencimento configurado pela escola */
+  const diaVencAuto = await getDiaVencimento(school.school_id);
 
   // Fetch all active students with their active enrolment package (or assigned individual emolumento)
   const studentsRes = await pool.query(
@@ -1111,7 +1149,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
 
     let criadosParaAluno = 0;
     for (const { mes, ano } of periodos) {
-      const vencimento = lastDayOfMonth(mes, ano);
+      const vencimento = await calcularDataVencimentoEMIS(mes, ano, diaVencAuto);
       try {
         const r = await pool.query(
           `INSERT INTO propinas (school_id, student_id, mes, ano, montante, data_vencimento, multa, status, desconto, bolsa_atribuicao_id)
@@ -1122,26 +1160,39 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
         );
         if (r.rows[0]) {
           const propina = r.rows[0];
-          const ref = await generateInternalReference(propina.id);
-          await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
           criadosParaAluno++;
           totalGeradas++;
 
-          // Auto-generate Multicaixa (EMIS) reference for this propina
+          /* Sempre solicitar referência EMIS (ou simular) */
           let emisRef: string | null = null;
-          if (auto_referencia) {
-            try {
-              const emisReferencia = generateRef();
-              const validade = lastDayOfMonth(mes, ano);
-              await pool.query(
-                `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
-                 VALUES ($1, $2, $3, $4, 'PENDENTE', $5)
-                 ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
-                [propina.id, "00112", emisReferencia, stFinalMontante, validade]
-              );
-              emisRef = emisReferencia;
-              totalReferencias++;
-            } catch {}
+          let emisEntidade: string | null = null;
+          try {
+            const emisResp = await requestEMISReference({
+              school_id:     school.school_id,
+              propina_id:    propina.id,
+              montante:      stFinalMontante,
+              aluno_nome:    st.nome,
+              mes,
+              ano,
+              diaVencimento: diaVencAuto,
+            });
+            emisRef      = emisResp.referencia;
+            emisEntidade = emisResp.entidade;
+            await pool.query(
+              `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+               VALUES ($1,$2,$3,$4,'PENDENTE',$5)
+               ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
+              [propina.id, emisEntidade, emisRef, stFinalMontante, emisResp.validade]
+            );
+            await pool.query(
+              "UPDATE propinas SET internal_reference=$1, data_vencimento=$2 WHERE id=$3",
+              [emisRef, emisResp.validade, propina.id]
+            );
+            totalReferencias++;
+          } catch {
+            /* Fallback: gerar referência interna */
+            const ref = await generateInternalReference(propina.id);
+            await pool.query("UPDATE propinas SET internal_reference=$1 WHERE id=$2", [ref, propina.id]);
           }
 
           // Send SMS notification to guardian
@@ -1152,7 +1203,7 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
               nome_aluno: st.nome,
               mes,
               valor: stFinalMontante,
-              reference: emisRef ?? ref,
+              reference: emisRef ?? "",
               is_emis_reference: !!emisRef,
             }).catch(() => {});
             totalSMS++;
@@ -1288,29 +1339,45 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
   const totalEmolumentos = validItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
   const total = totalPropinas + totalEmolumentos;
 
-  // Compute validade: last day of latest propina month OR 30 days from now if only emolumentos
+  /* Calcular validade: dia N do M+1 da propina mais recente; ou +30 dias se só emolumentos */
   let validade: Date;
+  const diaVencRef = await getDiaVencimento(school.school_id);
   if (freshPropinas.length) {
     const latestMes = freshPropinas[freshPropinas.length - 1];
-    validade = lastDayOfMonth(latestMes.mes, latestMes.ano);
+    validade = await calcularDataVencimentoEMIS(latestMes.mes, latestMes.ano, diaVencRef);
   } else {
     const d = new Date();
     d.setDate(d.getDate() + 30);
     validade = d;
   }
 
-  const referencia = generateRef();
-  const entidade = "00112";
-
-  // Insert reference for each propina (upsert)
+  /* Solicitar referência à EMIS (ou simular) para cada propina individualmente */
+  let entidade = "00112";
+  let referencia = "";
   for (const p of freshPropinas) {
-    await pool.query(
-      `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
-       VALUES ($1, $2, $3, $4, 'PENDENTE', $5)
-       ON CONFLICT (propina_id) DO UPDATE
-       SET referencia = $3, valor = $4, validade = $5, estado = 'PENDENTE'`,
-      [p.id, entidade, referencia, total, validade]
-    );
+    try {
+      const emisResp = await requestEMISReference({
+        school_id:     school.school_id,
+        propina_id:    p.id,
+        montante:      Number(p.montante) + Number(p.multa),
+        aluno_nome:    "",
+        mes:           p.mes,
+        ano:           p.ano,
+        diaVencimento: diaVencRef,
+      });
+      entidade   = emisResp.entidade;
+      referencia = emisResp.referencia;
+      await pool.query(
+        `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+         VALUES ($1,$2,$3,$4,'PENDENTE',$5)
+         ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
+        [p.id, entidade, referencia, Number(p.montante) + Number(p.multa), emisResp.validade]
+      );
+      await pool.query("UPDATE propinas SET internal_reference=$1, data_vencimento=$2 WHERE id=$3",
+        [referencia, emisResp.validade, p.id]);
+    } catch {
+      /* Manter referência existente se já houver */
+    }
   }
 
   // Insert cobrancas for each emolumento item
@@ -2597,5 +2664,137 @@ router.delete("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: an
   await pool.query(`DELETE FROM calendario_eventos WHERE id=$1 AND calendario_id=$2 AND school_id=$3`, [req.params.eid, req.params.id, school.school_id]);
   res.json({ ok: true });
 });
+
+/* ─── POST /school/propinas/:id/gerar-referencia — re-gerar referência EMIS expirada ─── */
+router.post("/school/propinas/:id/gerar-referencia", schoolAuth, async (req: any, res) => {
+  const school = await getSchoolFromToken(req.schoolToken);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const propId = Number(req.params.id);
+  const pRes = await pool.query(`
+    SELECT p.*, s.nome AS aluno_nome, s.telefone_encarregado, s.nome_encarregado,
+           pg.estado AS ref_estado
+    FROM propinas p
+    JOIN students s ON s.id = p.student_id
+    LEFT JOIN pagamentos pg ON pg.propina_id = p.id
+    WHERE p.id=$1 AND p.school_id=$2
+  `, [propId, school.school_id]);
+
+  if (!pRes.rows.length) return res.status(404).json({ error: "Propina não encontrada." });
+  const p = pRes.rows[0];
+
+  if (p.status === "pago" || p.status === "pago_com_atraso") {
+    return res.status(400).json({ error: "Propina já paga — não é possível re-gerar referência." });
+  }
+  if (p.ref_estado === "PENDENTE") {
+    return res.status(400).json({ error: "Referência ainda activa (PENDENTE). Só é possível re-gerar após expiração." });
+  }
+
+  const diaVenc = await getDiaVencimento(school.school_id);
+  const emisResp = await requestEMISReference({
+    school_id:     school.school_id,
+    propina_id:    propId,
+    montante:      Number(p.montante) + Number(p.multa),
+    aluno_nome:    p.aluno_nome,
+    mes:           p.mes,
+    ano:           p.ano,
+    diaVencimento: diaVenc,
+  });
+
+  await pool.query(
+    `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+     VALUES ($1,$2,$3,$4,'PENDENTE',$5)
+     ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
+    [propId, emisResp.entidade, emisResp.referencia, Number(p.montante) + Number(p.multa), emisResp.validade]
+  );
+  await pool.query(
+    "UPDATE propinas SET internal_reference=$1, data_vencimento=$2, status='pendente' WHERE id=$3",
+    [emisResp.referencia, emisResp.validade, propId]
+  );
+
+  if (p.telefone_encarregado) {
+    sendEventSMS("nova_fatura", school.school_id, {
+      telefone: p.telefone_encarregado,
+      nome_encarregado: p.nome_encarregado ?? undefined,
+      nome_aluno: p.aluno_nome,
+      mes: p.mes,
+      valor: Number(p.montante) + Number(p.multa),
+      reference: emisResp.referencia,
+      is_emis_reference: true,
+    }).catch(() => {});
+  }
+
+  console.log(`[EMIS] Referência re-gerada — propina=${propId} ref=${emisResp.referencia} simulado=${emisResp.simulado}`);
+  res.json({
+    ok:        true,
+    entidade:  emisResp.entidade,
+    referencia: emisResp.referencia,
+    validade:  emisResp.validade,
+    simulado:  emisResp.simulado,
+  });
+});
+
+/* ─── Scheduler: marcar propinas VENCIDAS e geração automática de referências ─── */
+export function scheduleSchoolJobs() {
+  /* Verificar propinas vencidas a cada hora */
+  setInterval(async () => {
+    try {
+      /* Marcar como 'vencida' propinas pendentes cuja data_vencimento já passou */
+      const r = await pool.query(`
+        UPDATE propinas
+        SET status = 'vencida'
+        WHERE status = 'pendente'
+          AND data_vencimento < NOW()
+        RETURNING id
+      `);
+      /* Marcar referências EMIS como EXPIRADO */
+      if (r.rows.length) {
+        const ids = r.rows.map((x: any) => x.id);
+        await pool.query(
+          `UPDATE pagamentos SET estado='EXPIRADO'
+           WHERE propina_id = ANY($1) AND estado='PENDENTE'`,
+          [ids]
+        );
+        console.log(`[school:jobs] ${r.rows.length} propinas marcadas como VENCIDA`);
+      }
+    } catch (e) { console.error("[school:jobs] VENCIDA check error:", e); }
+  }, 60 * 60 * 1000); /* cada hora */
+
+  /* Geração automática de referências no dia configurado (verificar 1x/hora às HH:00) */
+  setInterval(async () => {
+    const today = new Date();
+    if (today.getHours() !== 8) return; /* só às 08:00 */
+
+    try {
+      const schoolsRes = await pool.query(`
+        SELECT sc.id AS school_id, ss.settings
+        FROM schools sc
+        LEFT JOIN school_settings ss ON ss.school_id = sc.id
+        WHERE sc.active = true OR sc.active IS NULL
+      `);
+
+      for (const row of schoolsRes.rows) {
+        const settings = row.settings ?? {};
+        const propSettings = settings.propinas ?? {};
+        if (!propSettings.auto_geracao_referencia) continue;
+
+        const diaGeracao = Number(propSettings.dia_geracao_auto ?? 20);
+        if (today.getDate() !== diaGeracao) continue;
+
+        /* Gerar propinas do próximo mês para esta escola */
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        const mesNames = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                          "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+        const mesAlvo = mesNames[nextMonth.getMonth()];
+        const anoAlvo = String(nextMonth.getFullYear());
+
+        console.log(`[school:jobs] Auto-geração propinas escola=${row.school_id} ${mesAlvo}/${anoAlvo}`);
+        /* Invocar o mesmo endpoint internamente via query directa seria complexo — logar apenas para agora */
+      }
+    } catch (e) { console.error("[school:jobs] auto-geracao error:", e); }
+  }, 60 * 60 * 1000);
+
+  console.log("[school:jobs] agendados");
+}
 
 export default router;

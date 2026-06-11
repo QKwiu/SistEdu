@@ -696,6 +696,68 @@ router.post("/guardian/pagamentos/mcx-express", authMiddleware, async (req: any,
   return res.status(201).json(response);
 });
 
+// POST /guardian/propinas/:id/gerar-referencia — re-gerar referência EMIS expirada (portal encarregado)
+router.post("/guardian/propinas/:id/gerar-referencia", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const propId = Number(req.params.id);
+
+  /* Verificar que a propina pertence a um educando deste encarregado */
+  const check = await pool.query(`
+    SELECT p.*, s.nome AS aluno_nome, s.school_id,
+           pg.estado AS ref_estado
+    FROM propinas p
+    JOIN students s ON s.id = p.student_id
+    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+    LEFT JOIN pagamentos pg ON pg.propina_id = p.id
+    WHERE p.id=$1 AND ea.encarregado_id=$2
+  `, [propId, guardian.id]);
+
+  if (!check.rows.length)
+    return res.status(403).json({ error: "Propina não encontrada ou sem permissão." });
+
+  const p = check.rows[0];
+
+  if (p.status === "pago" || p.status === "pago_com_atraso")
+    return res.status(400).json({ error: "Propina já paga — não é possível re-gerar referência." });
+
+  if (p.ref_estado === "PENDENTE")
+    return res.status(400).json({ error: "Referência ainda activa. Aguarde que expire para re-gerar." });
+
+  const { requestEMISReference, getDiaVencimento } = await import("../services/emis.service");
+  const diaVenc = await getDiaVencimento(p.school_id);
+  const emisResp = await requestEMISReference({
+    school_id:     p.school_id,
+    propina_id:    propId,
+    montante:      Number(p.montante) + Number(p.multa),
+    aluno_nome:    p.aluno_nome,
+    mes:           p.mes,
+    ano:           p.ano,
+    diaVencimento: diaVenc,
+  });
+
+  await pool.query(
+    `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
+     VALUES ($1,$2,$3,$4,'PENDENTE',$5)
+     ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
+    [propId, emisResp.entidade, emisResp.referencia, Number(p.montante) + Number(p.multa), emisResp.validade]
+  );
+  await pool.query(
+    "UPDATE propinas SET internal_reference=$1, data_vencimento=$2, status='pendente' WHERE id=$3",
+    [emisResp.referencia, emisResp.validade, propId]
+  );
+
+  console.log(`[EMIS guardian] Referência re-gerada — propina=${propId} ref=${emisResp.referencia}`);
+  res.json({
+    ok:         true,
+    entidade:   emisResp.entidade,
+    referencia: emisResp.referencia,
+    validade:   emisResp.validade,
+    simulado:   emisResp.simulado,
+  });
+});
+
 // GET /guardian/alunos/:id/ocorrencias
 router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);

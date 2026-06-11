@@ -1,0 +1,34 @@
+
+Na lógica para geraçao de ref. implmentada no backend no no motor de pagamentos, dever ser removido a lógica anterior e adicionar e implmentar a seguinte lófica:
+
+0. eliminar do código e da UX/UI qualquer lógica e referencia sobre a geraçºao de referencia interna. vamos implmentar as regras abaixo.
+
+1.Geração de Referências
+A referência de pagamento é gerada pela EMIS (Multicaixa) — não pelo backend. O backend solicita a referência à EMIS, recebe Entidade + Referência, e associa ao registo da propina do aluno.
+Backend solicita referência à EMIS
+EMIS devolve Entidade + Referência oficial
+Backend associa: referência ↔ aluno ↔ propina ↔ período
+
+2. Ciclo de Vida da Referência
+A data de vencimento é num dia definido pelo colegio/instiuiçao de ensino do mês seguinte ao mês da propina. Ex: Se o dia 10 for fim de semana ou feriado, o vencimento passa para o próximo dia útil.
+Expira automaticamente num dia definido pelo colégio de M+1.
+A referência gerada pela EMIS tem validade até à data de vencimento. Após essa data, a referência expira automaticamente na EMIS e o estado da propina passa para VENCIDA.
+Após expiração → estado VENCIDA, referência inactiva na EMIS.
+O pagamento pode ser feito em qualquer canal Multicaixa (ATM, Express, Internet Banking). Quando pago, a EMIS notifica o backend via webhook/callback, e o backend actualiza o estado da propina para PAGO ou PAGO COM ATRASO conforme a data do pagamento.
+
+Uma vez que a refrencia enocntra-se vencida, deve ser possível gerar uma nova referencia pelo backoffice do peril do colegio ou pelo perfil do portal do encarregado/aluno
+
+
+
+3. Geração em Massa
+Manter botão "Gerar em Massa"
+Gera referências para todos os alunos activos de uma só vez
+O colégio pode gerar referências em massa para todos os alunos activos automaticamnete, no dia 20 de mes (agendado automaticamente) e essa data poderá ser configuravel no perfil de admin da plataforma no separador de configuraç
+ao do colegio/entidade de ensino.
+Cada aluno tem uma única referência activa por mês. Não é permitido gerar duplicados para o mesmo aluno/período.
+
+4. Callback da EMIS
+
+Webhook recebe notificação da EMIS quando referência é paga
+Backend actualiza estado: PENDENTE → PAGO
+Regista: data/hora do pagamento, canal, valor

@@ -79,14 +79,18 @@ router.post("/payments/webhook", async (req, res) => {
     });
   }
 
-  /* ── 3. Locate invoice by internal_reference ── */
+  /* ── 3. Locate invoice by EMIS reference (pagamentos.referencia) or internal_reference ── */
   const pRow = await pool.query(`
     SELECT p.*, sc.commission_rate, sc.id AS school_db_id,
            st.nome AS nome_aluno, st.telefone_encarregado, st.nome_encarregado
     FROM propinas p
     JOIN schools sc ON sc.id = p.school_id
     LEFT JOIN students st ON st.id = p.student_id
-    WHERE p.internal_reference = $1
+    WHERE p.id IN (
+      SELECT propina_id FROM pagamentos WHERE referencia = $1
+    )
+    OR p.internal_reference = $1
+    LIMIT 1
   `, [ref]);
 
   if (!pRow.rows.length) {
@@ -144,8 +148,14 @@ router.post("/payments/webhook", async (req, res) => {
     return res.status(422).json({ error: reason, transaction_id: txId });
   }
 
-  /* ── 6. Update propina: mark paid, save transaction_id & method ── */
-  const newStatus = status === "paid" ? "pago" : "pendente";
+  /* ── 6. Update propina: mark paid, detect PAGO_COM_ATRASO ── */
+  let newStatus = "pendente";
+  if (status === "paid") {
+    /* Comparar data de pagamento com data_vencimento da propina */
+    const vencimento = p.data_vencimento ? new Date(p.data_vencimento) : null;
+    const pagoEmAtraso = vencimento && ts > vencimento;
+    newStatus = pagoEmAtraso ? "pago_com_atraso" : "pago";
+  }
 
   await pool.query(`
     UPDATE propinas
@@ -154,12 +164,13 @@ router.post("/payments/webhook", async (req, res) => {
         metodo_pagamento = $3,
         pagamento_origem = 'online',
         transaction_id   = $4,
-        partially_paid_amount = CASE WHEN $1 = 'pago' THEN 0 ELSE $5 END
+        partially_paid_amount = CASE WHEN $1 IN ('pago','pago_com_atraso') THEN 0 ELSE $5 END
     WHERE id = $6
   `, [newStatus, ts, method, txId, paid < total ? paid : 0, p.id]);
 
   /* Update pagamentos reference */
-  await pool.query("UPDATE pagamentos SET estado='PAGO' WHERE propina_id=$1", [p.id]);
+  const estadoPagamento = newStatus === "pago_com_atraso" ? "PAGO_COM_ATRASO" : "PAGO";
+  await pool.query("UPDATE pagamentos SET estado=$1 WHERE propina_id=$2", [estadoPagamento, p.id]);
 
   /* ── SMS: pagamento_confirmado ── */
   if (newStatus === "pago" && p.telefone_encarregado) {
@@ -237,8 +248,9 @@ router.post("/payments/webhook", async (req, res) => {
     ok:                 true,
     processed:          true,
     transaction_id:     txId,
-    internal_reference: ref,
+    emis_referencia:    ref,
     status:             newStatus,
+    pago_em_atraso:     newStatus === "pago_com_atraso",
     valor_pago:         paid,
     total_fatura:       total,
     payment_method:     method,

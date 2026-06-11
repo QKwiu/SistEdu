@@ -23,6 +23,7 @@ import emailRouter from "./email";
 import { runEmailMigration } from "../services/email.service";
 import bankRouter, { runBankMigration } from "./bank";
 import sddRouter, { runSddMigration } from "./sdd";
+import { scheduleSchoolJobs } from "./school";
 
 const router: IRouter = Router();
 
@@ -85,5 +86,7 @@ runBankMigration().catch(err =>
 runSddMigration().catch(err =>
   console.error("[sdd migration]", err)
 );
+
+scheduleSchoolJobs();
 
 export default router;
