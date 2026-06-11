@@ -2559,14 +2559,9 @@ function AlunoFichaSlideOver({
                     ) : (
                       <>
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Meio de Pagamento</label>
-                          <div className="grid grid-cols-2 gap-2">
-                            {[{id:"CASH",label:"💵 Dinheiro"},{id:"TPA",label:"💳 TPA"},{id:"TRANSFERENCIA",label:"🏦 Transferência"},{id:"MULTICAIXA",label:"🏧 Multicaixa"}].map(m => (
-                              <button key={m.id} type="button" onClick={() => setBaixaMetodo(m.id)}
-                                className={`py-2.5 px-3 rounded-xl text-xs font-semibold border transition-all text-left ${baixaMetodo === m.id ? "bg-primary text-white border-primary shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-primary/40"}`}>
-                                {m.label}
-                              </button>
-                            ))}
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Método de Pagamento</label>
+                          <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800">
+                            <Banknote className="w-3.5 h-3.5 text-emerald-600 shrink-0"/>💵 Numerário
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -4197,11 +4192,10 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                         value={bmValor} onChange={e => setBmValor(e.target.value)} placeholder="0.00"/>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Método *</label>
-                      <select className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        value={bmMetodo} onChange={e => setBmMetodo(e.target.value)}>
-                        {["Numerário","Transferência Bancária","Multicaixa Express","Cheque","Outro"].map(m => <option key={m}>{m}</option>)}
-                      </select>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Método</label>
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-800">
+                        <Banknote className="w-4 h-4 text-emerald-600 shrink-0"/>💵 Numerário
+                      </div>
                     </div>
                   </div>
                   <div>
@@ -4274,7 +4268,7 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [reconciling, setReconciling] = useState(false);
   const [baixaModal, setBaixaModal] = useState<RecPropina | null>(null);
   const [bmValor, setBmValor] = useState("");
-  const [bmMetodo, setBmMetodo] = useState("Cash");
+  const [bmMetodo, setBmMetodo] = useState("Numerário");
   const [bmData, setBmData] = useState("");
   const [bmObs, setBmObs] = useState("");
   const [bmFile, setBmFile] = useState<File | null>(null);
@@ -5477,15 +5471,14 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
                   </div>
 
-                  {/* Payment method */}
+                  {/* Payment method — fixed: Numerário */}
                   <div>
                     <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
                       <CreditCard className="w-3.5 h-3.5"/> Método de pagamento
                     </label>
-                    <select value={bmMetodo} onChange={e => { setBmMetodo(e.target.value); setBmFile(null); }}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40">
-                      {["Cash","Transferência Bancária","TPA"].map(m => <option key={m}>{m}</option>)}
-                    </select>
+                    <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-800">
+                      <Banknote className="w-4 h-4 text-emerald-600 shrink-0"/>💵 Numerário
+                    </div>
                   </div>
 
                   {/* Receipt date */}
@@ -5498,36 +5491,6 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"/>
                   </div>
 
-                  {/* Comprovante upload — not required for Cash */}
-                  {bmMetodo !== "Cash" && (
-                  <div>
-                    <label className="text-xs font-semibold text-slate-600 mb-1.5 block flex items-center gap-1">
-                      <Paperclip className="w-3.5 h-3.5"/> Comprovante de pagamento <span className="text-red-500">*</span>
-                    </label>
-                    <label className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${bmFile ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/50"}`}>
-                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden"
-                        onChange={e => { const f = e.target.files?.[0]; if (f) setBmFile(f); }}/>
-                      {bmFile ? (
-                        <>
-                          <FileCheck className="w-4 h-4 text-emerald-600 shrink-0"/>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-emerald-800 truncate">{bmFile.name}</p>
-                            <p className="text-xs text-emerald-600">{(bmFile.size / 1024).toFixed(0)} KB</p>
-                          </div>
-                          <button type="button" onClick={e => { e.preventDefault(); setBmFile(null); }}
-                            className="text-emerald-500 hover:text-red-500"><X className="w-3.5 h-3.5"/></button>
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 text-slate-400 shrink-0"/>
-                          <div>
-                            <p className="text-xs font-medium text-slate-600">Clique para seleccionar ficheiro</p>
-                            <p className="text-xs text-slate-400">PDF, JPG, PNG — até 5 MB</p>
-                          </div>
-                        </>
-                      )}
-                    </label>
-                  </div>)}
 
                   {/* Observations */}
                   <div>
