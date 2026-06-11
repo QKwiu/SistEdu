@@ -46,7 +46,7 @@ interface Propina {
   valor_base: number; multa: number; total: number;
   desconto: number;
   bolsa_atribuicao_id: number | null;
-  estado: "PENDENTE" | "PAGO" | "VENCIDO";
+  estado: "PENDENTE" | "PAGO" | "VENCIDO" | "ACTIVA" | "FUTURA" | "VENCIDA" | "PRE_PAGO" | "PAGO_ANULADO";
   data_vencimento: string;
   pagamento_id: number | null; entidade: string | null;
   referencia: string | null; ref_valor: number | null;
@@ -101,7 +101,7 @@ interface DDSubscription {
 type Screen = "login" | "change-password" | "dashboard";
 type FilterEstado = "TODOS" | "PENDENTE" | "VENCIDO" | "PAGO";
 type StudentTab = "propinas" | "ocorrencias";
-type ActiveMenu = "facturas" | "ocorrencias" | "comunicados" | "avaliacoes" | "loja" | "inf_rotinas" | "inf_ementa" | "inf_galeria";
+type ActiveMenu = "facturas" | "antecipados" | "ocorrencias" | "comunicados" | "avaliacoes" | "loja" | "inf_rotinas" | "inf_ementa" | "inf_galeria";
 
 const TIPO_COLORS_ENC: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   "Comportamento Inadequado": { bg:"bg-red-50", text:"text-red-700", border:"border-red-200", dot:"bg-red-500" },
@@ -126,9 +126,14 @@ const fmt = (val: number | string) => fmtCurrency(val, "Kz");
 
 function StatusBadge({ estado }: { estado: string }) {
   const c: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-    PAGO:     { label:"Pago",     cls:"bg-emerald-100 text-emerald-800 border-emerald-200", icon:<CheckCircle size={11}/> },
-    PENDENTE: { label:"Pendente", cls:"bg-amber-100 text-amber-800 border-amber-200",       icon:<Clock size={11}/> },
-    VENCIDO:  { label:"Vencido",  cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
+    PAGO:         { label:"Pago",           cls:"bg-emerald-100 text-emerald-800 border-emerald-200", icon:<CheckCircle size={11}/> },
+    PENDENTE:     { label:"Pendente",       cls:"bg-amber-100 text-amber-800 border-amber-200",       icon:<Clock size={11}/> },
+    VENCIDO:      { label:"Vencido",        cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
+    ACTIVA:       { label:"Referência activa", cls:"bg-blue-100 text-blue-800 border-blue-200",       icon:<CreditCard size={11}/> },
+    FUTURA:       { label:"Mês futuro",     cls:"bg-gray-100 text-gray-600 border-gray-200",          icon:<Clock size={11}/> },
+    VENCIDA:      { label:"Vencida",        cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
+    PRE_PAGO:     { label:"Pré-pago",       cls:"bg-violet-100 text-violet-800 border-violet-200",    icon:<BadgeCheck size={11}/> },
+    PAGO_ANULADO: { label:"Anulado",        cls:"bg-orange-100 text-orange-800 border-orange-200",    icon:<XCircle size={11}/> },
   };
   const s = c[estado] ?? c["PENDENTE"];
   return (
@@ -356,6 +361,129 @@ function CombinedRefModal({ ref: generated, onClose, schoolName }: { ref: Genera
   );
 }
 
+/* ─── Modal pagamento isolado (ACTIVA ou VENCIDA via GPO) ─── */
+function ModalPagamentoIsolado({
+  propina, token, onClose, onSuccess,
+}: { propina: Propina; token: string; onClose: ()=>void; onSuccess: ()=>void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+  const [gpoResult, setGpoResult] = useState<{ transaction_id:string; redirect_url:string; valor:number } | null>(null);
+  const [copiedRef, setCopiedRef] = useState(false);
+  const isVencida = propina.estado === "VENCIDA" || propina.estado === "VENCIDO";
+
+  const handleGPO = async () => {
+    setError(""); setLoading(true);
+    try {
+      const res = await fetch(`${API}/guardian/propinas/checkout-isolado`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ propina_id: propina.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar pagamento.");
+      setGpoResult(data);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const copyRef = () => {
+    const txt = `Entidade: ${propina.entidade}\nReferência: ${propina.referencia}\nValor: ${fmt(propina.total)}\nValidade: ${fmtDate(propina.validade)}`;
+    navigator.clipboard.writeText(txt).then(() => { setCopiedRef(true); setTimeout(() => setCopiedRef(false), 2500); });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
+      <motion.div initial={{y:80,opacity:0}} animate={{y:0,opacity:1}} exit={{y:80,opacity:0}}
+        transition={{type:"spring",stiffness:300,damping:30}}
+        className="relative w-full sm:max-w-md bg-white sm:rounded-2xl rounded-t-2xl overflow-hidden shadow-2xl"
+        onClick={e=>e.stopPropagation()}>
+        <div className={`px-5 py-4 text-white bg-gradient-to-r ${isVencida ? "from-red-700 to-red-600" : "from-blue-700 to-blue-600"}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2"><Banknote size={18}/><span className="font-semibold">{propina.mes} {propina.ano}</span></div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"><X size={16}/></button>
+          </div>
+          {isVencida && <p className="text-red-100 text-xs mt-1 flex items-center gap-1"><AlertTriangle size={11}/>Propina vencida — inclui multa por atraso</p>}
+        </div>
+        <div className="p-5 space-y-4">
+          {!gpoResult ? (<>
+            {propina.referencia && (
+              <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Referência EMIS activa</p>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Entidade</p>
+                  <p className="text-2xl font-bold text-gray-900 font-mono">{propina.entidade}</p>
+                </div>
+                <div className="border-t pt-3">
+                  <p className="text-xs text-gray-500 mb-0.5">Referência</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xl font-bold text-blue-700 font-mono tracking-widest">
+                      {propina.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
+                    </p>
+                    <CopyBtn text={propina.referencia}/>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                  <div><p className="text-xs text-gray-500 mb-0.5">Total a pagar</p><p className="font-bold text-gray-900">{fmt(propina.total)}</p></div>
+                  <div><p className="text-xs text-gray-500 mb-0.5">Válida até</p><p className="font-semibold text-gray-900 text-sm">{fmtShort(propina.validade)}</p></div>
+                </div>
+                <button onClick={copyRef}
+                  className="w-full py-2 rounded-xl border border-blue-200 text-blue-600 text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-blue-50 transition-colors">
+                  {copiedRef ? <><Check size={14}/>Copiado!</> : <><Copy size={14}/>Copiar dados EMIS</>}
+                </button>
+              </div>
+            )}
+            <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">Total a pagar</span>
+              <span className="font-bold text-gray-900 text-lg">{fmt(propina.total)}</span>
+            </div>
+            {Number(propina.multa) > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                <AlertTriangle size={13} className="text-red-500 shrink-0 mt-0.5"/>
+                <p className="text-red-700 text-xs">Inclui multa de {fmt(propina.multa)} por pagamento em atraso.</p>
+              </div>
+            )}
+            <AnimatePresence>{error && (
+              <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
+                className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                <AlertTriangle size={13} className="text-red-500 shrink-0 mt-0.5"/>
+                <p className="text-red-700 text-sm">{error}</p>
+              </motion.div>
+            )}</AnimatePresence>
+            <button onClick={handleGPO} disabled={loading}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+              {loading ? <RefreshCw size={16} className="animate-spin"/> : <Zap size={16}/>}
+              Pagar via GPO / Multicaixa Express
+            </button>
+          </>) : (
+            <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0"><CheckCircle size={20} className="text-emerald-600"/></div>
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">Checkout GPO iniciado</p>
+                  <p className="text-xs text-gray-500">Será redirecionado para o portal de pagamento</p>
+                </div>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-3 space-y-1">
+                <p className="text-xs text-gray-500">Valor a debitar</p>
+                <p className="font-bold text-emerald-700 text-xl">{fmt(gpoResult.valor)}</p>
+              </div>
+              <a href={gpoResult.redirect_url} target="_blank" rel="noopener noreferrer"
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                <Zap size={16}/>Continuar para EMIS/GPO
+              </a>
+              <button onClick={() => { onSuccess(); onClose(); }}
+                className="w-full py-2 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 transition-colors">
+                Fechar
+              </button>
+            </motion.div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 /* ─── Checkout Wizard (3-step payment flow) ─── */
 function CheckoutWizard({
   propinas, total, availableMethods, token, schoolName, alunos, onClose, onSuccess,
@@ -494,7 +622,7 @@ function CheckoutWizard({
                 <div className="space-y-2">
                   {propinas.map((p, i) => (
                     <div key={i} className={`flex justify-between items-center rounded-xl px-3 py-2.5 text-sm ${
-                      p.estado === "VENCIDO" ? "bg-red-50 border border-red-100" : "bg-gray-50"}`}>
+                      (p.estado === "VENCIDO" || p.estado === "VENCIDA") ? "bg-red-50 border border-red-100" : "bg-gray-50"}`}>
                       <div>
                         <span className="font-semibold text-gray-900">{p.mes} {p.ano}</span>
                         {Number(p.multa) > 0 && <span className="ml-2 text-xs text-red-500 font-medium">+multa</span>}
@@ -1912,6 +2040,13 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [viewPropina, setViewPropina] = useState<Propina|null>(null);
   const [generatedRef, setGeneratedRef] = useState<GeneratedRef|null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [isoladoPropina, setIsoladoPropina] = useState<Propina|null>(null);
+
+  // Pagamentos antecipados state
+  const [antecipadosSelectedIds, setAntecipadosSelectedIds] = useState<Set<number>>(new Set());
+  const [antecipadosLoading, setAntecipadosLoading] = useState(false);
+  const [antecipadosError, setAntecipadosError] = useState("");
+  const [antecipadosGPOResult, setAntecipadosGPOResult] = useState<{transaction_id:string;redirect_url:string;valor:number;propinas:any[]}|null>(null);
 
   // Filter + selection
   const [filterEstado, setFilterEstado] = useState<FilterEstado>("TODOS");
@@ -2125,13 +2260,25 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const totalVencidas = students.reduce((s,st)=>s+Number(st.propinas_vencidas),0);
 
   // Filter logic
-  const selectablePropinas = propinas.filter(p => p.estado !== "PAGO");
-  const filteredPropinas = filterEstado === "TODOS"
-    ? propinas
-    : propinas.filter(p => p.estado === filterEstado);
+  const PAID_STATES    = ["PAGO","PRE_PAGO","PAGO_ANULADO","PAGO_COM_ATRASO"] as const;
+  const PENDING_STATES = ["ACTIVA","FUTURA","PENDENTE"] as const;
+  const OVERDUE_STATES = ["VENCIDA","VENCIDO"] as const;
+  const selectablePropinas = propinas.filter(p =>
+    !([...PAID_STATES,"FUTURA"] as string[]).includes(p.estado)
+  );
+  const filteredPropinas = filterEstado === "TODOS"   ? propinas :
+    filterEstado === "PENDENTE" ? propinas.filter(p => (PENDING_STATES as readonly string[]).includes(p.estado)) :
+    filterEstado === "VENCIDO"  ? propinas.filter(p => (OVERDUE_STATES as readonly string[]).includes(p.estado)) :
+    filterEstado === "PAGO"     ? propinas.filter(p => (PAID_STATES as readonly string[]).includes(p.estado)) :
+    propinas.filter(p => p.estado === filterEstado);
 
   // Counts per tab
-  const countByEstado = (e: FilterEstado) => e === "TODOS" ? propinas.length : propinas.filter(p=>p.estado===e).length;
+  const countByEstado = (e: FilterEstado) =>
+    e === "TODOS"   ? propinas.length :
+    e === "PENDENTE" ? propinas.filter(p => (PENDING_STATES as readonly string[]).includes(p.estado)).length :
+    e === "VENCIDO"  ? propinas.filter(p => (OVERDUE_STATES as readonly string[]).includes(p.estado)).length :
+    e === "PAGO"     ? propinas.filter(p => (PAID_STATES    as readonly string[]).includes(p.estado)).length :
+    propinas.filter(p=>p.estado===e).length;
 
   // Selection helpers
   const toggleSelect = (id: number) => {
@@ -2141,7 +2288,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       return next;
     });
   };
-  const visibleSelectable = filteredPropinas.filter(p => p.estado !== "PAGO");
+  const visibleSelectable = filteredPropinas.filter(p =>
+    !([...PAID_STATES,"FUTURA"] as string[]).includes(p.estado)
+  );
   const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every(p => selectedIds.has(p.id));
   const toggleSelectAll = () => {
     if (allVisibleSelected) {
@@ -2164,12 +2313,14 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
   const initials = guardian.nome.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
   const unreadCount = comunicados.filter(c => !c.lido).length;
+  const futuraPropinas = propinas.filter(p => p.estado === "FUTURA");
   const sidebarItems: { key: ActiveMenu; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { key: "facturas",    label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
-    { key: "ocorrencias", label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
-    { key: "comunicados", label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
-    { key: "avaliacoes",  label: schoolModuloInfantil ? "Rotinas & Alimentação" : "Calendário Escolar", icon: <CalendarDays size={16} /> },
-    { key: "loja",        label: "Outros Emolumentos & Artigos",        icon: <ShoppingCart size={16} /> },
+    { key: "facturas",     label: "Consultar facturas ou referências",   icon: <CreditCard size={16} /> },
+    { key: "antecipados",  label: "Pagamentos Antecipados",              icon: <Wallet size={16} />, badge: futuraPropinas.length || undefined },
+    { key: "ocorrencias",  label: "Ocorrências/medidas disciplinares",   icon: <BookOpen size={16} /> },
+    { key: "comunicados",  label: "Comunicados",                         icon: <Bell size={16} />, badge: unreadCount },
+    { key: "avaliacoes",   label: schoolModuloInfantil ? "Rotinas & Alimentação" : "Calendário Escolar", icon: <CalendarDays size={16} /> },
+    { key: "loja",         label: "Outros Emolumentos & Artigos",        icon: <ShoppingCart size={16} /> },
   ];
 
   if (loadingStudents) return (
@@ -2505,19 +2656,45 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             ) : (
               <div className="space-y-3">
                 {filteredPropinas.map(p => {
-                  const isSelectable = p.estado !== "PAGO";
+                  const isPaid    = (["PAGO","PRE_PAGO","PAGO_ANULADO"] as string[]).includes(p.estado);
+                  const isVencida = (["VENCIDA","VENCIDO"] as string[]).includes(p.estado);
+                  const isActiva  = p.estado === "ACTIVA";
+                  const isFutura  = p.estado === "FUTURA";
+                  const isSelectable = !isPaid && !isFutura;
                   const isSelected = selectedIds.has(p.id);
                   return (
                     <motion.div key={p.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}}
                       className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${
-                        isSelected ? "border-blue-500 shadow-blue-100 shadow-md" :
-                        p.estado==="VENCIDO" ? "border-red-200" : "border-gray-100"
+                        isSelected    ? "border-blue-500 shadow-blue-100 shadow-md" :
+                        isVencida     ? "border-red-200" :
+                        isActiva      ? "border-blue-200" :
+                        isFutura      ? "border-gray-100 opacity-75" :
+                        p.estado === "PRE_PAGO" ? "border-violet-200" :
+                        "border-gray-100"
                       }`}>
 
-                      {p.estado === "VENCIDO" && (
+                      {isVencida && (
                         <div className="bg-red-50 border-b border-red-100 px-4 py-1.5 flex items-center gap-1.5">
                           <AlertTriangle size={12} className="text-red-500"/>
                           <span className="text-red-700 text-xs font-semibold">Propina vencida — multa por atraso aplicada</span>
+                        </div>
+                      )}
+                      {isActiva && (
+                        <div className="bg-blue-50 border-b border-blue-100 px-4 py-1.5 flex items-center gap-1.5">
+                          <CreditCard size={12} className="text-blue-500"/>
+                          <span className="text-blue-700 text-xs font-semibold">Referência EMIS activa — pode pagar via ATM ou GPO</span>
+                        </div>
+                      )}
+                      {isFutura && (
+                        <div className="bg-gray-50 border-b border-gray-100 px-4 py-1.5 flex items-center gap-1.5">
+                          <Clock size={12} className="text-gray-400"/>
+                          <span className="text-gray-500 text-xs">Pagamento antecipado disponível no menu <button onClick={()=>setActiveMenu("antecipados")} className="font-semibold text-blue-600 hover:underline">Pagamentos Antecipados</button></span>
+                        </div>
+                      )}
+                      {p.estado === "PRE_PAGO" && (
+                        <div className="bg-violet-50 border-b border-violet-100 px-4 py-1.5 flex items-center gap-1.5">
+                          <BadgeCheck size={12} className="text-violet-600"/>
+                          <span className="text-violet-700 text-xs font-semibold">Pré-pago via GPO — aguarda confirmação</span>
                         </div>
                       )}
 
@@ -2575,7 +2752,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                               <span className="font-semibold text-red-600">+ {fmt(p.multa)}</span>
                             </div>
                           )}
-                          {p.estado !== "PAGO" && (
+                          {!isPaid && !isFutura && (
                             <div className="flex justify-between border-t pt-1">
                               <span className="font-semibold text-gray-900">Total a pagar</span>
                               <span className="font-bold text-gray-900">{fmt(p.total)}</span>
@@ -2583,27 +2760,68 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                           )}
                         </div>
 
-                        {/* Reference / paid indicator */}
-                        {p.estado === "PAGO" ? (
+                        {/* Reference / paid / future indicator + action buttons */}
+                        {isPaid ? (
                           <div className="ml-8 flex items-center gap-2 bg-emerald-50 rounded-xl px-3 py-2">
                             <CheckCircle size={14} className="text-emerald-600"/>
-                            <span className="text-emerald-700 text-sm font-medium">Propina liquidada</span>
+                            <span className="text-emerald-700 text-sm font-medium">
+                              {p.estado === "PRE_PAGO" ? "Pré-pago via GPO — aguarda confirmação" :
+                               p.estado === "PAGO_ANULADO" ? "Pré-pagamento anulado" :
+                               "Propina liquidada"}
+                            </span>
                           </div>
-                        ) : p.referencia ? (
+                        ) : isFutura ? (
+                          <div className="ml-8 flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 text-gray-400">
+                            <Clock size={13}/>
+                            <p className="text-xs text-gray-500">Mês futuro — disponível em <button onClick={()=>setActiveMenu("antecipados")} className="font-semibold text-blue-600 hover:underline">Pagamentos Antecipados</button></p>
+                          </div>
+                        ) : isActiva ? (
                           <div className="ml-8 space-y-2">
                             <div className="bg-blue-50 rounded-xl px-3 py-2 flex items-center justify-between">
                               <div>
                                 <p className="text-xs text-blue-500 font-medium">Entidade {p.entidade} · Ref.</p>
                                 <p className="font-mono font-bold text-blue-800 text-sm tracking-widest">
-                                  {p.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
+                                  {p.referencia?.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
                                 </p>
                               </div>
-                              <CopyBtn text={p.referencia}/>
+                              <CopyBtn text={p.referencia ?? ""}/>
                             </div>
-                            <button onClick={()=>setViewPropina(p)}
-                              className={`w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border ${p.estado==="VENCIDO"?"border-red-200 text-red-600 hover:bg-red-50":"border-blue-200 text-blue-600 hover:bg-blue-50"}`}>
-                              <CreditCard size={13}/>Ver Referência Completa
-                            </button>
+                            <div className="flex gap-2">
+                              <button onClick={()=>setViewPropina(p)}
+                                className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-blue-200 text-blue-600 hover:bg-blue-50">
+                                <CreditCard size={13}/>Ver Referência
+                              </button>
+                              {availableMethods.allow_gpo_mcx && (
+                                <button onClick={()=>setIsoladoPropina(p)}
+                                  className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+                                  <Zap size={13}/>Pagar via GPO
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : isVencida ? (
+                          <div className="ml-8 space-y-2">
+                            {p.referencia && (
+                              <div className="bg-red-50 rounded-xl px-3 py-2 flex items-center justify-between">
+                                <div>
+                                  <p className="text-xs text-red-400 font-medium">Entidade {p.entidade} · Ref. (expirada)</p>
+                                  <p className="font-mono font-bold text-red-700 text-sm tracking-widest line-through opacity-60">
+                                    {p.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                            {availableMethods.allow_gpo_mcx ? (
+                              <button onClick={()=>setIsoladoPropina(p)}
+                                className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
+                                <Zap size={13}/>Pagar via GPO
+                              </button>
+                            ) : (
+                              <button onClick={()=>setViewPropina(p)}
+                                className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
+                                <CreditCard size={13}/>Gerar nova referência
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <div className="ml-8 bg-gray-50 rounded-xl px-3 py-2 flex items-center gap-2 text-gray-400">
@@ -2620,6 +2838,206 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           </div>
         )}
         </>}{/* end facturas screen */}
+
+        {/* ══ ECRÃ: PAGAMENTOS ANTECIPADOS ══ */}
+        {activeMenu === "antecipados" && selectedStudent && (() => {
+          const futuras = propinas.filter(p => p.estado === "FUTURA");
+          const naoElegiveis = propinas.filter(p =>
+            (["ACTIVA","VENCIDA","VENCIDO"] as string[]).includes(p.estado)
+          );
+          const antSel = futuras.filter(p => antecipadosSelectedIds.has(p.id));
+          const antTotal = antSel.reduce((s,p)=>s+Number(p.total),0);
+          const antAllSel = futuras.length > 0 && futuras.every(p => antecipadosSelectedIds.has(p.id));
+
+          const toggleAntecipado = (id: number) => {
+            setAntecipadosSelectedIds(prev => {
+              const n = new Set(prev); n.has(id)?n.delete(id):n.add(id); return n;
+            });
+          };
+          const toggleAntAll = () => {
+            if (antAllSel) { setAntecipadosSelectedIds(new Set()); }
+            else { setAntecipadosSelectedIds(new Set(futuras.map(p=>p.id))); }
+          };
+
+          const handleAntecipados = async () => {
+            if (antSel.length === 0) return;
+            setAntecipadosError(""); setAntecipadosLoading(true); setAntecipadosGPOResult(null);
+            try {
+              const res = await fetch(`${API}/guardian/propinas/antecipadas/checkout`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ propina_ids: antSel.map(p=>p.id) }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar pagamento antecipado.");
+              setAntecipadosGPOResult(data);
+            } catch (e: any) { setAntecipadosError(e.message); }
+            finally { setAntecipadosLoading(false); }
+          };
+
+          return (
+            <div>
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <div className="mb-1">
+                    <SchoolBadge name={selectedStudent.school_name} logoUrl={selectedStudent.school_logo_url} schoolId={selectedStudent.school_id} size="sm"/>
+                  </div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Pagamentos Antecipados</p>
+                  <p className="text-sm font-semibold text-gray-800 mt-0.5">{selectedStudent.nome}</p>
+                </div>
+              </div>
+
+              {/* Infobox */}
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 flex gap-2 mb-4">
+                <Info size={14} className="text-violet-500 shrink-0 mt-0.5"/>
+                <p className="text-violet-800 text-xs">Pague meses futuros com desconto ou para facilitar a gestão. Estes meses ainda não têm referência EMIS activa e serão pagos via GPO.</p>
+              </div>
+
+              {futuras.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+                  <CheckCircle size={28} className="mx-auto mb-2 text-emerald-400 opacity-70"/>
+                  <p className="text-gray-500 font-medium">Sem meses elegíveis para pagamento antecipado</p>
+                  <p className="text-xs text-gray-400 mt-1">Todos os meses futuros já têm referência ou foram pré-pagos.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Select all */}
+                  <div className="flex items-center justify-between">
+                    <button onClick={toggleAntAll}
+                      className="flex items-center gap-2 text-xs font-semibold text-violet-600 hover:text-violet-800 transition-colors">
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${antAllSel?"bg-violet-600 border-violet-600":"border-gray-300 bg-white"}`}>
+                        {antAllSel && <Check size={10} className="text-white"/>}
+                      </div>
+                      <ListFilter size={12}/>
+                      {antAllSel ? "Desselecionar todos" : "Selecionar todos"}
+                    </button>
+                    {antecipadosSelectedIds.size > 0 && (
+                      <span className="text-xs text-gray-400">{antecipadosSelectedIds.size} mês{antecipadosSelectedIds.size!==1?"es":""} seleccionado{antecipadosSelectedIds.size!==1?"s":""}</span>
+                    )}
+                  </div>
+
+                  {futuras.map(p => {
+                    const sel = antecipadosSelectedIds.has(p.id);
+                    return (
+                      <motion.div key={p.id} initial={{opacity:0,y:4}} animate={{opacity:1,y:0}}
+                        className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${sel?"border-violet-500 shadow-violet-100 shadow-md":"border-gray-100"}`}>
+                        <div className="p-4">
+                          <div className="flex items-start gap-3">
+                            <button onClick={()=>toggleAntecipado(p.id)}
+                              className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${sel?"bg-violet-600 border-violet-600":"border-gray-300 hover:border-violet-400"}`}>
+                              {sel && <Check size={12} className="text-white"/>}
+                            </button>
+                            <div className="flex-1 flex items-start justify-between">
+                              <div>
+                                <p className="font-semibold text-gray-900">{p.mes} {p.ano}</p>
+                                <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                                  <Calendar size={10}/>Vencimento: {fmtDate(p.data_vencimento)}
+                                </p>
+                              </div>
+                              <StatusBadge estado="FUTURA"/>
+                            </div>
+                          </div>
+                          <div className="ml-8 mt-2 space-y-1 text-sm">
+                            {Number(p.desconto) > 0 ? (
+                              <>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-500">Valor original</span>
+                                  <span className="text-gray-400 line-through">{fmt(Number(p.valor_base)+Number(p.desconto))}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-emerald-600 flex items-center gap-1"><GraduationCap size={10}/>Bolsa</span>
+                                  <span className="font-semibold text-emerald-600">-{fmt(p.desconto)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Valor base</span>
+                                <span className="font-medium text-gray-800">{fmt(p.valor_base)}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between border-t pt-1">
+                              <span className="font-semibold text-gray-900">Total</span>
+                              <span className="font-bold text-gray-900">{fmt(p.total)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+
+                  {/* Total + GPO button */}
+                  {antSel.length > 0 && (
+                    <div className="bg-white border border-violet-200 rounded-2xl p-4 space-y-3 sticky bottom-4 shadow-lg">
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between text-gray-500">
+                          <span>{antSel.length} mês{antSel.length!==1?"es":""} seleccionado{antSel.length!==1?"s":""}</span>
+                          <span>{fmt(antTotal)}</span>
+                        </div>
+                        <div className="flex justify-between border-t pt-1">
+                          <span className="font-bold text-gray-900">Total a pagar</span>
+                          <span className="font-bold text-violet-700 text-lg">{fmt(antTotal)}</span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {antecipadosError && (
+                          <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0}}
+                            className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2">
+                            <AlertTriangle size={13} className="text-red-500 shrink-0 mt-0.5"/>
+                            <p className="text-red-700 text-sm">{antecipadosError}</p>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      {antecipadosGPOResult ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 bg-emerald-50 rounded-xl p-3">
+                            <CheckCircle size={16} className="text-emerald-600 shrink-0"/>
+                            <p className="text-emerald-700 text-sm font-medium">Checkout iniciado — {fmt(antecipadosGPOResult.valor)}</p>
+                          </div>
+                          <a href={antecipadosGPOResult.redirect_url} target="_blank" rel="noopener noreferrer"
+                            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                            <Zap size={16}/>Continuar para EMIS/GPO
+                          </a>
+                          <button onClick={()=>{ setAntecipadosGPOResult(null); setAntecipadosSelectedIds(new Set()); if(selectedStudent) loadPropinas(selectedStudent.id); }}
+                            className="w-full py-2 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 transition-colors">
+                            Actualizar lista
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={handleAntecipados} disabled={antecipadosLoading}
+                          className="w-full py-3 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                          {antecipadosLoading ? <RefreshCw size={16} className="animate-spin"/> : <Zap size={16}/>}
+                          Pagar {antSel.length} mês{antSel.length!==1?"es":""} via GPO
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Não elegíveis */}
+              {naoElegiveis.length > 0 && (
+                <div className="mt-6">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Não elegíveis</p>
+                  <div className="space-y-2">
+                    {naoElegiveis.map(p => (
+                      <div key={p.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-gray-700 text-sm">{p.mes} {p.ano}</p>
+                          <p className="text-xs text-gray-400">{
+                            p.estado === "ACTIVA" ? "Já tem referência EMIS activa — use o pagamento isolado" :
+                            p.estado === "VENCIDA" || p.estado === "VENCIDO" ? "Vencida — use o pagamento isolado" :
+                            "Não disponível"
+                          }</p>
+                        </div>
+                        <StatusBadge estado={p.estado}/>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ══ ECRÃ: OCORRÊNCIAS ══ */}
         {activeMenu === "ocorrencias" && <>
@@ -3373,6 +3791,14 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       <AnimatePresence>
         {viewPropina && <RefModal propina={viewPropina} onClose={()=>setViewPropina(null)} schoolName={selectedStudent?.school_name}/>}
         {generatedRef && <CombinedRefModal ref={generatedRef} onClose={()=>setGeneratedRef(null)} schoolName={selectedStudent?.school_name}/>}
+        {isoladoPropina && (
+          <ModalPagamentoIsolado
+            propina={isoladoPropina}
+            token={token}
+            onClose={() => setIsoladoPropina(null)}
+            onSuccess={() => { if (selectedStudent) loadPropinas(selectedStudent.id); }}
+          />
+        )}
         {showCheckout && (
           <CheckoutWizard
             propinas={selectedPropinas}

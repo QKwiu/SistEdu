@@ -251,8 +251,16 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
       p.montante AS valor_base,
       p.multa,
       COALESCE(p.desconto, 0) AS desconto,
-      (p.montante + p.multa) AS total,
-      UPPER(p.status) AS estado,
+      (p.montante + p.multa - COALESCE(p.desconto,0)) AS total,
+      CASE
+        WHEN p.status = 'pendente'       AND pg.estado = 'PENDENTE' THEN 'ACTIVA'
+        WHEN p.status = 'pendente'                                   THEN 'FUTURA'
+        WHEN p.status = 'vencido'                                    THEN 'VENCIDA'
+        WHEN p.status IN ('pago','pago_com_atraso')                  THEN 'PAGO'
+        WHEN p.status = 'pre_pago'                                   THEN 'PRE_PAGO'
+        WHEN p.status = 'pago_anulado'                               THEN 'PAGO_ANULADO'
+        ELSE UPPER(p.status)
+      END AS estado,
       p.data_vencimento,
       p.bolsa_atribuicao_id,
       pg.id AS pagamento_id,
@@ -262,7 +270,7 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
       UPPER(pg.estado) AS ref_estado,
       pg.validade
     FROM propinas p
-    LEFT JOIN pagamentos pg ON pg.propina_id = p.id
+    LEFT JOIN pagamentos pg ON pg.propina_id = p.id AND pg.estado = 'PENDENTE'
     WHERE p.student_id = $1
     ORDER BY p.ano DESC,
       CASE p.mes
@@ -758,6 +766,170 @@ router.post("/guardian/propinas/:id/gerar-referencia", authMiddleware, async (re
   });
 });
 
+// POST /guardian/propinas/checkout-isolado — GPO para propina ACTIVA ou VENCIDA
+router.post("/guardian/propinas/checkout-isolado", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { propina_id } = req.body as { propina_id: number };
+  if (!propina_id) return res.status(400).json({ error: "propina_id obrigatório." });
+
+  const schoolLookup = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (!schoolLookup.rows.length) return res.status(400).json({ error: "Sem educandos associados." });
+  const school_id = schoolLookup.rows[0].school_id;
+
+  const settingsRow = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school_id]);
+  const m = settingsRow.rows[0]?.settings?.pagamento?.metodos_pagamento ?? {};
+  if (!m.allow_gpo_mcx)
+    return res.status(403).json({ error: "Pagamento via Multicaixa Express não está disponível nesta escola." });
+
+  const pRes = await pool.query(`
+    SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, COALESCE(p.desconto,0) AS desconto, p.status,
+           pg.entidade, pg.referencia, pg.valor AS ref_valor, pg.validade
+    FROM propinas p
+    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+    LEFT JOIN pagamentos pg ON pg.propina_id = p.id AND pg.estado = 'PENDENTE'
+    WHERE ea.encarregado_id = $1 AND p.id = $2
+      AND p.status IN ('pendente', 'vencido')
+  `, [guardian.id, propina_id]);
+
+  if (!pRes.rows.length) return res.status(404).json({ error: "Propina não encontrada ou já paga." });
+
+  const p = pRes.rows[0];
+  const totalValor = Number(p.montante) - Number(p.desconto) + Number(p.multa);
+  const txnSuffix = randomBytes(4).toString("hex").toUpperCase();
+  const transaction_id = `GPO-ISOL-${Date.now()}-${txnSuffix}`;
+  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=kiwara&escola=${school_id}`;
+
+  await pool.query(
+    `INSERT INTO gpo_checkout_attempts
+       (encarregado_id, school_id, propina_ids, valor, transaction_id, status, redirect_url, tipo)
+     VALUES ($1,$2,$3,$4,$5,'INITIATED',$6,'ISOLADO')`,
+    [guardian.id, school_id, JSON.stringify([propina_id]), totalValor, transaction_id, redirect_url]
+  );
+
+  return res.json({
+    transaction_id, redirect_url, valor: totalValor,
+    entidade: p.entidade ?? "00456",
+    referencia: p.referencia ?? null,
+    propina: { id: p.id, mes: p.mes, ano: p.ano, valor_base: Number(p.montante) - Number(p.desconto), multa: Number(p.multa), total: totalValor },
+  });
+});
+
+// POST /guardian/propinas/antecipadas/checkout — GPO para meses FUTURA (sem referência EMIS)
+router.post("/guardian/propinas/antecipadas/checkout", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { propina_ids } = req.body as { propina_ids: number[] };
+  if (!Array.isArray(propina_ids) || propina_ids.length === 0)
+    return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+
+  const schoolLookup = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (!schoolLookup.rows.length) return res.status(400).json({ error: "Sem educandos associados." });
+  const school_id = schoolLookup.rows[0].school_id;
+
+  const settingsRow = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school_id]);
+  const m = settingsRow.rows[0]?.settings?.pagamento?.metodos_pagamento ?? {};
+  if (!m.allow_gpo_mcx)
+    return res.status(403).json({ error: "Pagamentos antecipados requerem Multicaixa Express/GPO." });
+
+  const placeholders = propina_ids.map((_,i) => `$${i+2}`).join(",");
+  const checkRes = await pool.query(`
+    SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa,
+           COALESCE(p.desconto,0) AS desconto, p.status,
+           pg.id AS pagamento_id, pg.estado AS pg_estado
+    FROM propinas p
+    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+    LEFT JOIN pagamentos pg ON pg.propina_id = p.id AND pg.estado = 'PENDENTE'
+    WHERE ea.encarregado_id = $1 AND p.id IN (${placeholders})
+  `, [guardian.id, ...propina_ids]);
+
+  if (checkRes.rows.length !== propina_ids.length)
+    return res.status(403).json({ error: "Propinas inválidas ou não encontradas." });
+
+  const withRef = checkRes.rows.filter((r: any) => r.pg_estado === "PENDENTE");
+  if (withRef.length > 0)
+    return res.status(422).json({
+      error: "Uma ou mais propinas já têm referência EMIS activa. Use o pagamento isolado.",
+      propinas_com_ref: withRef.map((r: any) => r.id),
+    });
+
+  const alreadyPaid = checkRes.rows.filter((r: any) =>
+    ["pago","pago_com_atraso","pre_pago","pago_anulado"].includes(r.status)
+  );
+  if (alreadyPaid.length > 0)
+    return res.status(422).json({
+      error: "Uma ou mais propinas já estão pagas ou pré-pagas.",
+      propinas_invalidas: alreadyPaid.map((r: any) => r.id),
+    });
+
+  const totalValor = checkRes.rows.reduce(
+    (s: number, r: any) => s + (Number(r.montante) - Number(r.desconto)) + Number(r.multa), 0
+  );
+
+  const txnSuffix = randomBytes(4).toString("hex").toUpperCase();
+  const transaction_id = `GPO-ANT-${Date.now()}-${txnSuffix}`;
+  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=kiwara&escola=${school_id}`;
+
+  await pool.query(
+    `INSERT INTO gpo_checkout_attempts
+       (encarregado_id, school_id, propina_ids, valor, transaction_id, status, redirect_url, tipo)
+     VALUES ($1,$2,$3,$4,$5,'INITIATED',$6,'ANTECIPADO')`,
+    [guardian.id, school_id, JSON.stringify(propina_ids), totalValor, transaction_id, redirect_url]
+  );
+
+  const propinaDetails = checkRes.rows.map((r: any) => ({
+    id: r.id, mes: r.mes, ano: r.ano,
+    valor_base: Number(r.montante) - Number(r.desconto),
+    multa: Number(r.multa),
+    desconto: Number(r.desconto),
+    total: (Number(r.montante) - Number(r.desconto)) + Number(r.multa),
+  }));
+
+  return res.json({ transaction_id, redirect_url, valor: totalValor, propinas: propinaDetails });
+});
+
+// POST /guardian/propinas/:id/anular-prepago — anular pré-pagamento, gerar crédito
+router.post("/guardian/propinas/:id/anular-prepago", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { motivo } = req.body ?? {};
+  const check = await pool.query(`
+    SELECT p.id, p.mes, p.ano, p.montante, p.multa, COALESCE(p.desconto,0) AS desconto,
+           p.student_id, p.school_id
+    FROM propinas p
+    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+    WHERE ea.encarregado_id = $1 AND p.id = $2 AND p.status = 'pre_pago'
+  `, [guardian.id, req.params.id]);
+
+  if (!check.rows.length)
+    return res.status(404).json({ error: "Propina não encontrada ou não está em estado PRE_PAGO." });
+
+  const p = check.rows[0];
+  const valorCredito = Number(p.montante) - Number(p.desconto) + Number(p.multa);
+
+  await pool.query("UPDATE propinas SET status='pago_anulado' WHERE id=$1", [p.id]);
+  await pool.query(`
+    INSERT INTO aluno_creditos (student_id, school_id, propina_id, valor, motivo, estado)
+    VALUES ($1,$2,$3,$4,$5,'PENDENTE')
+  `, [p.student_id, p.school_id, p.id, valorCredito, motivo ?? "Anulação de pré-pagamento"]);
+
+  console.log(`[PRE_PAGO:anulado] propina=${p.id} aluno=${p.student_id} valor=${valorCredito}`);
+  return res.json({ success: true, credito_gerado: valorCredito, propina_id: p.id });
+});
+
 // GET /guardian/alunos/:id/ocorrencias
 router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);
@@ -795,8 +967,25 @@ pool.query(`
     transaction_id VARCHAR(100) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL DEFAULT 'INITIATED',
     redirect_url TEXT,
+    tipo VARCHAR(20) NOT NULL DEFAULT 'ISOLADO',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+`).catch(() => {});
+
+pool.query(`ALTER TABLE gpo_checkout_attempts ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'ISOLADO'`).catch(() => {});
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS aluno_creditos (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL,
+    school_id INTEGER NOT NULL,
+    propina_id INTEGER REFERENCES propinas(id),
+    valor NUMERIC NOT NULL,
+    motivo TEXT,
+    estado VARCHAR(20) NOT NULL DEFAULT 'PENDENTE',
+    criado_em TIMESTAMPTZ DEFAULT NOW(),
+    resolvido_em TIMESTAMPTZ
   );
 `).catch(() => {});
 

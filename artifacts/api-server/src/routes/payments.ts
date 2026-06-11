@@ -79,6 +79,50 @@ router.post("/payments/webhook", async (req, res) => {
     });
   }
 
+  /* ── 3a. GPO ANTECIPADO path: match by transaction_id in gpo_checkout_attempts ── */
+  const gpoAttempt = await pool.query(
+    `SELECT id, propina_ids, tipo, school_id FROM gpo_checkout_attempts
+     WHERE transaction_id = $1 AND tipo = 'ANTECIPADO' LIMIT 1`,
+    [txId]
+  );
+  if (gpoAttempt.rows.length) {
+    const attempt = gpoAttempt.rows[0];
+    const propina_ids: number[] = Array.isArray(attempt.propina_ids)
+      ? attempt.propina_ids
+      : JSON.parse(attempt.propina_ids);
+
+    if (status === "paid") {
+      /* Mark each propina as PRE_PAGO */
+      await pool.query(
+        `UPDATE propinas SET status='pre_pago', pago_em=$1, metodo_pagamento=$2,
+          pagamento_origem='online', transaction_id=$3
+         WHERE id = ANY($4)`,
+        [ts, method, txId, propina_ids]
+      );
+      await pool.query(
+        `UPDATE gpo_checkout_attempts SET status='COMPLETED', updated_at=NOW()
+         WHERE transaction_id=$1`, [txId]
+      );
+    } else {
+      await pool.query(
+        `UPDATE gpo_checkout_attempts SET status='FAILED', updated_at=NOW()
+         WHERE transaction_id=$1`, [txId]
+      );
+    }
+
+    await pool.query(`
+      INSERT INTO manual_payment_logs (tipo, admin_user, valor, metodo, payment_ref, metadata)
+      VALUES ('webhook_processado','gateway_webhook',$1,$2,$3,$4::jsonb)
+    `, [paid, method, `WHK-ANT-${Date.now()}`,
+        JSON.stringify({ transaction_id: txId, tipo: 'ANTECIPADO', propina_ids, status })]);
+
+    return res.json({
+      ok: true, processed: true, tipo: 'ANTECIPADO',
+      transaction_id: txId, status: status === "paid" ? "pre_pago" : "failed",
+      propinas_updated: status === "paid" ? propina_ids.length : 0,
+    });
+  }
+
   /* ── 3. Locate invoice by EMIS reference (pagamentos.referencia) or internal_reference ── */
   const pRow = await pool.query(`
     SELECT p.*, sc.commission_rate, sc.id AS school_db_id,

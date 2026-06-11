@@ -2776,12 +2776,14 @@ export function scheduleSchoolJobs() {
       /* Migrar quaisquer registos 'vencida' (feminino) para 'vencido' (valor canónico) */
       await pool.query(`UPDATE propinas SET status='vencido' WHERE status='vencida'`);
 
-      /* Marcar como 'vencido' propinas pendentes cuja data_vencimento já passou */
+      /* Marcar como 'vencido' propinas pendentes cuja data_vencimento já passou.
+         Exclui explicitamente pre_pago e pago_anulado para não regredir estados. */
       const r = await pool.query(`
         UPDATE propinas
         SET status = 'vencido'
         WHERE status = 'pendente'
           AND data_vencimento < NOW()
+          AND status NOT IN ('pre_pago', 'pago_anulado')
         RETURNING id
       `);
       /* Marcar referências EMIS como EXPIRADO */

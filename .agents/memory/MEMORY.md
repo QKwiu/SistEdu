@@ -10,3 +10,5 @@
 - [Calendar guardian portal](calendar-guardian-portal.md) — calSub union, creche/colégio tab switching via schoolModuloInfantil, localStorage cache pattern, multimedia security rules.
 - [DRY refactoring — shared utilities](dry-refactoring.md) — 10 ficheiros partilhados criados; padrões de import e aliases a usar em código novo.
 - [SDD ISO 20022 Admin Panel](sdd-iso20022.md) — ssh2 não tem @types; usar require("ssh2") as { Client: new () => any }; sdd_emissor_configs table; 7 endpoints admin; SddIso20022Panel com 3 sub-tabs.
+- [Propinas estado model](propinas-estados.md) — DB statuses map to computed display states; ACTIVA/FUTURA computed via pagamentos join, not stored directly.
+- [GPO checkout tipos](gpo-checkout-tipos.md) — gpo_checkout_attempts.tipo: ISOLADO (single ACTIVA/VENCIDA) vs ANTECIPADO (batch FUTURA); webhook routes by tipo before reference lookup.
