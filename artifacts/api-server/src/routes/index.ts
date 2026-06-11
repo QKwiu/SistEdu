@@ -23,6 +23,7 @@ import emailRouter from "./email";
 import { runEmailMigration } from "../services/email.service";
 import bankRouter, { runBankMigration } from "./bank";
 import sddRouter, { runSddMigration } from "./sdd";
+import contingenciaRouter, { runContingenciaMigration } from "./contingencia";
 import { scheduleSchoolJobs } from "./school";
 
 const router: IRouter = Router();
@@ -48,6 +49,7 @@ router.use(backupRouter);
 router.use(emailRouter);
 router.use(bankRouter);
 router.use(sddRouter);
+router.use(contingenciaRouter);
 
 /* Run DB migrations (idempotent) */
 runReconciliationMigration().catch(err =>
@@ -85,6 +87,9 @@ runBankMigration().catch(err =>
 );
 runSddMigration().catch(err =>
   console.error("[sdd migration]", err)
+);
+runContingenciaMigration().catch(err =>
+  console.error("[contingencia migration]", err)
 );
 
 scheduleSchoolJobs();

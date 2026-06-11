@@ -1,0 +1,86 @@
+Comportamento no portal do encarregado:
+EMIS disponível → IBAN não visível
+EMIS em falha   → IBAN visível com instruções de pagamento
+O que mostrar quando IBAN está activo:
+┌────────────────────────────────────────────────────┐
+│  ⚠️ Referência Multicaixa temporariamente          │
+│  indisponível.                                     │
+│                                                    │
+│  Pode efectuar o pagamento por transferência       │
+│  bancária para:                                    │
+│                                                    │
+│  Banco:   BAI / BFA (conforme config. colégio)     │
+│  IBAN:    AO06 0006 0000 0000 0000 0000 0          │
+│  Titular: Nome Legal do Colégio                    │
+│  Valor:   25 000 AOA                               │
+│  Ref.:    PROV-2026-06-ALU001                      │
+│                                                    │
+│  Após transferência, anexe o comprovativo abaixo.  │
+│  [ Anexar Comprovativo ]                           │
+└────────────────────────────────────────────────────┘
+Campos de configuração do IBAN no perfil do colégio:
+banco_nome
+banco_iban
+banco_titular
+banco_swift_bic
+iban_visivel_em_contingencia   BOOLEAN (toggle)
+
+CAMADA 4 — COMPROVATIVO PELO ENCARREGADO
+No portal do encarregado, quando IBAN estiver activo:
+Encarregado efectua transferência bancária
+→ Acede ao portal
+→ Clica [ Anexar Comprovativo ] na propina correspondente
+→ Preenche:
+   - Data da transferência
+   - Valor transferido
+   - Banco de origem
+   - Número/referência da transferência
+   - Upload do ficheiro (PDF, JPG, PNG — máx. 5MB)
+→ Submete
+→ Estado da propina → PAGO_MANUAL_PENDENTE
+→ Notificação automática ao admin do colégio
+
+CAMADA 5 — RECONCILIAÇÃO NO PERFIL DE GESTÃO
+Nova secção no perfil de gestão do colégio:
+Gestão > Reconciliação de Transferências
+O que mostrar:
+Lista de pagamentos pendentes de confirmação:
+
+  Aluno              Mês         Valor       Estado        Acções
+  Carlos Teixeira    Jun 2026    25 000 AOA  Aguarda conf. [ Ver ] [ Confirmar ] [ Rejeitar ]
+  Maria Santos       Jun 2026    25 000 AOA  Aguarda conf. [ Ver ] [ Confirmar ] [ Rejeitar ]
+Ao clicar [ Ver ]:
+→ Mostrar dados submetidos pelo encarregado
+→ Mostrar comprovativo anexado (pré-visualização)
+→ Botões: [ Confirmar Pagamento ] [ Rejeitar ] [ Pedir esclarecimento ]
+Ao clicar [ Confirmar ]:
+→ Admin confirma valor e data
+→ Estado propina → PAGO_MANUAL
+→ Histórico actualizado com: quem confirmou + data + referência transferência
+→ Notificação ao encarregado: "Pagamento confirmado"
+Ao clicar [ Rejeitar ]:
+→ Admin escreve motivo
+→ Estado propina → volta a CONTINGENCIA
+→ Comprovativo arquivado com estado REJEITADO
+→ Notificação ao encarregado com motivo
+
+CAMADA 6 — RESTAURO DA EMIS (Estratégia 4)
+Health check a cada 15 minutos:
+EMIS indisponível → regista, aguarda próxima verificação
+EMIS restaurada   → disparar reconciliação automática
+Reconciliação automática ao restaurar:
+1. Listar propinas com estado CONTINGENCIA sem pagamento
+   → Solicitar nova referência oficial à EMIS
+   → Substituir referência provisória por referência oficial
+   → Estado → ACTIVA
+
+2. Listar propinas PAGO_MANUAL_PENDENTE
+   → Manter estado (aguarda confirmação manual do admin)
+   → Notificar admin: "EMIS restaurada — X pagamentos pendentes de confirmação"
+
+3. Listar propinas ACTIVA com webhook_recebido = false
+   → Consultar EMIS activamente
+   → Se pago → estado PAGO
+   → Se não pago e vencido → estado VENCIDA
+
+4. Gerar relatório de reconciliação e enviar ao admin

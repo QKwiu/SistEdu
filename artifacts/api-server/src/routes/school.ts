@@ -8,6 +8,8 @@ import {
   calcularDataVencimentoEMIS,
   getDiaVencimento,
   getDiaGeracaoAuto,
+  checkEmisHealth,
+  restoreEmisReferences,
 } from "../services/emis.service";
 import { triggerComunicadoPush, type PushAudiencia } from "../services/push-worker";
 import multer from "multer";
@@ -2833,7 +2835,123 @@ export function scheduleSchoolJobs() {
     } catch (e) { console.error("[school:jobs] auto-geracao error:", e); }
   }, 60 * 60 * 1000);
 
-  console.log("[school:jobs] agendados");
+  /* ─── Camada 6: Health check EMIS a cada 15 minutos ─── */
+  setInterval(async () => {
+    try {
+      const schoolsRes = await pool.query(
+        `SELECT id FROM schools WHERE active = true OR active IS NULL`
+      );
+      for (const row of schoolsRes.rows) {
+        const schoolId = row.id;
+        const wasDown = await pool.query(
+          `SELECT emis_em_falha FROM schools WHERE id=$1`, [schoolId]
+        ).then(r => r.rows[0]?.emis_em_falha ?? false);
+
+        const isOk = await checkEmisHealth(schoolId);
+
+        /* Camada 6: EMIS restaurada — disparar reconciliação automática */
+        if (isOk && wasDown) {
+          console.log(`[school:jobs] EMIS restaurada para escola=${schoolId} — a reconciliar...`);
+          const { restored, failed } = await restoreEmisReferences(schoolId);
+          console.log(`[school:jobs] escola=${schoolId} reconciliação: ${restored} restauradas, ${failed} falhas`);
+        }
+      }
+    } catch (e) { console.error("[school:jobs] EMIS health check error:", e); }
+  }, 15 * 60 * 1000); /* cada 15 minutos */
+
+  /* ─── Camada 1: Geração preventiva de referências EMIS (hora configurada) ─── */
+  /* Executa 1×/hora — só actua no dia e hora configurados por cada escola */
+  setInterval(async () => {
+    const today = new Date();
+    if (today.getHours() !== 8) return; /* só às 08:00 */
+
+    try {
+      const schoolsRes = await pool.query(`
+        SELECT sc.id AS school_id, ss.settings
+        FROM schools sc
+        LEFT JOIN school_settings ss ON ss.school_id = sc.id
+        WHERE sc.active = true OR sc.active IS NULL
+      `);
+
+      const mesNames = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                        "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+      for (const row of schoolsRes.rows) {
+        const settings  = row.settings ?? {};
+        const propCfg   = settings.propinas ?? {};
+        if (!propCfg.auto_geracao_referencia) continue;
+
+        const diaGeracao = Number(propCfg.dia_geracao_auto ?? 20);
+        if (today.getDate() !== diaGeracao) continue;
+
+        const diaVenc = Number(propCfg.dia_vencimento ?? 10);
+
+        /* Mês alvo = mês seguinte */
+        const next = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        const mesAlvo = mesNames[next.getMonth()];
+        const anoAlvo = String(next.getFullYear());
+
+        /* Alunos activos desta escola sem propina para o mês seguinte */
+        const alunosRes = await pool.query(`
+          SELECT s.id AS student_id, s.nome, s.montante_propina
+          FROM students s
+          WHERE s.school_id = $1
+            AND s.active = TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM propinas p
+              WHERE p.student_id = s.id
+                AND p.mes = $2
+                AND p.ano = $3
+                AND p.status NOT IN ('pago_anulado')
+            )
+        `, [row.school_id, mesAlvo, anoAlvo]);
+
+        for (const aluno of alunosRes.rows) {
+          try {
+            /* Criar propina + solicitar referência EMIS com retry (Camadas 1+2) */
+            const montante = Number(aluno.montante_propina ?? 0);
+
+            /* Inserir propina como pendente */
+            const pInsert = await pool.query(`
+              INSERT INTO propinas (school_id, student_id, mes, ano, montante, status, tentativas_emis)
+              VALUES ($1,$2,$3,$4,$5,'pendente',0)
+              ON CONFLICT DO NOTHING
+              RETURNING id
+            `, [row.school_id, aluno.student_id, mesAlvo, anoAlvo, montante]);
+
+            const propinaId = pInsert.rows[0]?.id;
+            if (!propinaId) continue; /* já existia */
+
+            /* Solicitar ref EMIS (tentativas automáticas com backoff) */
+            const { requestEMISReferenceWithRetry } = await import("../services/emis.service");
+            const refResult = await requestEMISReferenceWithRetry({
+              school_id:    row.school_id,
+              propina_id:   propinaId,
+              montante,
+              aluno_nome:   aluno.nome,
+              mes:          mesAlvo,
+              ano:          anoAlvo,
+              aluno_id:     aluno.student_id,
+              diaVencimento: diaVenc,
+            });
+
+            if (!refResult.provisional) {
+              await pool.query(`
+                INSERT INTO pagamentos (school_id, propina_id, entidade, referencia, valor, estado, validade)
+                VALUES ($1,$2,$3,$4,$5,'PENDENTE',$6)
+              `, [row.school_id, propinaId, refResult.entidade, refResult.referencia, montante, refResult.validade]);
+            }
+
+            console.log(`[school:jobs] preventiva escola=${row.school_id} aluno=${aluno.student_id} ${mesAlvo}/${anoAlvo} ref=${refResult.referencia} prov=${refResult.provisional}`);
+          } catch (e) {
+            console.error(`[school:jobs] erro preventiva aluno=${aluno.student_id}:`, e);
+          }
+        }
+      }
+    } catch (e) { console.error("[school:jobs] preventiva error:", e); }
+  }, 60 * 60 * 1000);
+
+  console.log("[school:jobs] agendados (+ Camadas 1 e 6 contingência)");
 }
 
 export default router;

@@ -261,6 +261,8 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
         WHEN p.status = 'pre_pago'                                   THEN 'PRE_PAGO'
         WHEN p.status = 'pago_anulado'                               THEN 'PAGO_ANULADO'
         WHEN p.status = 'isento'                                     THEN 'ISENTO'
+        WHEN p.status = 'pago_manual_pendente'                       THEN 'PAGO_MANUAL_PENDENTE'
+        WHEN p.status = 'pago_manual'                                THEN 'PAGO_MANUAL'
         ELSE UPPER(p.status)
       END AS estado,
       p.data_vencimento,

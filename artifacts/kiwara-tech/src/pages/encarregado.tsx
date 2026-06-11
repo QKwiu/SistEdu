@@ -12,6 +12,7 @@ import {
   BadgeCheck, XCircle, GraduationCap, CalendarDays,
   ShoppingCart, Truck, Store, MinusCircle, PlusCircle,
   UtensilsCrossed, Image as ImageIcon, Play, Soup,
+  Upload,
 } from "lucide-react";
 import { fmtCurrency, fmtDate as fmtShort, fmtDateLong as fmtDate } from "@/lib/format";
 import { getGuardianToken, setGuardianToken, clearGuardianToken } from "@/lib/auth";
@@ -46,7 +47,7 @@ interface Propina {
   valor_base: number; multa: number; total: number;
   desconto: number;
   bolsa_atribuicao_id: number | null;
-  estado: "PENDENTE" | "PAGO" | "VENCIDO" | "ACTIVA" | "FUTURA" | "VENCIDA" | "CONTINGENCIA" | "PRE_PAGO" | "PAGO_ANULADO" | "ISENTO";
+  estado: "PENDENTE" | "PAGO" | "VENCIDO" | "ACTIVA" | "FUTURA" | "VENCIDA" | "CONTINGENCIA" | "PRE_PAGO" | "PAGO_ANULADO" | "ISENTO" | "PAGO_MANUAL_PENDENTE" | "PAGO_MANUAL";
   data_vencimento: string;
   pagamento_id: number | null; entidade: string | null;
   referencia: string | null; ref_valor: number | null;
@@ -135,8 +136,10 @@ function StatusBadge({ estado }: { estado: string }) {
     VENCIDA:      { label:"Vencida",           cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
     CONTINGENCIA: { label:"Contingência",      cls:"bg-amber-100 text-amber-800 border-amber-200",       icon:<AlertTriangle size={11}/> },
     PRE_PAGO:     { label:"Pré-pago",          cls:"bg-violet-100 text-violet-800 border-violet-200",    icon:<BadgeCheck size={11}/> },
-    PAGO_ANULADO: { label:"Anulado",           cls:"bg-orange-100 text-orange-800 border-orange-200",    icon:<XCircle size={11}/> },
-    ISENTO:       { label:"Isento",            cls:"bg-teal-100 text-teal-800 border-teal-200",          icon:<CheckCircle size={11}/> },
+    PAGO_ANULADO:          { label:"Anulado",           cls:"bg-orange-100 text-orange-800 border-orange-200",   icon:<XCircle size={11}/> },
+    ISENTO:                { label:"Isento",            cls:"bg-teal-100 text-teal-800 border-teal-200",         icon:<CheckCircle size={11}/> },
+    PAGO_MANUAL_PENDENTE:  { label:"Aguarda confirmação",cls:"bg-sky-100 text-sky-800 border-sky-200",            icon:<Clock size={11}/> },
+    PAGO_MANUAL:           { label:"Pago (manual)",     cls:"bg-emerald-100 text-emerald-800 border-emerald-200",icon:<CheckCircle size={11}/> },
   };
   const s = c[estado] ?? c["PENDENTE"];
   return (
@@ -2119,6 +2122,22 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [antecipadosError, setAntecipadosError] = useState("");
   const [antecipadosGPOResult, setAntecipadosGPOResult] = useState<{transaction_id:string;redirect_url:string;valor:number;propinas:any[]}|null>(null);
 
+  // Contingência EMIS
+  const [contingenciaStatus, setContingenciaStatus] = useState<{
+    emis_em_falha: boolean;
+    iban_ativo: boolean;
+    banco: { nome: string; iban: string; titular: string; swift_bic?: string } | null;
+  }>({ emis_em_falha: false, iban_ativo: false, banco: null });
+  const [comprovatvoModal, setComprovatvoModal] = useState<Propina | null>(null);
+  const [cpvData, setCpvData] = useState("");
+  const [cpvValor, setCpvValor] = useState("");
+  const [cpvBanco, setCpvBanco] = useState("");
+  const [cpvRef, setCpvRef] = useState("");
+  const [cpvFile, setCpvFile] = useState<File | null>(null);
+  const [cpvLoading, setCpvLoading] = useState(false);
+  const [cpvError, setCpvError] = useState("");
+  const [cpvSuccess, setCpvSuccess] = useState(false);
+
   // Filter + selection
   const [filterEstado, setFilterEstado] = useState<FilterEstado>("TODOS");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -2165,6 +2184,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
           setCurrentSchoolId(first.school_id);
           loadAvailableMethods(first.school_id);
           loadDDSubscription(first.school_id);
+          loadContingenciaStatus();
           return first;
         });
       }
@@ -2227,6 +2247,15 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       if (!res.ok) { setDdSubscription(null); return; }
       setDdSubscription(await res.json());
     } catch { setDdSubscription(null); }
+  }, [token]);
+
+  const loadContingenciaStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/guardian/contingencia/status`, {headers});
+      if (!res.ok) return;
+      const d = await res.json();
+      setContingenciaStatus(d);
+    } catch {}
   }, [token]);
 
   const loadHorario = useCallback(async () => {
@@ -2716,6 +2745,27 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               </div>
             )}
 
+            {/* Banner EMIS contingência + IBAN */}
+            {contingenciaStatus.emis_em_falha && (
+              <div className="bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 flex items-start gap-3 mb-1">
+                <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5"/>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">
+                    Sistema EMIS/Multicaixa temporariamente indisponível
+                  </p>
+                  {contingenciaStatus.iban_ativo && contingenciaStatus.banco ? (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      Pode efectuar o pagamento por transferência bancária para <strong>{contingenciaStatus.banco.titular}</strong> · IBAN <span className="font-mono">{contingenciaStatus.banco.iban}</span> e anexar o comprovativo nas propinas abaixo.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      As referências de pagamento podem estar temporariamente indisponíveis. Contacte a secretaria para obter instruções.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* List */}
             {loadingPropinas ? (
               <div className="flex items-center justify-center py-10"><RefreshCw size={20} className="animate-spin text-blue-600"/></div>
@@ -2727,7 +2777,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             ) : (
               <div className="space-y-3">
                 {filteredPropinas.map(p => {
-                  const isPaid        = (["PAGO","PRE_PAGO","PAGO_ANULADO","ISENTO"] as string[]).includes(p.estado);
+                  const isPaid        = (["PAGO","PRE_PAGO","PAGO_ANULADO","ISENTO","PAGO_MANUAL_PENDENTE","PAGO_MANUAL"] as string[]).includes(p.estado);
                   const isVencida     = (["VENCIDA","VENCIDO","CONTINGENCIA"] as string[]).includes(p.estado);
                   const isContingencia = p.estado === "CONTINGENCIA";
                   const isActiva      = p.estado === "ACTIVA";
@@ -2841,12 +2891,17 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
                         {/* Reference / paid / future indicator + action buttons */}
                         {isPaid ? (
-                          p.estado === "PAGO" ? (
+                          (p.estado === "PAGO" || p.estado === "PAGO_MANUAL") ? (
                             <div className="ml-8">
                               <button onClick={()=>setReciboPropina(p)}
                                 className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-emerald-200 text-emerald-700 hover:bg-emerald-50">
                                 <FileText size={13}/>Ver Recibo
                               </button>
+                            </div>
+                          ) : p.estado === "PAGO_MANUAL_PENDENTE" ? (
+                            <div className="ml-8 flex items-center gap-2 bg-sky-50 rounded-xl px-3 py-2 border border-sky-200">
+                              <Clock size={14} className="text-sky-600 shrink-0"/>
+                              <span className="text-sky-700 text-sm font-medium">Comprovativo enviado — aguarda confirmação da escola</span>
                             </div>
                           ) : (
                             <div className="ml-8 flex items-center gap-2 bg-emerald-50 rounded-xl px-3 py-2">
@@ -2890,26 +2945,79 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                           </div>
                         ) : isVencida ? (
                           <div className="ml-8 space-y-2">
-                            {p.referencia && (
-                              <div className="bg-red-50 rounded-xl px-3 py-2 flex items-center justify-between">
-                                <div>
-                                  <p className="text-xs text-red-400 font-medium">Entidade {p.entidade} · Ref. (expirada)</p>
-                                  <p className="font-mono font-bold text-red-700 text-sm tracking-widest line-through opacity-60">
-                                    {p.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
-                                  </p>
+                            {isContingencia ? (
+                              <>
+                                {/* IBAN para transferência manual */}
+                                {contingenciaStatus.iban_ativo && contingenciaStatus.banco && (
+                                  <div className="bg-amber-50 rounded-xl px-3 py-2.5 border border-amber-200">
+                                    <p className="text-xs font-semibold text-amber-800 mb-1.5">Transferência Bancária</p>
+                                    <div className="space-y-0.5 text-xs text-amber-900">
+                                      <p><span className="font-semibold">Banco:</span> {contingenciaStatus.banco.nome}</p>
+                                      <p className="flex items-center gap-1"><span className="font-semibold">IBAN:</span>
+                                        <span className="font-mono">{contingenciaStatus.banco.iban}</span>
+                                        <CopyBtn text={contingenciaStatus.banco.iban}/>
+                                      </p>
+                                      <p><span className="font-semibold">Titular:</span> {contingenciaStatus.banco.titular}</p>
+                                      {contingenciaStatus.banco.swift_bic && (
+                                        <p><span className="font-semibold">SWIFT/BIC:</span> {contingenciaStatus.banco.swift_bic}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {/* Ref provisória */}
+                                {p.referencia?.startsWith("PROV-") && (
+                                  <div className="bg-amber-50 rounded-xl px-3 py-2 flex items-center justify-between border border-amber-100">
+                                    <div>
+                                      <p className="text-xs text-amber-600 font-medium">Referência provisória</p>
+                                      <p className="font-mono font-bold text-amber-800 text-sm">{p.referencia}</p>
+                                    </div>
+                                    <CopyBtn text={p.referencia}/>
+                                  </div>
+                                )}
+                                <div className="flex gap-2">
+                                  {contingenciaStatus.iban_ativo && (
+                                    <button onClick={()=>{ setComprovatvoModal(p); setCpvSuccess(false); setCpvError(""); setCpvData(""); setCpvValor(String(p.total)); setCpvBanco(""); setCpvRef(""); setCpvFile(null); }}
+                                      className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-amber-300 text-amber-800 hover:bg-amber-50">
+                                      <Upload size={13}/>Anexar Comprovativo
+                                    </button>
+                                  )}
+                                  {availableMethods.allow_gpo_mcx && (
+                                    <button onClick={()=>setIsoladoPropina(p)}
+                                      className="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
+                                      <Zap size={13}/>Pagar via GPO
+                                    </button>
+                                  )}
+                                  {!contingenciaStatus.iban_ativo && !availableMethods.allow_gpo_mcx && (
+                                    <div className="flex-1 py-2 rounded-xl text-xs text-amber-700 bg-amber-50 flex items-center justify-center gap-1.5 border border-amber-200">
+                                      <AlertTriangle size={13}/>Contacte a secretaria
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            )}
-                            {availableMethods.allow_gpo_mcx ? (
-                              <button onClick={()=>setIsoladoPropina(p)}
-                                className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
-                                <Zap size={13}/>Pagar via GPO
-                              </button>
+                              </>
                             ) : (
-                              <button onClick={()=>setViewPropina(p)}
-                                className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
-                                <CreditCard size={13}/>Gerar nova referência
-                              </button>
+                              <>
+                                {p.referencia && (
+                                  <div className="bg-red-50 rounded-xl px-3 py-2 flex items-center justify-between">
+                                    <div>
+                                      <p className="text-xs text-red-400 font-medium">Entidade {p.entidade} · Ref. (expirada)</p>
+                                      <p className="font-mono font-bold text-red-700 text-sm tracking-widest line-through opacity-60">
+                                        {p.referencia.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                                {availableMethods.allow_gpo_mcx ? (
+                                  <button onClick={()=>setIsoladoPropina(p)}
+                                    className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
+                                    <Zap size={13}/>Pagar via GPO
+                                  </button>
+                                ) : (
+                                  <button onClick={()=>setViewPropina(p)}
+                                    className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-red-200 text-red-600 hover:bg-red-50">
+                                    <CreditCard size={13}/>Gerar nova referência
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         ) : (
@@ -3921,6 +4029,113 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             availableMethods={availableMethods}
             token={token}
           />
+        )}
+
+        {/* Modal: Anexar Comprovativo de Transferência (Camada 4) */}
+        {comprovatvoModal && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            onClick={e=>{ if(e.target===e.currentTarget) setComprovatvoModal(null); }}>
+            <motion.div
+              className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+              initial={{y:60,opacity:0}} animate={{y:0,opacity:1}} exit={{y:60,opacity:0}}>
+              <div className="bg-amber-50 border-b border-amber-200 px-5 py-4 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-amber-900 text-base">Comprovativo de Transferência</h3>
+                  <p className="text-xs text-amber-700">
+                    {comprovatvoModal.mes} {comprovatvoModal.ano} · {fmt(comprovatvoModal.total)}
+                  </p>
+                </div>
+                <button onClick={()=>setComprovatvoModal(null)} className="p-2 rounded-xl hover:bg-amber-100">
+                  <X size={18} className="text-amber-700"/>
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                {cpvSuccess ? (
+                  <div className="text-center py-6">
+                    <CheckCircle size={40} className="mx-auto mb-3 text-emerald-500"/>
+                    <p className="font-bold text-gray-800 text-lg">Comprovativo enviado!</p>
+                    <p className="text-sm text-gray-500 mt-1">A escola irá confirmar o pagamento em breve.</p>
+                    <button onClick={()=>{ setComprovatvoModal(null); if(selectedStudent) loadPropinas(selectedStudent.id); }}
+                      className="mt-4 px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-semibold text-sm">
+                      Fechar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Data da Transferência *</label>
+                      <input type="date" value={cpvData} onChange={e=>setCpvData(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Valor Transferido (AOA) *</label>
+                      <input type="number" step="0.01" value={cpvValor} onChange={e=>setCpvValor(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        placeholder={`ex: ${comprovatvoModal.total}`}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Banco de Origem *</label>
+                      <input type="text" value={cpvBanco} onChange={e=>setCpvBanco(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        placeholder="ex: BFA, BIC, BAI"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Referência da Transferência *</label>
+                      <input type="text" value={cpvRef} onChange={e=>setCpvRef(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        placeholder="Número de referência do banco"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Comprovativo (PDF / JPG / PNG — máx. 5 MB) *</label>
+                      <label className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${cpvFile ? "border-emerald-300 bg-emerald-50" : "border-gray-200 hover:border-amber-300 hover:bg-amber-50"}`}>
+                        <Upload size={16} className={cpvFile ? "text-emerald-600" : "text-gray-400"}/>
+                        <span className={`text-sm ${cpvFile ? "text-emerald-700 font-medium" : "text-gray-400"}`}>
+                          {cpvFile ? cpvFile.name : "Clique para seleccionar ficheiro"}
+                        </span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                          onChange={e=>setCpvFile(e.target.files?.[0] ?? null)}/>
+                      </label>
+                    </div>
+
+                    {cpvError && (
+                      <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2.5 text-xs">{cpvError}</div>
+                    )}
+
+                    <button
+                      onClick={async () => {
+                        if (!cpvData || !cpvValor || !cpvBanco || !cpvRef || !cpvFile) {
+                          setCpvError("Preencha todos os campos e anexe o comprovativo."); return;
+                        }
+                        setCpvLoading(true); setCpvError("");
+                        try {
+                          const fd = new FormData();
+                          fd.append("data_transferencia", cpvData);
+                          fd.append("valor", cpvValor);
+                          fd.append("banco_origem", cpvBanco);
+                          fd.append("ref_transferencia", cpvRef);
+                          fd.append("comprovativo", cpvFile);
+                          const r = await fetch(`${API}/guardian/propinas/${comprovatvoModal.id}/comprovativo`, {
+                            method: "POST",
+                            headers: { Authorization: `Bearer ${token}` },
+                            body: fd,
+                          });
+                          const d = await r.json();
+                          if (!r.ok) throw new Error(d.error ?? "Erro ao enviar.");
+                          setCpvSuccess(true);
+                        } catch (e: any) { setCpvError(e.message ?? "Erro ao enviar comprovativo."); }
+                        finally { setCpvLoading(false); }
+                      }}
+                      disabled={cpvLoading}
+                      className="w-full py-3 rounded-xl font-bold text-sm bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                      {cpvLoading ? <><RefreshCw size={15} className="animate-spin"/>A enviar...</> : <><Upload size={15}/>Enviar Comprovativo</>}
+                    </button>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

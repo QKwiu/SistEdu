@@ -18,7 +18,7 @@ import {
   ChevronLeft, ChevronRight, ListFilter,
   Megaphone, CheckCheck, XCircle, Info,
   Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent, Tag,
-  Zap, Printer, Building2, Hash, MessageCircle, ArrowRight, PlayCircle,
+  Zap, Printer, Building2, Hash, MessageCircle, ArrowRight, PlayCircle, ArrowUpRight,
   ShoppingCart, Truck, Store,
   Baby, UtensilsCrossed, Image as ImageIcon, Film, Soup,
   LayoutGrid, List, Mail,
@@ -4243,7 +4243,12 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [bmError, setBmError] = useState("");
   const [bmPrintMode, setBmPrintMode] = useState<"thermal" | "a4">("thermal");
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa">("faturas");
+  const [recSubTab, setRecSubTab] = useState<"faturas" | "multas" | "fecho_caixa" | "transferencias">("faturas");
+  const [manuais, setManuais] = useState<any[]>([]);
+  const [manuaisLoading, setManuaisLoading] = useState(false);
+  const [manuaisActionId, setManuaisActionId] = useState<number | null>(null);
+  const [manuaisRejModal, setManuaisRejModal] = useState<any | null>(null);
+  const [manuaisRejMotivo, setManuaisRejMotivo] = useState("");
 
   /* ── Fecho de Caixa state ── */
   /* helper: compute inicio/fim from a named period (relative to today)
@@ -4328,6 +4333,19 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   useEffect(() => {
     if (recSubTab === "fecho_caixa") loadFecho();
   }, [loadFecho, recSubTab]);
+
+  const loadManuais = useCallback(async () => {
+    if (!token) return;
+    setManuaisLoading(true);
+    try {
+      const r = await fetch(`${API}/school/reconciliacao/manuais`, { headers: authHeader() });
+      if (r.ok) setManuais(await r.json());
+    } finally { setManuaisLoading(false); }
+  }, [token]);
+
+  useEffect(() => {
+    if (recSubTab === "transferencias") loadManuais();
+  }, [loadManuais, recSubTab]);
 
   /* ── SSE connection for real-time payments ── */
   useEffect(() => {
@@ -4458,8 +4476,156 @@ function ReconciliacaoView({ token }: { token: string | null }) {
             <Banknote className="w-3.5 h-3.5 text-emerald-600"/> Fecho de Caixa
             {demoMode && <span className="ml-1 bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">DEMO</span>}
           </button>
+          <button onClick={() => setRecSubTab("transferencias")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${recSubTab==="transferencias"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>
+            <ArrowUpRight className="w-3.5 h-3.5 text-amber-600"/> Transferências
+            {manuais.filter(m => m.status === "pago_manual_pendente").length > 0 && (
+              <span className="ml-1 bg-amber-100 text-amber-700 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                {manuais.filter(m => m.status === "pago_manual_pendente").length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
+
+      {recSubTab === "transferencias" && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <ArrowUpRight className="w-4 h-4 text-amber-600"/>
+              <h3 className="font-semibold text-slate-900 text-sm">Transferências Bancárias Manuais</h3>
+              <span className="text-xs text-slate-400">
+                {manuais.filter(m => m.status === "pago_manual_pendente").length} aguardam confirmação
+              </span>
+            </div>
+            <button onClick={loadManuais} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
+              <RefreshCw className="w-3.5 h-3.5"/>Atualizar
+            </button>
+          </div>
+          {manuaisLoading ? (
+            <div className="py-12 flex items-center justify-center">
+              <RefreshCw className="w-6 h-6 animate-spin text-slate-400"/>
+            </div>
+          ) : manuais.length === 0 ? (
+            <div className="py-14 text-center text-slate-400">
+              <ArrowUpRight className="w-10 h-10 mx-auto mb-2 opacity-30"/>
+              <p className="font-semibold">Sem transferências manuais</p>
+              <p className="text-sm">Nenhum encarregado submeteu comprovativo por enquanto.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {manuais.map(m => (
+                <div key={m.id} className="px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${
+                      m.status === "pago_manual_pendente" ? "bg-amber-400" :
+                      m.status === "pago_manual"          ? "bg-emerald-400" : "bg-slate-300"
+                    }`}/>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-slate-900 text-sm">{m.aluno_nome}</span>
+                        {m.turma && <span className="text-xs text-slate-400">{m.turma}</span>}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                          m.status === "pago_manual_pendente" ? "bg-amber-100 text-amber-700" :
+                          m.status === "pago_manual"          ? "bg-emerald-100 text-emerald-700" :
+                                                                 "bg-slate-100 text-slate-600"
+                        }`}>
+                          {m.status === "pago_manual_pendente" ? "Aguarda confirmação" :
+                           m.status === "pago_manual"          ? "Confirmado" : m.status}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500 flex items-center flex-wrap gap-x-3 gap-y-0.5">
+                        <span>{m.mes} {m.ano}</span>
+                        <span className="font-semibold text-slate-700">
+                          {m.comprovativo_valor ? `${Number(m.comprovativo_valor).toLocaleString("pt-AO")} AOA` : `${Number(m.montante).toLocaleString("pt-AO")} AOA`}
+                        </span>
+                        {m.comprovativo_banco_origem && <span>Banco: {m.comprovativo_banco_origem}</span>}
+                        {m.comprovativo_ref_transf && <span>Ref: {m.comprovativo_ref_transf}</span>}
+                        {m.comprovativo_data && <span>Data: {new Date(m.comprovativo_data).toLocaleDateString("pt-AO")}</span>}
+                        {m.comprovativo_submetido_em && <span>Submetido: {new Date(m.comprovativo_submetido_em).toLocaleString("pt-AO")}</span>}
+                      </div>
+                      {m.comprovativo_url && (
+                        <a href={`${API}${m.comprovativo_url}`} target="_blank" rel="noopener noreferrer"
+                          className="mt-1.5 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                          <FileText className="w-3 h-3"/>Ver comprovativo
+                        </a>
+                      )}
+                      {m.motivo_rejeicao && (
+                        <p className="mt-1 text-xs text-red-600 bg-red-50 rounded px-2 py-1">
+                          Motivo rejeição: {m.motivo_rejeicao}
+                        </p>
+                      )}
+                    </div>
+                    {m.status === "pago_manual_pendente" && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          disabled={manuaisActionId === m.id}
+                          onClick={async () => {
+                            setManuaisActionId(m.id);
+                            try {
+                              const r = await fetch(`${API}/school/reconciliacao/manuais/${m.id}/confirmar`, {
+                                method: "POST",
+                                headers: { ...authHeader(), "Content-Type": "application/json" },
+                                body: JSON.stringify({}),
+                              });
+                              if (r.ok) loadManuais();
+                            } finally { setManuaisActionId(null); }
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-1">
+                          {manuaisActionId === m.id ? <RefreshCw className="w-3 h-3 animate-spin"/> : <CheckCircle2 className="w-3 h-3"/>}
+                          Confirmar
+                        </button>
+                        <button
+                          onClick={() => { setManuaisRejModal(m); setManuaisRejMotivo(""); }}
+                          className="px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
+                          <XCircle className="w-3 h-3"/>Rejeitar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Modal rejeição */}
+          {manuaisRejModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={e=>{ if(e.target===e.currentTarget) setManuaisRejModal(null); }}>
+              <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5">
+                <h4 className="font-bold text-slate-900 mb-1">Rejeitar Comprovativo</h4>
+                <p className="text-sm text-slate-500 mb-4">{manuaisRejModal.aluno_nome} · {manuaisRejModal.mes} {manuaisRejModal.ano}</p>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Motivo de rejeição *</label>
+                <textarea
+                  value={manuaisRejMotivo} onChange={e=>setManuaisRejMotivo(e.target.value)}
+                  rows={3} placeholder="ex: Valor incorrecto, comprovativo ilegível..."
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-300"/>
+                <div className="flex gap-3">
+                  <button onClick={() => setManuaisRejModal(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                    Cancelar
+                  </button>
+                  <button
+                    disabled={!manuaisRejMotivo.trim() || manuaisActionId === manuaisRejModal.id}
+                    onClick={async () => {
+                      setManuaisActionId(manuaisRejModal.id);
+                      try {
+                        const r = await fetch(`${API}/school/reconciliacao/manuais/${manuaisRejModal.id}/rejeitar`, {
+                          method: "POST",
+                          headers: { ...authHeader(), "Content-Type": "application/json" },
+                          body: JSON.stringify({ motivo: manuaisRejMotivo }),
+                        });
+                        if (r.ok) { setManuaisRejModal(null); loadManuais(); }
+                      } finally { setManuaisActionId(null); }
+                    }}
+                    className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-1.5">
+                    {manuaisActionId === manuaisRejModal.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : <XCircle className="w-3.5 h-3.5"/>}
+                    Rejeitar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {recSubTab === "multas" && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -8805,6 +8971,9 @@ function LocalEmolumentosTab({ token }: { token: string }) {
 
       {/* ─── EMIS Settings panel ─── */}
       <SchoolEmisSettingsPanel token={token} />
+
+      {/* ─── IBAN Contingência panel ─── */}
+      <SchoolIbanContingenciaPanel token={token} />
     </div>
   );
 }
@@ -8891,6 +9060,109 @@ function SchoolEmisSettingsPanel({ token }: { token: string }) {
           : saved
           ? <><CheckCircle2 className="w-4 h-4"/>Guardado!</>
           : "Guardar configurações EMIS"}
+      </button>
+    </div>
+  );
+}
+
+/* ─── School IBAN Contingência Panel ─── */
+function SchoolIbanContingenciaPanel({ token }: { token: string }) {
+  const hdrs = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const [cfg, setCfg] = useState<{
+    banco_nome?: string; banco_iban?: string; banco_titular?: string;
+    banco_swift_bic?: string; iban_visivel_em_contingencia?: boolean; emis_em_falha?: boolean;
+  }>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch(`${API}/school/contingencia/settings`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : {})
+      .then(d => setCfg(d))
+      .catch(() => {});
+  }, [token]);
+
+  const save = async () => {
+    setSaving(true); setError("");
+    try {
+      const r = await fetch(`${API}/school/contingencia/settings`, {
+        method: "PUT", headers: hdrs,
+        body: JSON.stringify({
+          banco_nome:    cfg.banco_nome,
+          banco_iban:    cfg.banco_iban,
+          banco_titular: cfg.banco_titular,
+          banco_swift_bic: cfg.banco_swift_bic,
+          iban_visivel_em_contingencia: cfg.iban_visivel_em_contingencia,
+        }),
+      });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro."); }
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const toggleEmis = async () => {
+    setToggling(true);
+    try {
+      const r = await fetch(`${API}/school/contingencia/toggle-emis`, {
+        method: "POST", headers: hdrs,
+        body: JSON.stringify({ emis_em_falha: !cfg.emis_em_falha }),
+      });
+      if (r.ok) { const d = await r.json(); setCfg(p => ({ ...p, emis_em_falha: d.emis_em_falha })); }
+    } finally { setToggling(false); }
+  };
+
+  const iCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-300";
+
+  return (
+    <div className="mt-8 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+      <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+        <div className="flex items-center gap-2">
+          <ArrowUpRight className="w-5 h-5 text-amber-600 shrink-0"/>
+          <h4 className="font-semibold text-amber-900">Plano de Contingência EMIS — Transferência Bancária</h4>
+        </div>
+        <button onClick={toggleEmis} disabled={toggling}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${cfg.emis_em_falha ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+          {toggling ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/> : null}
+          {cfg.emis_em_falha ? "⚠️ EMIS em falha (activo)" : "EMIS normal"}
+        </button>
+      </div>
+      <p className="text-xs text-amber-700 mb-5">
+        Configure a conta bancária da escola para receber transferências quando o sistema EMIS/Multicaixa estiver indisponível. Quando activado, o IBAN é mostrado automaticamente ao encarregado.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome do Banco</label>
+          <input type="text" className={iCls} value={cfg.banco_nome ?? ""} onChange={e => setCfg(p => ({...p, banco_nome: e.target.value}))} placeholder="ex: BFA, BIC, BAI"/>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">IBAN</label>
+          <input type="text" className={iCls} value={cfg.banco_iban ?? ""} onChange={e => setCfg(p => ({...p, banco_iban: e.target.value}))} placeholder="AO06000000000000000000000"/>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Titular da Conta</label>
+          <input type="text" className={iCls} value={cfg.banco_titular ?? ""} onChange={e => setCfg(p => ({...p, banco_titular: e.target.value}))} placeholder="Nome completo do titular"/>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">SWIFT / BIC (opcional)</label>
+          <input type="text" className={iCls} value={cfg.banco_swift_bic ?? ""} onChange={e => setCfg(p => ({...p, banco_swift_bic: e.target.value}))} placeholder="ex: BFAOANL"/>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mb-5">
+        <button type="button" onClick={() => setCfg(p => ({...p, iban_visivel_em_contingencia: !p.iban_visivel_em_contingencia}))}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${cfg.iban_visivel_em_contingencia ? "bg-amber-500" : "bg-slate-300"}`}>
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${cfg.iban_visivel_em_contingencia ? "translate-x-6" : "translate-x-1"}`}/>
+        </button>
+        <span className="text-sm text-slate-600">
+          {cfg.iban_visivel_em_contingencia ? "IBAN visível ao encarregado em contingência" : "IBAN oculto (não mostrado ao encarregado)"}
+        </span>
+      </div>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-3">{error}</div>}
+      <button onClick={save} disabled={saving}
+        className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60 flex items-center gap-2">
+        {saving ? <><RefreshCw className="w-4 h-4 animate-spin"/>A guardar...</> : saved ? <><CheckCircle2 className="w-4 h-4"/>Guardado!</> : "Guardar dados bancários"}
       </button>
     </div>
   );
