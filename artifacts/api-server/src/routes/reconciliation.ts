@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import multer from "multer";
@@ -323,8 +324,8 @@ function schoolAuth(req: any, res: any, next: any) {
 }
 
 /* ─── GET /school/reconciliacao ─── */
-router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/reconciliacao", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { status, student_id, mes, ano, data_from, data_to } = req.query as any;
@@ -407,8 +408,8 @@ router.get("/school/reconciliacao", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/reconciliacao/payment-rules ─── */
-router.get("/school/reconciliacao/payment-rules", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/reconciliacao/payment-rules", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(`
     SELECT * FROM payment_channel_rules
@@ -422,8 +423,8 @@ router.post(
   "/school/reconciliacao/baixa-manual",
   schoolAuth,
   comprovanteUpload.single("comprovante"),
-  async (req: any, res) => {
-    const school = await getSchoolFromToken(req.schoolToken);
+  async (req: Request, res: Response) => {
+    const school = await getSchoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
     const { propina_id, valor_pago, metodo, data_recebimento, observacoes, referencia_doc, validado_supervisor } = req.body;
@@ -762,8 +763,8 @@ router.put("/admin/colegios/:id/comissao", adminAuth, async (req, res) => {
 });
 
 /* ─── GET /school/reconciliacao/splits — splits for school's propinas ─── */
-router.get("/school/reconciliacao/splits", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/reconciliacao/splits", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(`
@@ -806,8 +807,8 @@ function metodoToChannel(metodo: string): string {
 }
 
 /* ─── GET /school/reconciliacao/fecho-caixa ─── */
-router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { data_from, data_to, metodo } = req.query as any;
@@ -881,8 +882,8 @@ router.get("/school/reconciliacao/fecho-caixa", schoolAuth, async (req: any, res
 });
 
 /* ─── POST /school/reconciliacao/demo-toggle ─── */
-router.post("/school/reconciliacao/demo-toggle", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/reconciliacao/demo-toggle", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(

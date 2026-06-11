@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { pool } from "@workspace/db";
 import multer from "multer";
 import path from "path";
@@ -41,7 +41,7 @@ async function getSchoolFromToken(token: string) {
   return res.rows[0] ?? null;
 }
 
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.schoolToken = header.slice(7);
@@ -49,7 +49,7 @@ function schoolAuth(req: any, res: any, next: any) {
 }
 
 async function getGuardianFromToken(token: string) {
-  const res = await pool.query(
+  const res = await pool.query<{ id: number; nome: string }>(
     `SELECT e.id, e.nome FROM guardian_sessions gs
      JOIN encarregados e ON e.id = gs.encarregado_id
      WHERE gs.token = $1 AND gs.expires_at > NOW()`,
@@ -58,7 +58,7 @@ async function getGuardianFromToken(token: string) {
   return res.rows[0] ?? null;
 }
 
-function guardianAuth(req: any, res: any, next: any) {
+function guardianAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.guardianToken = header.slice(7);
@@ -119,15 +119,15 @@ export async function runInfantMigration() {
    SCHOOL ROUTES  /school/infant/*
 ════════════════════════════════════════════════════ */
 
-router.get("/school/infant/status", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/infant/status", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   res.json({ modulo_infantil: !!school.modulo_infantil });
 });
 
 /* ── Turmas list (needed for filtering) ── */
-router.get("/school/infant/turmas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/infant/turmas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT id, nome, ano FROM turmas WHERE school_id=$1 ORDER BY nome`,
@@ -137,8 +137,8 @@ router.get("/school/infant/turmas", schoolAuth, async (req: any, res) => {
 });
 
 /* ── Rotinas ── */
-router.get("/school/infant/rotinas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/infant/rotinas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const turmaId = req.query.turma_id;
   let q = `SELECT r.*, t.nome AS turma_nome FROM infant_rotinas r LEFT JOIN turmas t ON t.id = r.turma_id WHERE r.school_id=$1`;
@@ -149,8 +149,8 @@ router.get("/school/infant/rotinas", schoolAuth, async (req: any, res) => {
   res.json(result.rows);
 });
 
-router.post("/school/infant/rotinas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/infant/rotinas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { turma_id, dia_semana, hora_inicio, hora_fim, atividade, descricao, cor } = req.body;
   if (dia_semana === undefined) return res.status(400).json({ error: "Dia da semana obrigatório." });
@@ -164,8 +164,8 @@ router.post("/school/infant/rotinas", schoolAuth, async (req: any, res) => {
   res.status(201).json(r.rows[0]);
 });
 
-router.put("/school/infant/rotinas/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/infant/rotinas/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { turma_id, dia_semana, hora_inicio, hora_fim, atividade, descricao, cor } = req.body;
   const r = await pool.query(
@@ -177,16 +177,16 @@ router.put("/school/infant/rotinas/:id", schoolAuth, async (req: any, res) => {
   res.json(r.rows[0]);
 });
 
-router.delete("/school/infant/rotinas/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/infant/rotinas/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query("DELETE FROM infant_rotinas WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ── Ementas ── */
-router.get("/school/infant/ementas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/infant/ementas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const semana = req.query.semana;
   let q = `SELECT * FROM infant_ementas WHERE school_id=$1`;
@@ -197,8 +197,8 @@ router.get("/school/infant/ementas", schoolAuth, async (req: any, res) => {
   res.json(result.rows);
 });
 
-router.post("/school/infant/ementas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/infant/ementas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { semana_inicio, dia_semana, refeicao, descricao, alergenios } = req.body;
   if (!semana_inicio || !dia_semana || !refeicao || !descricao?.trim()) {
@@ -215,16 +215,16 @@ router.post("/school/infant/ementas", schoolAuth, async (req: any, res) => {
   res.status(201).json(r.rows[0]);
 });
 
-router.delete("/school/infant/ementas/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/infant/ementas/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query("DELETE FROM infant_ementas WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ── Galeria ── */
-router.get("/school/infant/galeria", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/infant/galeria", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const turmaId = req.query.turma_id;
   let q = `SELECT g.*, t.nome AS turma_nome FROM infant_galeria g LEFT JOIN turmas t ON t.id = g.turma_id WHERE g.school_id=$1`;
@@ -235,8 +235,8 @@ router.get("/school/infant/galeria", schoolAuth, async (req: any, res) => {
   res.json(result.rows);
 });
 
-router.post("/school/infant/galeria", schoolAuth, infantUpload.single("file"), async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/infant/galeria", schoolAuth, infantUpload.single("file"), async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   if (!req.file) return res.status(400).json({ error: "Ficheiro obrigatório." });
   if (!req.body.turma_id) return res.status(400).json({ error: "Sala/Turma obrigatória." });
@@ -251,8 +251,8 @@ router.post("/school/infant/galeria", schoolAuth, infantUpload.single("file"), a
   res.status(201).json(r.rows[0]);
 });
 
-router.delete("/school/infant/galeria/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/infant/galeria/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const item = await pool.query("SELECT filename FROM infant_galeria WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
   if (!item.rowCount) return res.status(404).json({ error: "Item não encontrado." });
@@ -264,8 +264,8 @@ router.delete("/school/infant/galeria/:id", schoolAuth, async (req: any, res) =>
 });
 
 /* Secure media serving — inline, blocks download */
-router.get("/school/infant/media/:filename", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/infant/media/:filename", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const safeFilename = path.basename(req.params.filename);
@@ -297,8 +297,8 @@ async function getGuardianStudents(guardianId: number) {
   return r.rows;
 }
 
-router.get("/guardian/infant/rotinas", guardianAuth, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/infant/rotinas", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const studs = await getGuardianStudents(guardian.id);
   if (!studs.length) return res.json([]);
@@ -317,8 +317,8 @@ router.get("/guardian/infant/rotinas", guardianAuth, async (req: any, res) => {
   res.json(result.rows);
 });
 
-router.get("/guardian/infant/ementa", guardianAuth, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/infant/ementa", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const studs = await getGuardianStudents(guardian.id);
   if (!studs.length) return res.json([]);
@@ -336,8 +336,8 @@ router.get("/guardian/infant/ementa", guardianAuth, async (req: any, res) => {
   res.json(result.rows);
 });
 
-router.get("/guardian/infant/galeria", guardianAuth, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/infant/galeria", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const studs = await getGuardianStudents(guardian.id);
   if (!studs.length) return res.json([]);
@@ -357,8 +357,8 @@ router.get("/guardian/infant/galeria", guardianAuth, async (req: any, res) => {
 });
 
 /* Status: does the guardian's school have the infant module? */
-router.get("/guardian/infant/status", guardianAuth, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/infant/status", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT sc.modulo_infantil FROM students s
@@ -372,8 +372,8 @@ router.get("/guardian/infant/status", guardianAuth, async (req: any, res) => {
 });
 
 /* Secure guardian media */
-router.get("/guardian/infant/media/:filename", guardianAuth, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/infant/media/:filename", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const access = await pool.query(
     `SELECT g.id FROM infant_galeria g

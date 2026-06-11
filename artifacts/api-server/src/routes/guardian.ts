@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { pool } from "@workspace/db";
@@ -18,7 +19,7 @@ async function getGuardianFromToken(token: string) {
   return res.rows[0] ?? null;
 }
 
-function authMiddleware(req: any, res: any, next: any) {
+function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.guardianToken = header.slice(7);
@@ -93,8 +94,8 @@ router.post("/guardian/recuperar-pin", pinResetLimiter, async (req, res) => {
 });
 
 // POST /guardian/change-password — obrigatório no primeiro login
-router.post("/guardian/change-password", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/change-password", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { nova_senha, confirmar_senha } = req.body;
@@ -116,8 +117,8 @@ router.post("/guardian/change-password", authMiddleware, async (req: any, res) =
 });
 
 // GET /guardian/me
-router.get("/guardian/me", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/me", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   return res.json({
     id: guardian.id,
@@ -128,8 +129,8 @@ router.get("/guardian/me", authMiddleware, async (req: any, res) => {
 });
 
 // GET /guardian/alunos — lista alunos com resumo financeiro + nome e logo da escola
-router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/alunos", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const result = await pool.query(`
@@ -162,8 +163,8 @@ router.get("/guardian/alunos", authMiddleware, async (req: any, res) => {
 });
 
 // GET /guardian/alunos/:id/propinas
-router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { id } = req.params;
@@ -292,8 +293,8 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
 });
 
 // GET /guardian/payments/available-methods — métodos de pagamento disponíveis (suporta ?school_id=N para multi-escola)
-router.get("/guardian/payments/available-methods", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/payments/available-methods", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   // school_id_int = schools.id (integer PK), used in school_settings
@@ -342,8 +343,8 @@ function generateRef(): string {
 }
 
 // POST /guardian/pagamentos/gerar — gera referência combinada para propinas e/ou emolumentos
-router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_ids = [], method, emolumento_items = [] } = req.body as {
@@ -482,8 +483,8 @@ router.post("/guardian/pagamentos/gerar", authMiddleware, async (req: any, res) 
 });
 
 // GET /guardian/emolumentos — available non-propina emolumentos for the guardian's school
-router.get("/guardian/emolumentos", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/emolumentos", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const schoolLookup = await pool.query(
@@ -506,8 +507,8 @@ router.get("/guardian/emolumentos", authMiddleware, async (req: any, res) => {
 });
 
 // POST /guardian/pagamentos/gpo-checkout — audit + EMIS GPO initiation
-router.post("/guardian/pagamentos/gpo-checkout", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/pagamentos/gpo-checkout", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_ids } = req.body as { propina_ids: number[] };
@@ -577,8 +578,8 @@ router.post("/guardian/pagamentos/gpo-checkout", authMiddleware, async (req: any
 });
 
 // POST /guardian/pagamentos/mcx-express — iniciar pagamento MCX Express (QR Code ou Push)
-router.post("/guardian/pagamentos/mcx-express", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/pagamentos/mcx-express", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_ids, notif_type = "QR", telefone } = req.body as {
@@ -712,8 +713,8 @@ router.post("/guardian/pagamentos/mcx-express", authMiddleware, async (req: any,
 });
 
 // POST /guardian/propinas/:id/gerar-referencia — re-gerar referência EMIS expirada (portal encarregado)
-router.post("/guardian/propinas/:id/gerar-referencia", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/propinas/:id/gerar-referencia", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const propId = Number(req.params.id);
@@ -774,8 +775,8 @@ router.post("/guardian/propinas/:id/gerar-referencia", authMiddleware, async (re
 });
 
 // POST /guardian/propinas/checkout-isolado — GPO para propina ACTIVA ou VENCIDA
-router.post("/guardian/propinas/checkout-isolado", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/propinas/checkout-isolado", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_id } = req.body as { propina_id: number };
@@ -829,8 +830,8 @@ router.post("/guardian/propinas/checkout-isolado", authMiddleware, async (req: a
 });
 
 // POST /guardian/propinas/antecipadas/checkout — GPO para meses FUTURA (sem referência EMIS)
-router.post("/guardian/propinas/antecipadas/checkout", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/propinas/antecipadas/checkout", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_ids } = req.body as { propina_ids: number[] };
@@ -908,8 +909,8 @@ router.post("/guardian/propinas/antecipadas/checkout", authMiddleware, async (re
 });
 
 // POST /guardian/propinas/:id/anular-prepago — anular pré-pagamento, gerar crédito
-router.post("/guardian/propinas/:id/anular-prepago", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/propinas/:id/anular-prepago", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { motivo } = req.body ?? {};
@@ -938,8 +939,8 @@ router.post("/guardian/propinas/:id/anular-prepago", authMiddleware, async (req:
 });
 
 // GET /guardian/alunos/:id/ocorrencias
-router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { id } = req.params;
@@ -1089,8 +1090,8 @@ router.post("/guardian/comunicados/:id/marcar-lido", async (req, res) => {
 /* ── Débito Direto ── */
 
 // GET /guardian/direct-debit/subscription — estado actual da subscrição (suporta ?school_id=N)
-router.get("/guardian/direct-debit/subscription", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/direct-debit/subscription", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   // school_id_int = schools.id (integer PK) = direct_debit_subscriptions.school_id
@@ -1129,8 +1130,8 @@ router.get("/guardian/direct-debit/subscription", authMiddleware, async (req: an
 });
 
 // POST /guardian/direct-debit/subscribe — adesão (única vez)
-router.post("/guardian/direct-debit/subscribe", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/direct-debit/subscribe", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const schoolRes = await pool.query(
@@ -1169,8 +1170,8 @@ router.post("/guardian/direct-debit/subscribe", authMiddleware, async (req: any,
 });
 
 // POST /guardian/direct-debit/cancel-request — pedido de cancelamento (requer aprovação do colégio)
-router.post("/guardian/direct-debit/cancel-request", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/direct-debit/cancel-request", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { subscription_id } = req.body;
@@ -1199,8 +1200,8 @@ router.post("/guardian/direct-debit/cancel-request", authMiddleware, async (req:
    ══════════════════════════════════════════════════════════ */
 
 /* ─── GET /guardian/store/items ─── */
-router.get("/guardian/store/items", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/store/items", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const { school_id } = req.query as { school_id?: string };
   let schoolIds: number[] = [];
@@ -1229,8 +1230,8 @@ router.get("/guardian/store/items", authMiddleware, async (req: any, res) => {
 });
 
 /* ─── POST /guardian/store/checkout ─── */
-router.post("/guardian/store/checkout", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/store/checkout", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const { school_id, student_id, items, method = "reference" } = req.body as {
     school_id: number; student_id?: number;
@@ -1331,8 +1332,8 @@ router.post("/guardian/store/checkout", authMiddleware, async (req: any, res) =>
 });
 
 /* ─── GET /guardian/store/orders ─── */
-router.get("/guardian/store/orders", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/store/orders", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT so.*, sc.name AS escola_nome,
@@ -1348,8 +1349,8 @@ router.get("/guardian/store/orders", authMiddleware, async (req: any, res) => {
 });
 
 /* ─── GET /guardian/horario ─── */
-router.get("/guardian/horario", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/horario", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const studs = await pool.query(
     `SELECT DISTINCT s.school_id, s.turma_id FROM students s
@@ -1389,8 +1390,8 @@ router.get("/guardian/horario", authMiddleware, async (req: any, res) => {
 });
 
 /* ─── POST /guardian/fcm/subscribe — registo de token FCM do dispositivo ─── */
-router.post("/guardian/fcm/subscribe", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.post("/guardian/fcm/subscribe", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { token, platform = "web" } = req.body as { token?: string; platform?: string };
@@ -1413,8 +1414,8 @@ router.post("/guardian/fcm/subscribe", authMiddleware, async (req: any, res) => 
 });
 
 /* ─── DELETE /guardian/fcm/subscribe — remoção de token (logout / opt-out) ─── */
-router.delete("/guardian/fcm/subscribe", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.delete("/guardian/fcm/subscribe", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const { token } = req.body as { token?: string };
@@ -1432,8 +1433,8 @@ router.delete("/guardian/fcm/subscribe", authMiddleware, async (req: any, res) =
 });
 
 /* ─── GET /guardian/provas ─── */
-router.get("/guardian/provas", authMiddleware, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/provas", authMiddleware, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
   const studs = await pool.query(
     `SELECT DISTINCT s.school_id, s.turma_id FROM students s

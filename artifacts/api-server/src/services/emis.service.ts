@@ -18,7 +18,7 @@ async function getFeriados(anoMin: number, anoMax: number): Promise<Set<string>>
       `SELECT data FROM dd_angola_feriados WHERE EXTRACT(YEAR FROM data) BETWEEN $1 AND $2`,
       [anoMin, anoMax]
     );
-    return new Set(r.rows.map((row: any) => new Date(row.data).toISOString().slice(0, 10)));
+    return new Set(r.rows.map((row: { data: string | Date }) => new Date(row.data).toISOString().slice(0, 10)));
   } catch {
     return new Set();
   }

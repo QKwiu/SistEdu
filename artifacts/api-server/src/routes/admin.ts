@@ -1,5 +1,6 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { randomBytes } from "crypto";
+import { toError } from "../lib/errors";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { pool } from "@workspace/db";
 import { sendBulkSMS } from "../services/sms.service";
@@ -37,7 +38,7 @@ if (!ADMIN_USER || !ADMIN_PASS) {
 }
 
 /* ─── Auth helpers ─── */
-export async function adminAuth(req: any, res: any, next: any) {
+export async function adminAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   const token = header.slice(7);
@@ -126,11 +127,11 @@ router.post("/admin/colegios", adminAuth, async (req, res) => {
 
   // Save initial settings if provided
   if (settings && typeof settings === "object") {
-    function deepMerge(target: any, source: any): any {
-      const out = { ...target };
+    function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+      const out: Record<string, unknown> = { ...target };
       for (const key of Object.keys(source ?? {})) {
         if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key]))
-          out[key] = deepMerge(target[key] ?? {}, source[key]);
+          out[key] = deepMerge((target[key] ?? {}) as Record<string, unknown>, source[key] as Record<string, unknown>);
         else out[key] = source[key];
       }
       return out;
@@ -324,12 +325,12 @@ const DEFAULT_SETTINGS = {
 };
 
 /* Deep merge: right overrides left, recursively for objects */
-function deepMerge(base: any, override: any): any {
-  const result = { ...base };
+function deepMerge(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
   for (const key of Object.keys(override ?? {})) {
     if (override[key] !== null && typeof override[key] === "object" && !Array.isArray(override[key])
         && base[key] !== null && typeof base[key] === "object" && !Array.isArray(base[key])) {
-      result[key] = deepMerge(base[key], override[key]);
+      result[key] = deepMerge(base[key] as Record<string, unknown>, override[key] as Record<string, unknown>);
     } else {
       result[key] = override[key];
     }
@@ -417,7 +418,7 @@ router.get("/admin/colegios/:id/payment-methods", adminAuth, async (req, res) =>
     [schoolId]
   );
   const stored = r.rows[0]?.settings ?? {};
-  const merged = deepMerge(DEFAULT_SETTINGS, stored);
+  const merged = deepMerge(DEFAULT_SETTINGS as unknown as Record<string, unknown>, stored) as typeof DEFAULT_SETTINGS;
 
   const metodos = merged.pagamento?.metodos_pagamento ?? DEFAULT_SETTINGS.pagamento.metodos_pagamento;
   const directDebit = merged.pagamento?.direct_debit ?? DEFAULT_SETTINGS.pagamento.direct_debit;
@@ -443,7 +444,7 @@ router.put("/admin/colegios/:id/payment-methods", adminAuth, async (req, res) =>
     "SELECT settings FROM school_settings WHERE school_id = $1",
     [schoolId]
   );
-  const prevSettings = deepMerge(DEFAULT_SETTINGS, existing.rows[0]?.settings ?? {});
+  const prevSettings = deepMerge(DEFAULT_SETTINGS as unknown as Record<string, unknown>, existing.rows[0]?.settings ?? {}) as typeof DEFAULT_SETTINGS;
   const previousMetodos = prevSettings.pagamento?.metodos_pagamento ?? DEFAULT_SETTINGS.pagamento.metodos_pagamento;
 
   const newPagamento = {
@@ -468,10 +469,12 @@ router.put("/admin/colegios/:id/payment-methods", adminAuth, async (req, res) =>
     SET settings = $2::jsonb, updated_at = NOW(), updated_by = 'superadmin'
   `, [schoolId, JSON.stringify(newSettings)]);
 
-  const changes: Record<string, { de: any; para: any }> = {};
+  const changes: Record<string, { de: unknown; para: unknown }> = {};
+  const prevM = previousMetodos as Record<string, unknown>;
+  const newM = newPagamento.metodos_pagamento as Record<string, unknown>;
   for (const key of Object.keys(metodos_pagamento)) {
-    if (previousMetodos[key] !== newPagamento.metodos_pagamento[key]) {
-      changes[key] = { de: previousMetodos[key], para: newPagamento.metodos_pagamento[key] };
+    if (prevM[key] !== newM[key]) {
+      changes[key] = { de: prevM[key], para: newM[key] };
     }
   }
 
@@ -1015,7 +1018,7 @@ router.post("/admin/colegios/:id/alunos", adminAuth, (req, res, next) => {
     if (err) return res.status(400).json({ error: err.message });
     next();
   });
-}, async (req: any, res: any) => {
+}, async (req: Request, res: Response) => {
   const schoolId = Number(req.params.id);
   const b = req.body;
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;

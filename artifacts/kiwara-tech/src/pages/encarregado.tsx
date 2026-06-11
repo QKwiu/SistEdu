@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { fmtCurrency, fmtDate as fmtShort, fmtDateLong as fmtDate } from "@/lib/format";
 import { getGuardianToken, setGuardianToken, clearGuardianToken } from "@/lib/auth";
+import { errMsg } from "@/lib/utils";
 
 const API = "/api";
 
@@ -455,12 +456,12 @@ function ModalPagamentoIsolado({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar pagamento.");
       setGpoResult(data);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setLoading(false); }
   };
 
   const copyRef = () => {
-    const txt = `Entidade: ${propina.entidade}\nReferência: ${propina.referencia}\nValor: ${fmt(propina.total)}\nValidade: ${fmtDate(propina.validade)}`;
+    const txt = `Entidade: ${propina.entidade}\nReferência: ${propina.referencia}\nValor: ${fmt(propina.total)}\nValidade: ${fmtDate(propina.validade ?? "")}`;
     navigator.clipboard.writeText(txt).then(() => { setCopiedRef(true); setTimeout(() => setCopiedRef(false), 2500); });
   };
 
@@ -498,7 +499,7 @@ function ModalPagamentoIsolado({
                 </div>
                 <div className="grid grid-cols-2 gap-3 border-t pt-3">
                   <div><p className="text-xs text-gray-500 mb-0.5">Total a pagar</p><p className="font-bold text-gray-900">{fmt(propina.total)}</p></div>
-                  <div><p className="text-xs text-gray-500 mb-0.5">Válida até</p><p className="font-semibold text-gray-900 text-sm">{fmtShort(propina.validade)}</p></div>
+                  <div><p className="text-xs text-gray-500 mb-0.5">Válida até</p><p className="font-semibold text-gray-900 text-sm">{fmtShort(propina.validade ?? "")}</p></div>
                 </div>
                 <button onClick={copyRef}
                   className="w-full py-2 rounded-xl border border-blue-200 text-blue-600 text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-blue-50 transition-colors">
@@ -635,7 +636,7 @@ function CheckoutWizard({
         setGpoResult(data);
         setStep(totalSteps);
       }
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setLoading(false); }
   };
 
@@ -1047,7 +1048,7 @@ function RecuperarPinModal({ onClose }: { onClose: () => void }) {
       try { data = await res.json(); } catch {}
       if (!res.ok) throw new Error(data.error ?? "Erro ao repor o PIN. Tente novamente.");
       setSuccess(data.nome);
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setLoading(false); }
   };
 
@@ -1236,7 +1237,7 @@ function DirectDebitWizard({ onClose, onSuccess, availableMethods, token }: {
       if (!res.ok) throw new Error(data.error ?? "Erro ao registar subscrição.");
       setSuccess(true);
       setTimeout(() => { onSuccess(data.subscription); onClose(); }, 2200);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setLoading(false); }
   };
 
@@ -1509,7 +1510,7 @@ function DDSubscriptionCard({ sub, token, onCancelled }: {
       if (!res.ok) throw new Error(data.error ?? "Erro ao submeter pedido.");
       onCancelled();
       setShowCancel(false);
-    } catch (e: any) { setCancelError(e.message); }
+    } catch (e) { setCancelError(errMsg(e)); }
     finally { setCancelling(false); }
   };
 
@@ -1652,7 +1653,7 @@ function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) =>
       if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar sessão.");
       setGuardianToken(data.token);
       onSuccess(data.token, { ...data.guardian, first_login: data.first_login });
-    } catch(err: any) { setError(err.message); }
+    } catch(err: any) { setError(errMsg(err)); }
     finally { setLoading(false); }
   };
 
@@ -1750,7 +1751,7 @@ function ChangePasswordScreen({ token, guardian, onSuccess }: {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao actualizar palavra-passe.");
       onSuccess();
-    } catch(err: any) { setError(err.message); }
+    } catch(err: any) { setError(errMsg(err)); }
     finally { setLoading(false); }
   };
 
@@ -3068,7 +3069,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               const data = await res.json();
               if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar pagamento antecipado.");
               setAntecipadosGPOResult(data);
-            } catch (e: any) { setAntecipadosError(e.message); }
+            } catch (e) { setAntecipadosError(errMsg(e)); }
             finally { setAntecipadosLoading(false); }
           };
 
@@ -3632,7 +3633,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               setCart([]);
               loadStoreOrders();
               loadStoreItems();
-            } catch (e: any) { setStoreCheckoutError(e.message); }
+            } catch (e) { setStoreCheckoutError(errMsg(e)); }
             finally { setStoreCheckoutLoading(false); }
           };
 
@@ -4124,7 +4125,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                           const d = await r.json();
                           if (!r.ok) throw new Error(d.error ?? "Erro ao enviar.");
                           setCpvSuccess(true);
-                        } catch (e: any) { setCpvError(e.message ?? "Erro ao enviar comprovativo."); }
+                        } catch (e) { setCpvError(errMsg(e) ?? "Erro ao enviar comprovativo."); }
                         finally { setCpvLoading(false); }
                       }}
                       disabled={cpvLoading}

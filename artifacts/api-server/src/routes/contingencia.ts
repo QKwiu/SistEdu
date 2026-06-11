@@ -7,7 +7,8 @@
  * Camada 5: Gestor confirma / rejeita pagamentos manuais
  */
 
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import multer from "multer";
@@ -47,7 +48,7 @@ async function getSchoolFromToken(token: string) {
   );
   return res.rows[0] ?? null;
 }
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.schoolToken = h.slice(7);
@@ -56,7 +57,7 @@ function schoolAuth(req: any, res: any, next: any) {
 
 /* ─── Auth: encarregado ─── */
 async function getGuardianFromToken(token: string) {
-  const res = await pool.query(
+  const res = await pool.query<{ id: number; nome: string; telefone: string }>(
     `SELECT e.id, e.nome, e.telefone
      FROM encarregados e
      JOIN guardian_sessions gs ON gs.encarregado_id = e.id
@@ -65,7 +66,7 @@ async function getGuardianFromToken(token: string) {
   );
   return res.rows[0] ?? null;
 }
-function guardianAuth(req: any, res: any, next: any) {
+function guardianAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.guardianToken = h.slice(7);
@@ -122,8 +123,8 @@ export async function runContingenciaMigration() {
    ════════════════════════════════════════════════════════════════ */
 
 /* GET /school/contingencia/settings */
-router.get("/school/contingencia/settings", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/contingencia/settings", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT banco_nome, banco_iban, banco_titular, banco_swift_bic,
@@ -135,8 +136,8 @@ router.get("/school/contingencia/settings", schoolAuth, async (req: any, res) =>
 });
 
 /* PUT /school/contingencia/settings */
-router.put("/school/contingencia/settings", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/contingencia/settings", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { banco_nome, banco_iban, banco_titular, banco_swift_bic, iban_visivel_em_contingencia } = req.body;
   await pool.query(
@@ -157,8 +158,8 @@ router.put("/school/contingencia/settings", schoolAuth, async (req: any, res) =>
 });
 
 /* POST /school/contingencia/toggle-emis — activar/desactivar modo contingência manualmente */
-router.post("/school/contingencia/toggle-emis", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/contingencia/toggle-emis", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { emis_em_falha } = req.body;
   await pool.query(
@@ -175,8 +176,8 @@ router.post("/school/contingencia/toggle-emis", schoolAuth, async (req: any, res
 });
 
 /* GET /school/contingencia/status — estado EMIS + log recente + contagem pendentes */
-router.get("/school/contingencia/status", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/contingencia/status", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const [scR, logR, cntR] = await Promise.all([
     pool.query(`SELECT emis_em_falha, iban_visivel_em_contingencia FROM schools WHERE id=$1`, [school.school_id]),
@@ -213,8 +214,8 @@ router.get("/school/contingencia/status", schoolAuth, async (req: any, res) => {
    ════════════════════════════════════════════════════════════════ */
 
 /* GET /school/reconciliacao/manuais */
-router.get("/school/reconciliacao/manuais", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/reconciliacao/manuais", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT
@@ -239,8 +240,8 @@ router.get("/school/reconciliacao/manuais", schoolAuth, async (req: any, res) =>
 });
 
 /* GET /school/reconciliacao/manuais/:id */
-router.get("/school/reconciliacao/manuais/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/reconciliacao/manuais/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT p.*,
@@ -260,8 +261,8 @@ router.get("/school/reconciliacao/manuais/:id", schoolAuth, async (req: any, res
 });
 
 /* POST /school/reconciliacao/manuais/:id/confirmar — Camada 5: admin confirma */
-router.post("/school/reconciliacao/manuais/:id/confirmar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/reconciliacao/manuais/:id/confirmar", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { observacao } = req.body;
   const r = await pool.query(
@@ -283,8 +284,8 @@ router.post("/school/reconciliacao/manuais/:id/confirmar", schoolAuth, async (re
 });
 
 /* POST /school/reconciliacao/manuais/:id/rejeitar */
-router.post("/school/reconciliacao/manuais/:id/rejeitar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/reconciliacao/manuais/:id/rejeitar", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { motivo } = req.body;
   if (!motivo?.trim()) return res.status(400).json({ error: "Motivo de rejeição obrigatório." });
@@ -306,8 +307,8 @@ router.post("/school/reconciliacao/manuais/:id/rejeitar", schoolAuth, async (req
    ════════════════════════════════════════════════════════════════ */
 
 /* GET /guardian/contingencia/status */
-router.get("/guardian/contingencia/status", guardianAuth, async (req: any, res) => {
-  const guardian = await getGuardianFromToken(req.guardianToken);
+router.get("/guardian/contingencia/status", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await getGuardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Não autenticado." });
 
   const alunoR = await pool.query(
@@ -351,7 +352,7 @@ router.post("/guardian/propinas/:id/comprovativo", guardianAuth, (req: any, res:
     if (err) return res.status(400).json({ error: "Ficheiro inválido. Máx. 5 MB — tipos aceites: PDF, JPG, PNG." });
 
     try {
-      const guardian = await getGuardianFromToken(req.guardianToken);
+      const guardian = await getGuardianFromToken(req.guardianToken!);
       if (!guardian) {
         if (req.file) fs.unlinkSync(path.join(uploadsDir, req.file.filename));
         return res.status(401).json({ error: "Não autenticado." });

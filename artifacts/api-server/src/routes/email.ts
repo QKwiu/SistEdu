@@ -8,7 +8,7 @@
  *   GET    /school/email-logs            — lista logs de auditoria (paginado)
  */
 
-import { Router }    from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { z }         from "zod";
 import { pool }      from "@workspace/db";
 import {
@@ -30,7 +30,7 @@ async function getSchoolFromToken(token: string) {
   return r.rows[0] ?? null;
 }
 
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.headers.authorization ?? "";
   const token = auth.replace("Bearer ", "").trim();
   if (!token) return res.status(401).json({ error: "Token em falta." });
@@ -75,8 +75,8 @@ const TestEmailSchema = z.object({
    GET /school/email-config — lê configuração (sem expor credenciais)
 ══════════════════════════════════════════════════════════════════ */
 
-router.get("/school/email-config", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/email-config", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(
@@ -104,8 +104,8 @@ router.get("/school/email-config", schoolAuth, async (req: any, res) => {
    PUT /school/email-config — guarda / actualiza configuração
 ══════════════════════════════════════════════════════════════════ */
 
-router.put("/school/email-config", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/email-config", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const parse = EmailConfigSchema.safeParse(req.body);
@@ -137,8 +137,8 @@ router.put("/school/email-config", schoolAuth, async (req: any, res) => {
    POST /school/email-config/test — envia e-mail de teste (síncrono)
 ══════════════════════════════════════════════════════════════════ */
 
-router.post("/school/email-config/test", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/email-config/test", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const parse = TestEmailSchema.safeParse(req.body);
@@ -184,8 +184,8 @@ router.post("/school/email-config/test", schoolAuth, async (req: any, res) => {
    GET /school/email-logs — lista logs de auditoria
 ══════════════════════════════════════════════════════════════════ */
 
-router.get("/school/email-logs", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/email-logs", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"), 10));

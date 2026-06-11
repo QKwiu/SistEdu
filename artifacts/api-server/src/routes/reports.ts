@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { schoolAuthFull as schoolAuth } from "../middlewares/school-auth";
-import { calcFine } from "../lib/fines-engine";
+import { calcFine, FinesRegra } from "../lib/fines-engine";
 
 const router = Router();
 
@@ -528,7 +528,7 @@ router.get("/school/relatorios/multas-analise", schoolAuth, async (req: any, res
       `),
     ]);
 
-    const regra = regraRes.rows[0] ?? null;
+    const regra = (regraRes.rows[0] ?? null) as unknown as FinesRegra | null;
     const propinas = propinasRes.rows as any[];
 
     let totalMultaAplicada = 0;
@@ -542,7 +542,7 @@ router.get("/school/relatorios/multas-analise", schoolAuth, async (req: any, res
       const montante = Number(p.montante);
       const multaActual = Number(p.multa_actual);
       const dataVenc = new Date(p.data_vencimento);
-      const { multa: multaCalculada } = calcFine({ montante, dataVencimento: dataVenc, regra });
+      const { multa: multaCalculada } = calcFine({ montante, dataVencimento: dataVenc, regra: regra as unknown as FinesRegra | null });
       const delta = multaCalculada - multaActual;
 
       totalMultaAplicada += multaActual;
@@ -584,7 +584,7 @@ router.get("/school/relatorios/multas-analise", schoolAuth, async (req: any, res
 
     const regraInfo = regra ? {
       modelo: Number(regra.modelo),
-      tipo_calculo: regra.tipo_calculo,
+      tipo_calculo: (regra as any).tipo_calculo,
       dia_limite: Number(regra.dia_limite),
       valor_fixo: Number(regra.valor_fixo ?? 0),
       percentagem: Number(regra.percentagem ?? 0),
@@ -643,7 +643,7 @@ router.post("/school/relatorios/multas-aplicar", schoolAuth, async (req: any, re
       const montante = Number(p.montante);
       const multaActual = Number(p.multa_actual);
       const dataVenc = new Date(p.data_vencimento);
-      const { multa: multaCalculada } = calcFine({ montante, dataVencimento: dataVenc, regra });
+      const { multa: multaCalculada } = calcFine({ montante, dataVencimento: dataVenc, regra: regra as unknown as FinesRegra | null });
 
       const novoStatus = "vencido";
       const mudouMulta = Math.abs(multaCalculada - multaActual) > 0.01;

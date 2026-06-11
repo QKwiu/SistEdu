@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { pool } from "@workspace/db";
 
 const router = Router();
@@ -25,7 +25,7 @@ async function getSchoolFromToken(token: string) {
   return res.rows[0] ?? null;
 }
 
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.schoolToken = header.slice(7);
@@ -38,8 +38,8 @@ router.get("/ocorrencias/tipos", (_req, res) => {
 });
 
 // GET /ocorrencias/alunos — students for the school (for selector)
-router.get("/ocorrencias/alunos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/ocorrencias/alunos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const result = await pool.query(
@@ -55,8 +55,8 @@ router.get("/ocorrencias/alunos", schoolAuth, async (req: any, res) => {
 });
 
 // GET /ocorrencias — list occurrences for the school
-router.get("/ocorrencias", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/ocorrencias", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { student_id } = req.query;
@@ -81,8 +81,8 @@ router.get("/ocorrencias", schoolAuth, async (req: any, res) => {
 });
 
 // POST /ocorrencias — create occurrence
-router.post("/ocorrencias", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/ocorrencias", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { student_id, tipo, descricao, registado_por, data_ocorrencia } = req.body;
@@ -113,8 +113,8 @@ router.post("/ocorrencias", schoolAuth, async (req: any, res) => {
 });
 
 // DELETE /ocorrencias/:id
-router.delete("/ocorrencias/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/ocorrencias/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const result = await pool.query(

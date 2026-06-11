@@ -18,7 +18,8 @@
  * 11. Rotas REST (guardian · escola · admin)
  */
 
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import crypto from "crypto";
 import { pool } from "@workspace/db";
 import { sendSMS } from "../services/sms.service";
@@ -932,21 +933,21 @@ async function guardianFromToken(token: string) {
   );
   return r.rows[0] ?? null;
 }
-function guardianAuth(req: any, res: any, next: any) {
+function guardianAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.guardianToken = h.slice(7);
   next();
 }
 async function schoolFromToken(token: string) {
-  const r = await pool.query(
+  const r = await pool.query<{ id: number; name: string }>(
     `SELECT s.id, s.name FROM sessions sess JOIN schools s ON s.id=sess.school_id
      WHERE sess.token=$1 AND sess.expires_at>NOW() LIMIT 1`,
     [token]
   );
   return r.rows[0] ?? null;
 }
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.schoolToken = h.slice(7);
@@ -956,7 +957,7 @@ async function adminFromToken(token: string) {
   const r = await pool.query("SELECT id FROM admin_sessions WHERE token=$1 AND expires_at>NOW()", [token]);
   return r.rows[0] ?? null;
 }
-function adminAuth(req: any, res: any, next: any) {
+function adminAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.adminToken = h.slice(7);
@@ -968,9 +969,9 @@ function adminAuth(req: any, res: any, next: any) {
 ══════════════════════════════════════════════════════ */
 
 // POST /dd/mandates — criar mandato (substitui /guardian/direct-debit/subscribe)
-router.post("/dd/mandates", guardianAuth, async (req: any, res) => {
+router.post("/dd/mandates", guardianAuth, async (req: Request, res: Response) => {
   try {
-    const guardian = await guardianFromToken(req.guardianToken);
+    const guardian = await guardianFromToken(req.guardianToken!);
     if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
     const { iban, bic, emolumentos, debit_day, email, sequence_type = "RCUR" } = req.body;
@@ -1040,8 +1041,8 @@ router.post("/dd/mandates", guardianAuth, async (req: any, res) => {
 });
 
 // GET /dd/mandates/mine — mandato actual do encarregado
-router.get("/dd/mandates/mine", guardianAuth, async (req: any, res) => {
-  const guardian = await guardianFromToken(req.guardianToken);
+router.get("/dd/mandates/mine", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await guardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const schoolId = req.query.school_id ? Number(req.query.school_id) : null;
@@ -1063,9 +1064,9 @@ router.get("/dd/mandates/mine", guardianAuth, async (req: any, res) => {
 });
 
 // POST /dd/mandates/:id/cancel-request — pedido de cancelamento
-router.post("/dd/mandates/:id/cancel-request", guardianAuth, async (req: any, res) => {
+router.post("/dd/mandates/:id/cancel-request", guardianAuth, async (req: Request, res: Response) => {
   try {
-    const guardian = await guardianFromToken(req.guardianToken);
+    const guardian = await guardianFromToken(req.guardianToken!);
     if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
     const r = await pool.query(
@@ -1093,8 +1094,8 @@ router.post("/dd/mandates/:id/cancel-request", guardianAuth, async (req: any, re
 });
 
 // GET /dd/mandates/:id/history — histórico de auditoria
-router.get("/dd/mandates/:id/history", guardianAuth, async (req: any, res) => {
-  const guardian = await guardianFromToken(req.guardianToken);
+router.get("/dd/mandates/:id/history", guardianAuth, async (req: Request, res: Response) => {
+  const guardian = await guardianFromToken(req.guardianToken!);
   if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
 
   const check = await pool.query(
@@ -1118,8 +1119,8 @@ router.get("/dd/mandates/:id/history", guardianAuth, async (req: any, res) => {
 ══════════════════════════════════════════════════════ */
 
 // GET /school/dd/mandates — lista mandatos da escola
-router.get("/school/dd/mandates", schoolAuth, async (req: any, res) => {
-  const school = await schoolFromToken(req.schoolToken);
+router.get("/school/dd/mandates", schoolAuth, async (req: Request, res: Response) => {
+  const school = await schoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { status, page = 1, per_page = 30 } = req.query;
@@ -1152,9 +1153,9 @@ router.get("/school/dd/mandates", schoolAuth, async (req: any, res) => {
 });
 
 // PUT /school/dd/mandates/:id/transition — forçar transição manual
-router.put("/school/dd/mandates/:id/transition", schoolAuth, async (req: any, res) => {
+router.put("/school/dd/mandates/:id/transition", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const school = await schoolFromToken(req.schoolToken);
+    const school = await schoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
     const { new_status, motivo } = req.body;
@@ -1171,9 +1172,9 @@ router.put("/school/dd/mandates/:id/transition", schoolAuth, async (req: any, re
 });
 
 // POST /school/dd/pain008/generate — gerar PAIN.008 para um conjunto de instruções
-router.post("/school/dd/pain008/generate", schoolAuth, async (req: any, res) => {
+router.post("/school/dd/pain008/generate", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const school = await schoolFromToken(req.schoolToken);
+    const school = await schoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
     const MAX_BATCH = req.body.max_batch ?? 500;
@@ -1278,9 +1279,9 @@ router.post("/school/dd/pain008/generate", schoolAuth, async (req: any, res) => 
 });
 
 // POST /school/dd/pain002/process — processar ficheiro de resultado EMIS
-router.post("/school/dd/pain002/process", schoolAuth, async (req: any, res) => {
+router.post("/school/dd/pain002/process", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const school = await schoolFromToken(req.schoolToken);
+    const school = await schoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
     const { entries, report_date } = req.body as { entries: Pain002Entry[]; report_date: string };
@@ -1298,8 +1299,8 @@ router.post("/school/dd/pain002/process", schoolAuth, async (req: any, res) => {
 });
 
 // GET /school/dd/reconciliation — relatórios de reconciliação
-router.get("/school/dd/reconciliation", schoolAuth, async (req: any, res) => {
-  const school = await schoolFromToken(req.schoolToken);
+router.get("/school/dd/reconciliation", schoolAuth, async (req: Request, res: Response) => {
+  const school = await schoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(
@@ -1310,8 +1311,8 @@ router.get("/school/dd/reconciliation", schoolAuth, async (req: any, res) => {
 });
 
 // GET /school/dd/stats — estatísticas gerais
-router.get("/school/dd/stats", schoolAuth, async (req: any, res) => {
-  const school = await schoolFromToken(req.schoolToken);
+router.get("/school/dd/stats", schoolAuth, async (req: Request, res: Response) => {
+  const school = await schoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(
@@ -1334,9 +1335,9 @@ router.get("/school/dd/stats", schoolAuth, async (req: any, res) => {
 });
 
 // POST /school/dd/instructions — criar instrução manual para um mandato
-router.post("/school/dd/instructions", schoolAuth, async (req: any, res) => {
+router.post("/school/dd/instructions", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const school = await schoolFromToken(req.schoolToken);
+    const school = await schoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
     const { mandate_id, amount, collection_date, propina_id } = req.body;
@@ -1374,9 +1375,9 @@ router.post("/school/dd/instructions", schoolAuth, async (req: any, res) => {
 });
 
 // POST /school/dd/mandates/:id/send-prenotification — forçar envio de pré-notificação
-router.post("/school/dd/mandates/:id/send-prenotification", schoolAuth, async (req: any, res) => {
+router.post("/school/dd/mandates/:id/send-prenotification", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const school = await schoolFromToken(req.schoolToken);
+    const school = await schoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
     const check = await pool.query(
@@ -1396,8 +1397,8 @@ router.post("/school/dd/mandates/:id/send-prenotification", schoolAuth, async (r
 ══════════════════════════════════════════════════════ */
 
 // GET /admin/dd/overview — visão global de mandatos
-router.get("/admin/dd/overview", adminAuth, async (req: any, res) => {
-  if (!await adminFromToken(req.adminToken)) return res.status(401).json({ error: "Sessão inválida." });
+router.get("/admin/dd/overview", adminAuth, async (req: Request, res: Response) => {
+  if (!await adminFromToken(req.adminToken!)) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(`
     SELECT
@@ -1420,8 +1421,8 @@ router.get("/admin/dd/overview", adminAuth, async (req: any, res) => {
 });
 
 // POST /admin/dd/jobs/run — executar jobs manualmente
-router.post("/admin/dd/jobs/run", adminAuth, async (req: any, res) => {
-  if (!await adminFromToken(req.adminToken)) return res.status(401).json({ error: "Sessão inválida." });
+router.post("/admin/dd/jobs/run", adminAuth, async (req: Request, res: Response) => {
+  if (!await adminFromToken(req.adminToken!)) return res.status(401).json({ error: "Sessão inválida." });
   try {
     await jobExpireMandates();
     await jobCancelSuspended();
@@ -1434,15 +1435,15 @@ router.post("/admin/dd/jobs/run", adminAuth, async (req: any, res) => {
 });
 
 // GET /admin/dd/feriados — listar feriados
-router.get("/admin/dd/feriados", adminAuth, async (req: any, res) => {
-  if (!await adminFromToken(req.adminToken)) return res.status(401).json({ error: "Sessão inválida." });
+router.get("/admin/dd/feriados", adminAuth, async (req: Request, res: Response) => {
+  if (!await adminFromToken(req.adminToken!)) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query("SELECT * FROM dd_angola_feriados ORDER BY data");
   return res.json(r.rows);
 });
 
 // POST /admin/dd/feriados — adicionar feriado
-router.post("/admin/dd/feriados", adminAuth, async (req: any, res) => {
-  if (!await adminFromToken(req.adminToken)) return res.status(401).json({ error: "Sessão inválida." });
+router.post("/admin/dd/feriados", adminAuth, async (req: Request, res: Response) => {
+  if (!await adminFromToken(req.adminToken!)) return res.status(401).json({ error: "Sessão inválida." });
   const { data, nome } = req.body;
   if (!data || !nome) return res.status(400).json({ error: "data e nome obrigatórios." });
   const r = await pool.query(
@@ -1453,8 +1454,8 @@ router.post("/admin/dd/feriados", adminAuth, async (req: any, res) => {
 });
 
 // GET /admin/dd/batches — listar batches PAIN.008
-router.get("/admin/dd/batches", adminAuth, async (req: any, res) => {
-  if (!await adminFromToken(req.adminToken)) return res.status(401).json({ error: "Sessão inválida." });
+router.get("/admin/dd/batches", adminAuth, async (req: Request, res: Response) => {
+  if (!await adminFromToken(req.adminToken!)) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT b.*, s.name AS school_name
      FROM dd_pain008_batches b JOIN schools s ON s.id=b.school_id
@@ -1464,8 +1465,8 @@ router.get("/admin/dd/batches", adminAuth, async (req: any, res) => {
 });
 
 // POST /admin/dd/mandates/:id/transition — transição forçada pelo admin
-router.post("/admin/dd/mandates/:id/transition", adminAuth, async (req: any, res) => {
-  if (!await adminFromToken(req.adminToken)) return res.status(401).json({ error: "Sessão inválida." });
+router.post("/admin/dd/mandates/:id/transition", adminAuth, async (req: Request, res: Response) => {
+  if (!await adminFromToken(req.adminToken!)) return res.status(401).json({ error: "Sessão inválida." });
   try {
     const { new_status, motivo } = req.body;
     await transitionMandate(Number(req.params.id), new_status as MandateStatus, motivo, "admin");

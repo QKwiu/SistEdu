@@ -30,6 +30,17 @@ import ReportsDashboard from "./ReportsDashboard";
 import AccessManagement from "./AccessManagement";
 import { fmtCurrency as fmt, fmtDate, fmtNumber } from "@/lib/format";
 import { FormField as Field, inputCls, selectCls } from "@/components/ui/form-field";
+import { errMsg } from "@/lib/utils";
+import type {
+  Pacote,
+  GerarPropinaResult,
+  PropinaDetalhe,
+  ReferenciaLoteResult,
+  SituacaoFinanceira,
+  SituacaoFinanceiraPropina,
+  SituacaoFinanceiraAluno,
+  PropinaStatusDB,
+} from "@/types/domain";
 
 const API = "/api";
 const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -37,7 +48,7 @@ const TURNOS = ["Manhã","Tarde","Noite"];
 
 /* ─── Interfaces ─── */
 interface Turma { id: number; nome: string; ano: string; turno: string; total_alunos: number; }
-interface Pacote { id: number; nome: string; valor: number; descricao?: string; itens?: any[]; activo: boolean; }
+// Pacote importado de "@/types/domain"
 interface Aluno {
   id: number; nome: string; bilhete?: string; turma_id?: number; turma: string; turno?: string;
   nome_encarregado?: string; telefone_encarregado?: string;
@@ -48,7 +59,7 @@ interface Aluno {
 }
 interface Propina {
   id: number; student_id: number; aluno_nome: string; turma: string;
-  mes: string; ano: string; montante: number; multa: number; status: string;
+  mes: string; ano: string; montante: number; multa: number; status: PropinaStatusDB;
   data_vencimento: string; ref_numero?: string; ref_valor?: number;
   ref_estado?: string; ref_validade?: string; entidade?: string;
   internal_reference?: string;
@@ -73,10 +84,11 @@ interface RecPropina {
   mes: string; ano: string; montante: number; multa: number; status: string;
   internal_reference?: string; data_vencimento: string; pago_em?: string;
   total_fatura: number; split_escola: number; split_plataforma: number;
-  ref_multicaixa?: string; entidade?: string;
+  ref_multicaixa?: string; ref_numero?: string; entidade?: string;
   baixa_manual?: boolean; baixa_manual_por?: string; baixa_manual_em?: string;
   baixa_manual_obs?: string; comprovante_url?: string; data_recebimento?: string;
 }
+interface DDSub { id: number; status: string; encarregado_nome?: string; iban?: string; created_at?: string; }
 interface RecStats {
   pendentes: string; vencidas: string; pagas: string;
   divida_total: string; receita_total: string; receita_escola: string; comissao_plataforma: string;
@@ -186,7 +198,7 @@ function ModalCriarTurma({ token, onClose, onCreated }: { token: string; onClose
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao criar turma.");
       onCreated({ ...data, total_alunos: 0 });
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -249,7 +261,7 @@ function ModalAdicionarAluno({ token, turmas, onClose, onCreated }: { token: str
       if (!res.ok) throw new Error(data.error ?? "Erro ao adicionar aluno.");
       const turma = turmas.find(t => t.id === Number(form.turma_id));
       onCreated({ ...data, turma: turma?.nome ?? "Sem turma", propinas_pendentes: 0, divida: 0 });
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -353,7 +365,7 @@ function ModalGerarPropina({ token, alunos, onClose, onCreated }: { token: strin
       setMeses([]);
       setForm(f => ({ ...f, student_id: "" }));
       onCreated();
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -421,7 +433,7 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
   const [autoSMS, setAutoSMS] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<null | { total_geradas: number; total_skipped: number; total_alunos: number; periodos: number; total_referencias?: number; total_sms?: number; detalhes: any[] }>(null);
+  const [result, setResult] = useState<GerarPropinaResult | null>(null);
 
   const periodoPreview = (() => {
     const mS = MESES.indexOf(mesInicio);
@@ -437,7 +449,12 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
     e.preventDefault(); setError("");
     setSaving(true);
     try {
-      const body: any = {
+      const body: {
+        mes_inicio: string; ano_inicio: string;
+        mes_fim: string; ano_fim: string;
+        auto_referencia: boolean; auto_sms: boolean;
+        montante_fallback?: number;
+      } = {
         mes_inicio: mesInicio, ano_inicio: anoInicio,
         mes_fim: modo === "unico" ? mesInicio : mesFim,
         ano_fim: modo === "unico" ? anoInicio : anoFim,
@@ -454,7 +471,7 @@ function ModalGerarLote({ token, onClose, onCreated }: { token: string; onClose:
       if (!res.ok) throw new Error(data.error ?? "Erro ao gerar propinas.");
       setResult(data);
       onCreated();
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -607,7 +624,7 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
   const [filterAluno, setFilterAluno] = useState("");
   const [filterMes, setFilterMes] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [result, setResult] = useState<GeneratedRef | null>(null);
+  const [result, setResult] = useState<ReferenciaLoteResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -627,7 +644,7 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
   }, [token]);
 
   const pending = useMemo(
-    () => propinas.filter(p => p.status === "pendente" || p.status === "vencido" || p.status === "vencida"),
+    () => propinas.filter(p => p.status === "pendente" || p.status === "vencido"),
     [propinas]
   );
 
@@ -704,7 +721,7 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
       if (!res.ok) throw new Error(data.error ?? "Erro ao gerar referência.");
       setResult(data);
       onDone();
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -1043,7 +1060,7 @@ function OcorrenciasView({ token, schoolName }: { token: string | null; schoolNa
       setShowForm(false);
       load();
       setTimeout(() => setSuccess(""), 4000);
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -1511,7 +1528,7 @@ function SchoolUploadAlunosPanel({ token, onSuccess }: {
       if (mode === "manual") setRows([SCHOOL_EMPTY_ROW()]);
       if (mode === "file") { setPreview([]); setFileName(""); }
       onSuccess();
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setUploading(false); }
   };
 
@@ -1847,7 +1864,7 @@ function AlunoFichaSlideOver({
         turma_id: d.turma_id, turma: d.turma_nome, turno: d.turno,
         pacote_id: newPacoteId });
       setTimeout(() => { setSaved(false); onClose(); }, 1200);
-    } catch (e: any) { setErr(e.message); }
+    } catch (e) { setErr(errMsg(e)); }
     finally { setSaving(false); }
   };
 
@@ -1870,7 +1887,7 @@ function AlunoFichaSlideOver({
         id: p.id, mes: p.mes, ano: p.ano, montante: Number(p.montante), multa: Number(p.multa ?? 0), status: p.status,
       }));
       setFichaPropinaList(prev => [...newItems, ...prev]);
-    } catch (err: any) { setGerarError(err.message); }
+    } catch (err) { setGerarError(errMsg(err)); }
     finally { setGerarSaving(false); }
   };
 
@@ -2157,7 +2174,7 @@ function AlunoFichaSlideOver({
                   if (!res.ok) throw new Error(data.error ?? "Erro ao atribuir bolsa.");
                   setShowBolsaForm(false); setBolsaAtribTipo(""); setBolsaAtribFim(""); setBolsaAtribNotas("");
                   reloadBolsa();
-                } catch (err: any) { setBolsaError(err.message); }
+                } catch (err) { setBolsaError(errMsg(err)); }
                 finally { setBolsaSaving(false); }
               };
               const revogarBolsaFicha = async () => {
@@ -2374,7 +2391,7 @@ function AlunoFichaSlideOver({
                   : p
               ));
               setTimeout(() => { setBaixaModalPropina(null); setBaixaSuccess(false); }, 1800);
-            } catch (e: any) { setBaixaError(e.message); }
+            } catch (e) { setBaixaError(errMsg(e)); }
             finally { setBaixaSaving(false); }
           };
 
@@ -2911,7 +2928,7 @@ function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
       onDone({ ...propina, multa: Number(data.multa), montante: Number(data.montante), status: data.status, data_vencimento: data.data_vencimento });
-    } catch (err: any) { setError(err.message); setSaving(false); }
+    } catch (err) { setError(errMsg(err)); setSaving(false); }
   };
 
   const TIPOS = ["perdao","ajuste_valor","reagendamento","justificacao"] as const;
@@ -2996,25 +3013,25 @@ function ModalAjusteSchool({ propina, token, onClose, onDone, initialTipo }: {
   );
 }
 
-function printSituacaoFinanceira(situacao: any, mode: "thermal" | "a4") {
+function printSituacaoFinanceira(situacao: SituacaoFinanceira, mode: "thermal" | "a4") {
   const fmtN = (v: number) => Number(v).toLocaleString("pt-AO");
   const aluno = situacao.aluno ?? {};
   const escola = situacao.escola ?? {};
-  const propinas: any[] = situacao.propinas ?? [];
+  const propinas: SituacaoFinanceiraPropina[] = situacao.propinas ?? [];
   const bolsa = situacao.bolsa_activa;
   const multa_regra = situacao.multa_regra;
-  const pagas = propinas.filter((p: any) => p.status === "pago");
-  const pendentes = propinas.filter((p: any) => p.status !== "pago");
-  const vencidas = pendentes.filter((p: any) => p.status === "vencido");
-  const totalPago = pagas.reduce((s: number, p: any) => s + Number(p.montante) - Number(p.desconto ?? 0), 0);
-  const totalDivida = pendentes.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0), 0);
-  const totalMultas = propinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
+  const pagas = propinas.filter(p => p.status === "pago");
+  const pendentes = propinas.filter(p => p.status !== "pago");
+  const vencidas = pendentes.filter(p => p.status === "vencido");
+  const totalPago = pagas.reduce((s, p) => s + Number(p.montante) - Number(p.desconto ?? 0), 0);
+  const totalDivida = pendentes.reduce((s, p) => s + Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0), 0);
+  const totalMultas = propinas.reduce((s, p) => s + Number(p.multa), 0);
   const dataStr = new Date().toLocaleDateString("pt-AO");
   const horaStr = new Date().toLocaleTimeString("pt-AO", { hour: "2-digit", minute: "2-digit" });
   const MESES_ARR = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
   if (mode === "thermal") {
-    const rows = propinas.map((p: any) => {
+    const rows = propinas.map(p => {
       const st = p.status === "pago" ? "PAG" : p.status === "vencido" ? "VEN" : "PEN";
       const total = Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0);
       return `<div class="row"><span>${p.mes.substring(0,3)} ${p.ano}</span><span style="font-size:9px;padding:0 4px">[${st}]</span><span>${fmtN(total)}</span></div>`;
@@ -3040,7 +3057,7 @@ ${escola.phone ? `<div class="c">${escola.phone}</div>` : ""}
 ${aluno.numero_processo ? `<div>Proc: ${aluno.numero_processo}</div>` : ""}
 ${aluno.turma ? `<div>Turma: ${aluno.turma}</div>` : ""}
 ${aluno.nome_encarregado ? `<div>Enc: ${aluno.nome_encarregado}</div>` : ""}
-${bolsa ? `<div>Bolsa: ${bolsa.bolsa_nome} (${bolsa.tipo_desconto === "percentagem" ? bolsa.bolsa_valor + "%" : fmtN(bolsa.bolsa_valor) + " Kz"})</div>` : ""}
+${bolsa ? `<div>Bolsa: ${bolsa.bolsa_nome} (${bolsa.tipo_desconto === "percentagem" ? (bolsa.bolsa_valor ?? 0) + "%" : fmtN(bolsa.bolsa_valor ?? 0) + " Kz"})</div>` : ""}
 <hr/>
 <div class="row b"><span>RESUMO</span><span></span></div>
 <div class="row"><span>Propinas Pagas</span><span>${fmtN(totalPago)} Kz</span></div>
@@ -3058,7 +3075,7 @@ ${multa_regra && totalMultas > 0 ? `<div style="font-size:9px">Multa: ${multa_re
     if (!w) { alert("Permita popups para imprimir."); return; }
     w.document.write(html); w.document.close(); w.focus();
   } else {
-    const rows = propinas.map((p: any) => {
+    const rows = propinas.map(p => {
       const stColor = p.status === "pago" ? "#16a34a" : p.status === "vencido" ? "#dc2626" : "#d97706";
       const stLabel = p.status === "pago" ? "Pago" : p.status === "vencido" ? "Vencido" : "Pendente";
       const total = Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0);
@@ -3115,7 +3132,7 @@ ${multa_regra && totalMultas > 0 ? `<div style="font-size:9px">Multa: ${multa_re
     ${aluno.nome_encarregado ? ` &nbsp;·&nbsp; Enc: <b>${aluno.nome_encarregado}</b>` : ""}
   </div>
   ${aluno.pacote_nome ? `<div style="margin-top:4px;font-size:11px;color:#64748b">Pacote: <b>${aluno.pacote_nome}</b> · ${fmtN(aluno.pacote_valor ?? 0)} Kz/mês</div>` : ""}
-  ${bolsa ? `<div style="margin-top:4px;font-size:11px;color:#7c3aed">Bolsa de Estudos: ${bolsa.bolsa_nome} · Desconto ${bolsa.tipo_desconto === "percentagem" ? bolsa.bolsa_valor + "%" : fmtN(bolsa.bolsa_valor) + " Kz"}</div>` : ""}
+  ${bolsa ? `<div style="margin-top:4px;font-size:11px;color:#7c3aed">Bolsa de Estudos: ${bolsa.bolsa_nome} · Desconto ${bolsa.tipo_desconto === "percentagem" ? (bolsa.bolsa_valor ?? 0) + "%" : fmtN(bolsa.bolsa_valor ?? 0) + " Kz"}</div>` : ""}
 </div>
 <div class="summary">
   <div class="sum-card" style="border-color:#bbf7d0">
@@ -3192,15 +3209,15 @@ function ConsultaFinanceiraView({ token, alunos, turmas }: {
   const handleSelect = (a: Aluno) => { setSelected(a); fetchSituacao(a.id); };
   const clearSelected = () => { setSelected(null); setSituacao(null); setErr(""); };
 
-  const propinas: any[] = situacao?.propinas ?? [];
+  const propinas: SituacaoFinanceiraPropina[] = situacao?.propinas ?? [];
   const bolsaActiva = situacao?.bolsa_activa ?? null;
-  const emolumentos: any[] = situacao?.emolumentos ?? [];
-  const pagas = propinas.filter((p: any) => p.status === "pago");
-  const pendentes = propinas.filter((p: any) => p.status !== "pago");
-  const vencidas = pendentes.filter((p: any) => p.status === "vencido");
-  const totalPago = pagas.reduce((s: number, p: any) => s + Number(p.montante) - Number(p.desconto ?? 0), 0);
-  const totalDivida = pendentes.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0), 0);
-  const totalMultas = propinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
+  const emolumentos: { id: number; nome: string; montante: number; }[] = situacao?.emolumentos ?? [];
+  const pagas = propinas.filter(p => p.status === "pago");
+  const pendentes = propinas.filter(p => p.status !== "pago");
+  const vencidas = pendentes.filter(p => p.status === "vencido");
+  const totalPago = pagas.reduce((s, p) => s + Number(p.montante) - Number(p.desconto ?? 0), 0);
+  const totalDivida = pendentes.reduce((s, p) => s + Number(p.montante) + Number(p.multa) - Number(p.desconto ?? 0), 0);
+  const totalMultas = propinas.reduce((s, p) => s + Number(p.multa), 0);
   const proxima = pendentes[0] ?? null;
 
   const stCls: Record<string, string> = {
@@ -3671,8 +3688,8 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Erro ao gerar referência.");
       setPropinas(prev => prev.map(x => x.id === p.id ? { ...x, ...d } : x));
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err) {
+      alert(errMsg(err));
     } finally {
       setGerarRefLoading(null);
     }
@@ -3842,7 +3859,7 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
                       </button>
                       {p.status !== "pago" && p.pagamento_origem !== "online" && (
                         <>
-                          {(p.status === "vencido" || p.status === "vencida") && (
+                          {p.status === "vencido" && (
                             <button
                               onClick={() => handleGerarReferencia(p)}
                               disabled={gerarRefLoading === p.id}
@@ -5458,7 +5475,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       setPublishResult({ sms_sent: d.sent, sms_failed: d.failed });
       if ((d.sent ?? 0) > 0) { setConteudo(""); setSelectedPhones([]); setSelectAll(false); setPickedTemplate(""); }
       fetchStats();
-    } catch (e: any) { alert(e.message ?? "Erro ao enviar SMS."); }
+    } catch (e) { alert(errMsg(e) ?? "Erro ao enviar SMS."); }
     finally { setPublishing(false); }
   };
 
@@ -5477,7 +5494,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       if (!r.ok) throw new Error(d.error);
       setEmailResult(d);
       if (d.ok && (d.sent ?? 0) > 0) { setEmailAssunto(""); setEmailCorpo(""); setEmailSelectedIds([]); }
-    } catch (e: any) { setEmailResult({ ok: false, error: e.message ?? "Erro ao enviar email." }); }
+    } catch (e) { setEmailResult({ ok: false, error: errMsg(e) ?? "Erro ao enviar email." }); }
     finally { setEmailSending(false); }
   };
 
@@ -5504,7 +5521,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       if (!r.ok) throw new Error(d.error);
       setPushResult(d);
       if (d.ok && d.sent > 0) { setPushTitulo(""); setPushMensagem(""); setPushPickedTemplate(""); }
-    } catch (e: any) { setPushResult({ ok: false, error: e.message ?? "Erro ao enviar." }); }
+    } catch (e) { setPushResult({ ok: false, error: errMsg(e) ?? "Erro ao enviar." }); }
     finally { setPushing(false); }
   };
 
@@ -5620,7 +5637,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       setCanal("portal"); setSelectedPhones([]); setSelectAll(false); setPickedTemplate("");
       if (d.comunicado_id) loadComunicados();
       fetchStats();
-    } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setPublishing(false); }
+    } catch (e) { alert(errMsg(e) ?? "Erro ao publicar."); } finally { setPublishing(false); }
   };
 
   const handleAnivFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -5656,7 +5673,7 @@ function ComunicarView({ token, moduloInfantil = false }: { token: string; modul
       setAnivFotoPreview(null); setAnivFotoData(null);
       setAnivTitulo(""); setAnivMensagem(""); setAnivStudentId(null); setAnivStudentNome("");
       loadComunicados();
-    } catch (e: any) { alert(e.message ?? "Erro ao publicar."); } finally { setAnivPublishing(false); }
+    } catch (e) { alert(errMsg(e) ?? "Erro ao publicar."); } finally { setAnivPublishing(false); }
   };
 
   const handleDelete = async (id: number) => {
@@ -7993,7 +8010,7 @@ function ComunicadosEscolaView({ token }: { token: string }) {
       const r = await fetch(`${API}/school/comunicados`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error("Erro ao carregar comunicados");
       setList(await r.json());
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setLoading(false); }
   }, [token]);
 
@@ -8012,7 +8029,7 @@ function ComunicadosEscolaView({ token }: { token: string }) {
       setForm({ titulo: "", conteudo: "", prioridade: "normal" });
       setShowForm(false);
       load();
-    } catch (e: any) { alert(e.message); }
+    } catch (e) { alert(errMsg(e)); }
     finally { setSaving(false); }
   };
 
@@ -8181,7 +8198,7 @@ function DDCancelamentosView({ token }: { token: string }) {
       });
       if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro ao processar pedido."); }
       await load();
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setTransitioning(null); }
   };
 
@@ -8505,7 +8522,7 @@ function SchoolMultaRegrasPanel({ token, initial, onSaved }: {
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setSuccess(true); setTimeout(() => setSuccess(false), 3000);
       if (onSaved) onSaved(data);
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -8730,7 +8747,7 @@ function LocalEmolumentosTab({ token }: { token: string }) {
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar emolumento.");
       setList(l => [data, ...l]);
       setForm(f => ({ ...f, nome: (DESCRICAO_POR_TIPO_SCH[f.tipo] ?? [])[0] ?? "", montante: "" }));
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -9016,7 +9033,7 @@ function SchoolEmisSettingsPanel({ token }: { token: string }) {
       const r = await fetch(`${API}/school/settings`, { method: "PUT", headers: hdrs, body: JSON.stringify(patch) });
       if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro ao guardar."); }
       setSaved(true); setTimeout(() => setSaved(false), 2500);
-    } catch (err: any) { setError(err.message); }
+    } catch (err) { setError(errMsg(err)); }
     finally { setSaving(false); }
   };
 
@@ -9099,7 +9116,7 @@ function SchoolIbanContingenciaPanel({ token }: { token: string }) {
       });
       if (!r.ok) { const d = await r.json(); throw new Error(d.error ?? "Erro."); }
       setSaved(true); setTimeout(() => setSaved(false), 2500);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setSaving(false); }
   };
 
@@ -9286,7 +9303,7 @@ function PacotesSchoolTab({ token }: { token: string }) {
       if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setList(prev => [...prev, data]);
       setForm({ nome: "", descricao: "" }); setFormItens([]); setShowForm(false);
-    } catch (err: any) { setFormErr(err.message); }
+    } catch (err) { setFormErr(errMsg(err)); }
     setSaving(false);
   };
 
@@ -9303,7 +9320,7 @@ function PacotesSchoolTab({ token }: { token: string }) {
       if (!r.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setList(prev => prev.map(p => p.id === data.id ? data : p));
       setEditPacote(null);
-    } catch (err: any) { alert(err.message); }
+    } catch (err) { alert(errMsg(err)); }
     setSaving(false);
   };
 
@@ -9558,7 +9575,7 @@ function BolsasSchoolTab({ token }: { token: string }) {
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setShowTipoForm(false); setEditTipo(null); setTipoNome(""); setTipoDescricao(""); setTipoValor(""); setTipoTipoDesconto('percentagem'); setTipoAbrangencia('propina');
       load();
-    } catch (err: any) { setTipoError(err.message); }
+    } catch (err) { setTipoError(errMsg(err)); }
     finally { setTipoSaving(false); }
   };
 
@@ -9588,7 +9605,7 @@ function BolsasSchoolTab({ token }: { token: string }) {
       if (!res.ok) throw new Error(data.error ?? "Erro ao atribuir.");
       setShowAtribuirForm(false); setAtribStudent(""); setAtribTipo(""); setAtribNotas(""); setAtribDataFim("");
       load();
-    } catch (err: any) { setAtribError(err.message); }
+    } catch (err) { setAtribError(errMsg(err)); }
     finally { setAtribSaving(false); }
   };
 
@@ -9604,7 +9621,7 @@ function BolsasSchoolTab({ token }: { token: string }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erro ao guardar.");
       setEditAtrib(null); load();
-    } catch (err: any) { setEditAtribError(err.message); }
+    } catch (err) { setEditAtribError(errMsg(err)); }
     finally { setEditAtribSaving(false); }
   };
 

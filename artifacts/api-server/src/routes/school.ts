@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import { pool } from "@workspace/db";
 import { randomBytes } from "crypto";
 import { generateInternalReference } from "./reconciliation";
@@ -289,7 +290,7 @@ async function getSchoolFromToken(token: string) {
   return res.rows[0] ?? null;
 }
 
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.schoolToken = header.slice(7);
@@ -297,15 +298,15 @@ function schoolAuth(req: any, res: any, next: any) {
 }
 
 /* ─── School Profile ─── */
-router.get("/school/profile", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/profile", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   res.json({ usa_pacotes: school.usa_pacotes ?? false });
 });
 
 /* ─── Turmas ─── */
-router.get("/school/turmas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/turmas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const result = await pool.query(
@@ -321,8 +322,8 @@ router.get("/school/turmas", schoolAuth, async (req: any, res) => {
   res.json(result.rows);
 });
 
-router.post("/school/turmas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/turmas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { nome, ano, turno } = req.body;
@@ -338,8 +339,8 @@ router.post("/school/turmas", schoolAuth, async (req: any, res) => {
   res.status(201).json(result.rows[0]);
 });
 
-router.delete("/school/turmas/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/turmas/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   await pool.query(
@@ -350,8 +351,8 @@ router.delete("/school/turmas/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/pacotes ─── */
-router.get("/school/pacotes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/pacotes", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     "SELECT id, nome, valor, descricao, itens, activo FROM pacotes_emolumentos WHERE school_id=$1 ORDER BY nome",
@@ -361,8 +362,8 @@ router.get("/school/pacotes", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/pacotes ─── */
-router.post("/school/pacotes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/pacotes", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, descricao, itens } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do pacote é obrigatório." });
@@ -377,8 +378,8 @@ router.post("/school/pacotes", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/pacotes/:id ─── */
-router.put("/school/pacotes/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/pacotes/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, descricao, itens, activo } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome do pacote é obrigatório." });
@@ -394,8 +395,8 @@ router.put("/school/pacotes/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── DELETE /school/pacotes/:id ─── */
-router.delete("/school/pacotes/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/pacotes/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(
     "DELETE FROM pacotes_emolumentos WHERE id=$1 AND school_id=$2",
@@ -405,8 +406,8 @@ router.delete("/school/pacotes/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PATCH /school/pacotes/:id/toggle — toggle activo ─── */
-router.patch("/school/pacotes/:id/toggle", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.patch("/school/pacotes/:id/toggle", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     "UPDATE pacotes_emolumentos SET activo = NOT activo WHERE id=$1 AND school_id=$2 RETURNING *",
@@ -417,8 +418,8 @@ router.patch("/school/pacotes/:id/toggle", schoolAuth, async (req: any, res) => 
 });
 
 /* ─── Alunos ─── */
-router.get("/school/alunos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/alunos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const result = await pool.query(
@@ -445,8 +446,8 @@ router.get("/school/alunos", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/alunos/:id/pacote ─── */
-router.put("/school/alunos/:id/pacote", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/alunos/:id/pacote", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const studentId = Number(req.params.id);
@@ -483,7 +484,7 @@ router.post("/school/alunos", schoolAuth, (req: any, res: any, next: any) => {
     next();
   });
 }, async (req: any, res: any) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const b = req.body;
@@ -596,7 +597,7 @@ router.post("/school/alunos", schoolAuth, (req: any, res: any, next: any) => {
 
 /* ─── POST /school/alunos/upload — bulk CSV import ─── */
 router.post("/school/alunos/upload", schoolAuth, async (req: any, res: any) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { alunos, ano_lectivo } = req.body as {
@@ -706,8 +707,8 @@ router.post("/school/alunos/upload", schoolAuth, async (req: any, res: any) => {
   res.json({ inserted, skipped, errors, total: alunos.length, encarregados_criados });
 });
 
-router.delete("/school/alunos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/alunos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   await pool.query(
@@ -761,8 +762,8 @@ async function computeNextNumeroProcesso(schoolId: number): Promise<{ next: stri
 }
 
 /* ─── GET /school/alunos/next-numero-processo ─── */
-router.get("/school/alunos/next-numero-processo", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/alunos/next-numero-processo", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   try {
     const result = await computeNextNumeroProcesso(school.school_id);
@@ -773,8 +774,8 @@ router.get("/school/alunos/next-numero-processo", schoolAuth, async (req: any, r
 });
 
 /* ─── GET /school/alunos/:id — ficha completa do aluno ─── */
-router.get("/school/alunos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/alunos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const studentId = Number(req.params.id);
@@ -808,8 +809,8 @@ router.get("/school/alunos/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/alunos/:id — actualizar ficha do aluno ─── */
-router.put("/school/alunos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/alunos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const studentId = Number(req.params.id);
@@ -933,8 +934,8 @@ router.put("/school/alunos/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── Propinas ─── */
-router.get("/school/propinas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/propinas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   /* Auto-apply fines for overdue propinas before returning */
@@ -982,8 +983,8 @@ function generateRef(): string {
   return String(digits);
 }
 
-router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/propinas/gerar", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { student_id, meses, ano, montante } = req.body;
@@ -1068,8 +1069,8 @@ router.post("/school/propinas/gerar", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/propinas/gerar-lote ─── */
-router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/propinas/gerar-lote", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { mes_inicio, ano_inicio, mes_fim, ano_fim, montante_fallback, auto_referencia, auto_sms } = req.body;
@@ -1230,8 +1231,8 @@ router.post("/school/propinas/gerar-lote", schoolAuth, async (req: any, res) => 
 });
 
 /* ─── GET /school/propinas/:id/fatura — structured invoice data ─── */
-router.get("/school/propinas/:id/fatura", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/propinas/:id/fatura", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(`
@@ -1287,8 +1288,8 @@ router.get("/school/propinas/:id/fatura", schoolAuth, async (req: any, res) => {
   });
 });
 
-router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/propinas/referencia", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_ids = [], emolumento_items = [] } = req.body;
@@ -1444,8 +1445,8 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
 });
 
 /* ─── GET /school/cobrancas — list pending charges ─── */
-router.get("/school/cobrancas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/cobrancas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT c.*, s.nome AS aluno_nome, e.nome AS emolumento_nome, e.tipo AS emolumento_tipo
@@ -1460,8 +1461,8 @@ router.get("/school/cobrancas", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/propinas/:id/ajustes ─── */
-router.get("/school/propinas/:id/ajustes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/propinas/:id/ajustes", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const check = await pool.query(
     "SELECT id FROM propinas WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]
@@ -1475,8 +1476,8 @@ router.get("/school/propinas/:id/ajustes", schoolAuth, async (req: any, res) => 
 });
 
 /* ─── POST /school/propinas/:id/ajuste ─── */
-router.post("/school/propinas/:id/ajuste", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/propinas/:id/ajuste", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { tipo, multa_nova, valor_novo, nova_data_vencimento, motivo } = req.body;
@@ -1533,8 +1534,8 @@ router.post("/school/propinas/:id/ajuste", schoolAuth, async (req: any, res) => 
 });
 
 /* ─── GET /school/comunicados ─── */
-router.get("/school/comunicados", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/comunicados", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT c.*,
@@ -1548,8 +1549,8 @@ router.get("/school/comunicados", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/comunicados ─── */
-router.post("/school/comunicados", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/comunicados", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { titulo, conteudo, prioridade } = req.body;
   if (!titulo?.trim() || !conteudo?.trim()) {
@@ -1564,16 +1565,16 @@ router.post("/school/comunicados", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── DELETE /school/comunicados/:id ─── */
-router.delete("/school/comunicados/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/comunicados/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query("DELETE FROM comunicados WHERE id = $1 AND escola_id = $2", [req.params.id, school.school_id]);
   res.status(204).end();
 });
 
 /* ─── GET /school/comunicar/aniversarios-hoje ─── */
-router.get("/school/comunicar/aniversarios-hoje", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/comunicar/aniversarios-hoje", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT id, nome, data_nascimento, turma_id
@@ -1590,8 +1591,8 @@ router.get("/school/comunicar/aniversarios-hoje", schoolAuth, async (req: any, r
 });
 
 /* ─── POST /school/comunicar/aniversario ─── */
-router.post("/school/comunicar/aniversario", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/comunicar/aniversario", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { titulo, conteudo, foto_base64, student_id } = req.body;
   if (!titulo?.trim() || !conteudo?.trim())
@@ -1609,8 +1610,8 @@ router.post("/school/comunicar/aniversario", schoolAuth, async (req: any, res) =
    ════════════════════════════════════════════════════════════════ */
 
 /* ─── GET /school/caixa/alunos-search ─── */
-router.get("/school/caixa/alunos-search", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/caixa/alunos-search", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const q = (req.query.q as string ?? "").trim();
   const limit = Math.min(Number(req.query.limit ?? 10), 20);
@@ -1628,8 +1629,8 @@ router.get("/school/caixa/alunos-search", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/caixa/emolumentos ─── */
-router.get("/school/caixa/emolumentos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/caixa/emolumentos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT id, nome, montante, tipo FROM emolumentos
@@ -1641,8 +1642,8 @@ router.get("/school/caixa/emolumentos", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/caixa/aluno-propinas/:student_id ─── */
-router.get("/school/caixa/aluno-propinas/:student_id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/caixa/aluno-propinas/:student_id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT p.id, p.mes, p.ano, p.montante, COALESCE(p.multa,0) AS multa,
@@ -1657,9 +1658,9 @@ router.get("/school/caixa/aluno-propinas/:student_id", schoolAuth, async (req: a
 });
 
 /* ─── GET /school/alunos/:id/situacao-financeira ─── */
-router.get("/school/alunos/:id/situacao-financeira", schoolAuth, async (req: any, res) => {
+router.get("/school/alunos/:id/situacao-financeira", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const school = await getSchoolFromToken(req.schoolToken);
+    const school = await getSchoolFromToken(req.schoolToken!);
     if (!school) return res.status(401).json({ error: "Sessão inválida." });
     const studentId = Number(req.params.id);
     if (!studentId || isNaN(studentId)) return res.status(400).json({ error: "ID de aluno inválido." });
@@ -1751,8 +1752,8 @@ router.get("/school/alunos/:id/situacao-financeira", schoolAuth, async (req: any
 });
 
 /* ─── POST /school/caixa/emitir ─── */
-router.post("/school/caixa/emitir", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/caixa/emitir", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { student_id, emolumento_id, propina_id, descricao, montante, metodo_pagamento, operador_nome } = req.body;
@@ -1831,8 +1832,8 @@ router.post("/school/caixa/emitir", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/caixa/faturas ─── */
-router.get("/school/caixa/faturas", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/caixa/faturas", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const limit = Math.min(Number(req.query.limit ?? 50), 100);
   const r = await pool.query(
@@ -1851,8 +1852,8 @@ router.get("/school/caixa/faturas", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/comunicar/publicar — unified: portal + SMS + Push ─── */
-router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/comunicar/publicar", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const {
@@ -1953,16 +1954,16 @@ router.post("/school/comunicar/publicar", schoolAuth, async (req: any, res) => {
    ───────────────────────────────────────────── */
 
 /* ─── GET /school/multa-regra ─── */
-router.get("/school/multa-regra", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/multa-regra", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query("SELECT * FROM multa_regras WHERE school_id=$1", [school.school_id]);
   res.json(r.rows[0] ?? null);
 });
 
 /* ─── PUT /school/multa-regra — supports 3 models ─── */
-router.put("/school/multa-regra", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/multa-regra", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { modelo, dia_limite, aplica_automatico, percentagem, valor_fixo, brackets } = req.body;
   if (!modelo || ![1, 2, 3].includes(Number(modelo)) || !dia_limite) {
@@ -1994,8 +1995,8 @@ router.put("/school/multa-regra", schoolAuth, async (req: any, res) => {
    ───────────────────────────────────────────── */
 
 /* ─── GET /school/emolumentos — returns global (read-only) + school-local ─── */
-router.get("/school/emolumentos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/emolumentos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT *, (school_id IS NULL) AS is_global
@@ -2008,8 +2009,8 @@ router.get("/school/emolumentos", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/emolumentos ─── */
-router.post("/school/emolumentos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/emolumentos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { tipo, nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!tipo || !nome?.trim() || !montante) {
@@ -2028,8 +2029,8 @@ router.post("/school/emolumentos", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/emolumentos/:id ─── */
-router.put("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/emolumentos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, montante, ano_lectivo, multa_ativo, multa_tipo, multa_valor_fixo, multa_percentagem, juros_mora, dias_carencia } = req.body;
   if (!nome?.trim() || !montante) {
@@ -2051,8 +2052,8 @@ router.put("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── DELETE /school/emolumentos/:id ─── */
-router.delete("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/emolumentos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(
     "DELETE FROM emolumentos WHERE id=$1 AND school_id=$2",
@@ -2062,8 +2063,8 @@ router.delete("/school/emolumentos/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PATCH /school/emolumentos/:id/toggle — toggle activo (local only) ─── */
-router.patch("/school/emolumentos/:id/toggle", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.patch("/school/emolumentos/:id/toggle", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     "UPDATE emolumentos SET activo = NOT activo WHERE id=$1 AND school_id=$2 RETURNING *",
@@ -2074,8 +2075,8 @@ router.patch("/school/emolumentos/:id/toggle", schoolAuth, async (req: any, res)
 });
 
 /* ─── GET /school/direct-debit/subscriptions ─── */
-router.get("/school/direct-debit/subscriptions", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/direct-debit/subscriptions", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT dds.*, e.nome AS encarregado_nome, e.telefone AS encarregado_telefone
@@ -2089,8 +2090,8 @@ router.get("/school/direct-debit/subscriptions", schoolAuth, async (req: any, re
 });
 
 /* ─── PUT /school/direct-debit/subscriptions/:id/approve-cancellation ─── */
-router.put("/school/direct-debit/subscriptions/:id/approve-cancellation", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/direct-debit/subscriptions/:id/approve-cancellation", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(
     `UPDATE direct_debit_subscriptions SET status='cancelled', cancelled_at=NOW()
@@ -2101,8 +2102,8 @@ router.put("/school/direct-debit/subscriptions/:id/approve-cancellation", school
 });
 
 /* ─── PUT /school/direct-debit/subscriptions/:id/reject-cancellation ─── */
-router.put("/school/direct-debit/subscriptions/:id/reject-cancellation", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/direct-debit/subscriptions/:id/reject-cancellation", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(
     `UPDATE direct_debit_subscriptions SET status='active', cancellation_requested_at=NULL
@@ -2117,8 +2118,8 @@ router.put("/school/direct-debit/subscriptions/:id/reject-cancellation", schoolA
    ═══════════════════════════════════════════════════════ */
 
 /* ─── GET /school/bolsas/tipos ─── */
-router.get("/school/bolsas/tipos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/bolsas/tipos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT bt.*,
@@ -2133,8 +2134,8 @@ router.get("/school/bolsas/tipos", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/bolsas/tipos ─── */
-router.post("/school/bolsas/tipos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/bolsas/tipos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, descricao, tipo_desconto, valor, abrangencia } = req.body;
   if (!nome || !tipo_desconto || valor === undefined) return res.status(400).json({ error: "Nome, tipo e valor são obrigatórios." });
@@ -2148,8 +2149,8 @@ router.post("/school/bolsas/tipos", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/bolsas/tipos/:id ─── */
-router.put("/school/bolsas/tipos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/bolsas/tipos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, descricao, tipo_desconto, valor, abrangencia, activo } = req.body;
   const r = await pool.query(
@@ -2168,8 +2169,8 @@ router.put("/school/bolsas/tipos/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── DELETE /school/bolsas/tipos/:id ─── */
-router.delete("/school/bolsas/tipos/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/bolsas/tipos/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const check = await pool.query(
     "SELECT id FROM bolsa_atribuicoes WHERE bolsa_tipo_id=$1 AND estado='activa' LIMIT 1",
@@ -2181,8 +2182,8 @@ router.delete("/school/bolsas/tipos/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/bolsas/atribuicoes ─── */
-router.get("/school/bolsas/atribuicoes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/bolsas/atribuicoes", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { student_id, estado, turma_id } = req.query;
   const conds: string[] = ["ba.school_id=$1"];
@@ -2205,8 +2206,8 @@ router.get("/school/bolsas/atribuicoes", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/bolsas/atribuicoes ─── */
-router.post("/school/bolsas/atribuicoes", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/bolsas/atribuicoes", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { student_id, bolsa_tipo_id, data_inicio, data_fim, notas } = req.body;
   if (!student_id || !bolsa_tipo_id) return res.status(400).json({ error: "Aluno e tipo de bolsa são obrigatórios." });
@@ -2229,8 +2230,8 @@ router.post("/school/bolsas/atribuicoes", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/bolsas/atribuicoes/:id ─── */
-router.put("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { data_fim, notas, estado, motivo_revogacao } = req.body;
   const extra = estado === 'revogada' ? ", revogada_em=NOW(), revogada_por='escola'" : "";
@@ -2247,16 +2248,16 @@ router.put("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: any, res) =
 });
 
 /* ─── DELETE /school/bolsas/atribuicoes/:id ─── */
-router.delete("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/bolsas/atribuicoes/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query("DELETE FROM bolsa_atribuicoes WHERE id=$1 AND school_id=$2", [req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ─── GET /school/bolsas/stats ─── */
-router.get("/school/bolsas/stats", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/bolsas/stats", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT
@@ -2274,8 +2275,8 @@ router.get("/school/bolsas/stats", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── GET /school/alunos/:id/bolsa ─── */
-router.get("/school/alunos/:id/bolsa", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/alunos/:id/bolsa", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT ba.*, bt.nome AS bolsa_nome, bt.tipo_desconto, bt.valor AS bolsa_valor,
@@ -2343,8 +2344,8 @@ pool.query(`
 `).catch(e => console.error("store tables migration error:", e));
 
 /* ─── GET /school/store/items ─── */
-router.get("/school/store/items", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/store/items", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT * FROM store_items WHERE school_id=$1 ORDER BY ativo DESC, nome ASC`,
@@ -2354,8 +2355,8 @@ router.get("/school/store/items", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/store/items ─── */
-router.post("/school/store/items", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/store/items", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, descricao, preco, stock, visivel_portal, categoria } = req.body;
   if (!nome?.trim() || preco === undefined) return res.status(400).json({ error: "Nome e preço são obrigatórios." });
@@ -2370,8 +2371,8 @@ router.post("/school/store/items", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/store/items/:id ─── */
-router.put("/school/store/items/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/store/items/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, descricao, preco, stock, visivel_portal, ativo, categoria } = req.body;
   const r = await pool.query(
@@ -2387,16 +2388,16 @@ router.put("/school/store/items/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── DELETE /school/store/items/:id ─── */
-router.delete("/school/store/items/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/store/items/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(`DELETE FROM store_items WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ─── PATCH /school/store/items/:id/toggle-portal ─── */
-router.patch("/school/store/items/:id/toggle-portal", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.patch("/school/store/items/:id/toggle-portal", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `UPDATE store_items SET visivel_portal=NOT visivel_portal,updated_at=NOW() WHERE id=$1 AND school_id=$2 RETURNING *`,
@@ -2407,8 +2408,8 @@ router.patch("/school/store/items/:id/toggle-portal", schoolAuth, async (req: an
 });
 
 /* ─── PATCH /school/store/items/:id/toggle-ativo ─── */
-router.patch("/school/store/items/:id/toggle-ativo", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.patch("/school/store/items/:id/toggle-ativo", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `UPDATE store_items SET ativo=NOT ativo,updated_at=NOW() WHERE id=$1 AND school_id=$2 RETURNING *`,
@@ -2419,8 +2420,8 @@ router.patch("/school/store/items/:id/toggle-ativo", schoolAuth, async (req: any
 });
 
 /* ─── GET /school/store/orders ─── */
-router.get("/school/store/orders", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/store/orders", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { estado } = req.query as { estado?: string };
   const conds = ["so.school_id=$1"]; const params: any[] = [school.school_id];
@@ -2438,8 +2439,8 @@ router.get("/school/store/orders", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/store/orders/:id/entregar ─── */
-router.post("/school/store/orders/:id/entregar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/store/orders/:id/entregar", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { operador, notas } = req.body;
   const order = await pool.query(`SELECT * FROM store_orders WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
@@ -2456,8 +2457,8 @@ router.post("/school/store/orders/:id/entregar", schoolAuth, async (req: any, re
 });
 
 /* ─── POST /school/store/orders/:id/marcar-pago ─── */
-router.post("/school/store/orders/:id/marcar-pago", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/store/orders/:id/marcar-pago", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `UPDATE store_orders SET estado='pago',updated_at=NOW() WHERE id=$1 AND school_id=$2 AND estado='pendente_pagamento' RETURNING *`,
@@ -2520,16 +2521,16 @@ pool.query(`
 `).catch(e => console.error("calendario migration error:", e));
 
 /* ─── GET /school/calendario/tipos-prova ─── */
-router.get("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/calendario/tipos-prova", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(`SELECT * FROM cal_tipos_prova WHERE school_id=$1 ORDER BY nome`, [school.school_id]);
   res.json(r.rows);
 });
 
 /* ─── POST /school/calendario/tipos-prova ─── */
-router.post("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/calendario/tipos-prova", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, cor, sigla, peso, descricao } = req.body;
   if (!nome?.trim()) return res.status(400).json({ error: "Nome é obrigatório." });
@@ -2541,8 +2542,8 @@ router.post("/school/calendario/tipos-prova", schoolAuth, async (req: any, res) 
 });
 
 /* ─── PUT /school/calendario/tipos-prova/:id ─── */
-router.put("/school/calendario/tipos-prova/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/calendario/tipos-prova/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, cor, sigla, peso, descricao } = req.body;
   const r = await pool.query(
@@ -2554,16 +2555,16 @@ router.put("/school/calendario/tipos-prova/:id", schoolAuth, async (req: any, re
 });
 
 /* ─── DELETE /school/calendario/tipos-prova/:id ─── */
-router.delete("/school/calendario/tipos-prova/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/calendario/tipos-prova/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(`DELETE FROM cal_tipos_prova WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ─── GET /school/calendarios ─── */
-router.get("/school/calendarios", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/calendarios", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT *,
@@ -2578,8 +2579,8 @@ router.get("/school/calendarios", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── POST /school/calendarios ─── */
-router.post("/school/calendarios", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/calendarios", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas, gerar_notificacoes } = req.body;
   if (!nome?.trim() || !vigencia_inicio || !vigencia_fim) return res.status(400).json({ error: "Nome e datas de vigência são obrigatórios." });
@@ -2593,8 +2594,8 @@ router.post("/school/calendarios", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── PUT /school/calendarios/:id ─── */
-router.put("/school/calendarios/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/calendarios/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { nome, tipo, descricao, vigencia_inicio, vigencia_fim, alertas_horas, gerar_notificacoes } = req.body;
   const r = await pool.query(
@@ -2607,16 +2608,16 @@ router.put("/school/calendarios/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* ─── DELETE /school/calendarios/:id ─── */
-router.delete("/school/calendarios/:id", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/calendarios/:id", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(`DELETE FROM calendarios WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ─── PATCH /school/calendarios/:id/publicar ─── */
-router.patch("/school/calendarios/:id/publicar", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.patch("/school/calendarios/:id/publicar", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `UPDATE calendarios SET publicado=NOT publicado, updated_at=NOW() WHERE id=$1 AND school_id=$2 RETURNING *`,
@@ -2627,8 +2628,8 @@ router.patch("/school/calendarios/:id/publicar", schoolAuth, async (req: any, re
 });
 
 /* ─── GET /school/calendarios/:id/eventos ─── */
-router.get("/school/calendarios/:id/eventos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/calendarios/:id/eventos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query(
     `SELECT * FROM calendario_eventos WHERE calendario_id=$1 AND school_id=$2
@@ -2639,8 +2640,8 @@ router.get("/school/calendarios/:id/eventos", schoolAuth, async (req: any, res) 
 });
 
 /* ─── POST /school/calendarios/:id/eventos ─── */
-router.post("/school/calendarios/:id/eventos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/calendarios/:id/eventos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const calR = await pool.query(`SELECT * FROM calendarios WHERE id=$1 AND school_id=$2`, [req.params.id, school.school_id]);
   if (!calR.rowCount) return res.status(404).json({ error: "Calendário não encontrado." });
@@ -2679,8 +2680,8 @@ router.post("/school/calendarios/:id/eventos", schoolAuth, async (req: any, res)
 });
 
 /* ─── PUT /school/calendarios/:id/eventos/:eid ─── */
-router.put("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.put("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { turma_id, turma_nome, titulo, tipo_prova_id, tipo_prova_nome, tipo_prova_cor, professor, sala, data_inicio, data_fim, dia_semana, hora_inicio_aula, hora_fim_aula, descricao, publicado } = req.body;
   const r = await pool.query(
@@ -2694,16 +2695,16 @@ router.put("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: any, 
 });
 
 /* ─── DELETE /school/calendarios/:id/eventos/:eid ─── */
-router.delete("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.delete("/school/calendarios/:id/eventos/:eid", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   await pool.query(`DELETE FROM calendario_eventos WHERE id=$1 AND calendario_id=$2 AND school_id=$3`, [req.params.eid, req.params.id, school.school_id]);
   res.json({ ok: true });
 });
 
 /* ─── POST /school/propinas/:id/gerar-referencia — re-gerar referência EMIS expirada ─── */
-router.post("/school/propinas/:id/gerar-referencia", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/propinas/:id/gerar-referencia", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const propId = Number(req.params.id);

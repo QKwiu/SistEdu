@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import { pool } from "@workspace/db";
 import { sendSMS, sendBulkSMS, SMSConfig, DEFAULT_TEMPLATES } from "../services/sms.service";
 import { createTransport } from "nodemailer";
@@ -34,14 +35,14 @@ async function getSchoolFromToken(token: string) {
   );
   return res.rows[0] ?? null;
 }
-function schoolAuth(req: any, res: any, next: any) {
+function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   req.schoolToken = h.slice(7);
   next();
 }
 
-async function adminAuth(req: any, res: any, next: any) {
+async function adminAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   if (!h?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autenticado." });
   const token = h.slice(7);
@@ -73,8 +74,8 @@ async function getSchoolSMSConfig(schoolId: number): Promise<SMSConfig> {
 ════════════════════════════════════ */
 
 /* GET /school/comunicar/templates — merged global + school templates (school auth) */
-router.get("/school/comunicar/templates", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/comunicar/templates", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const globalR = await pool.query(
@@ -94,12 +95,12 @@ router.get("/school/comunicar/templates", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/sms/logs — list SMS logs for this school */
-router.get("/school/sms/logs", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/sms/logs", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const page  = Math.max(1, parseInt(req.query.page ?? "1"));
-  const limit = Math.min(100, parseInt(req.query.limit ?? "50"));
+  const page  = Math.max(1, parseInt(String(req.query.page ?? "1")));
+  const limit = Math.min(100, parseInt(String(req.query.limit ?? "50")));
   const offset = (page - 1) * limit;
   const evento = req.query.evento as string | undefined;
   const status = req.query.status as string | undefined;
@@ -122,8 +123,8 @@ router.get("/school/sms/logs", schoolAuth, async (req: any, res) => {
 });
 
 /* POST /school/sms/send — manual send from school */
-router.post("/school/sms/send", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/sms/send", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { mensagem, recipients } = req.body;
@@ -137,8 +138,8 @@ router.post("/school/sms/send", schoolAuth, async (req: any, res) => {
 });
 
 /* POST /school/sms/send-single — send single SMS from school */
-router.post("/school/sms/send-single", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/sms/send-single", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { telefone, mensagem } = req.body;
@@ -152,8 +153,8 @@ router.post("/school/sms/send-single", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/sms/stats — quick stats */
-router.get("/school/sms/stats", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/sms/stats", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(
@@ -181,8 +182,8 @@ router.get("/school/sms/stats", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/sms/alunos — list students with guardian phones for send modal */
-router.get("/school/sms/alunos", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/sms/alunos", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const r = await pool.query(
@@ -197,8 +198,8 @@ router.get("/school/sms/alunos", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/sms/encarregados — list registered guardians in this school */
-router.get("/school/sms/encarregados", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/sms/encarregados", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   /* Encarregados registados (com conta no portal) ligados a alunos deste colégio */
@@ -247,8 +248,8 @@ router.get("/school/sms/encarregados", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/comunicar/audiencia — guardians filtered by audience mode */
-router.get("/school/comunicar/audiencia", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/comunicar/audiencia", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const modo = (req.query.modo as string) ?? "todos";
@@ -304,8 +305,8 @@ router.get("/school/comunicar/audiencia", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/comunicar/canais-config — which channels are configured */
-router.get("/school/comunicar/canais-config", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.get("/school/comunicar/canais-config", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const r = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school.school_id]);
   const comm = r.rows[0]?.settings?.comunicacao ?? {};
@@ -318,8 +319,8 @@ router.get("/school/comunicar/canais-config", schoolAuth, async (req: any, res) 
 });
 
 /* POST /school/comunicar/sms — dedicated SMS blast (Compor tab) */
-router.post("/school/comunicar/sms", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/comunicar/sms", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { mensagem, phones } = req.body;
   if (!mensagem?.trim() || !Array.isArray(phones) || phones.length === 0) {
@@ -332,8 +333,8 @@ router.post("/school/comunicar/sms", schoolAuth, async (req: any, res) => {
 });
 
 /* POST /school/comunicar/email — email blast (Compor tab) */
-router.post("/school/comunicar/email", schoolAuth, async (req: any, res) => {
-  const school = await getSchoolFromToken(req.schoolToken);
+router.post("/school/comunicar/email", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
   const { assunto, corpo, emails } = req.body;
   if (!assunto?.trim() || !corpo?.trim() || !Array.isArray(emails) || emails.length === 0) {
@@ -373,11 +374,11 @@ router.post("/school/comunicar/email", schoolAuth, async (req: any, res) => {
 ════════════════════════════════════ */
 
 /* GET /admin/sms/logs — all SMS logs (global) */
-router.get("/admin/sms/logs", adminAuth, async (req: any, res) => {
-  const page   = Math.max(1, parseInt(req.query.page ?? "1"));
-  const limit  = Math.min(100, parseInt(req.query.limit ?? "50"));
+router.get("/admin/sms/logs", adminAuth, async (req: Request, res: Response) => {
+  const page   = Math.max(1, parseInt(String(req.query.page ?? "1")));
+  const limit  = Math.min(100, parseInt(String(req.query.limit ?? "50")));
   const offset = (page - 1) * limit;
-  const schoolId = req.query.school_id ? parseInt(req.query.school_id) : null;
+  const schoolId = req.query.school_id ? parseInt(String(req.query.school_id)) : null;
   const status   = req.query.status as string | undefined;
   const evento   = req.query.evento as string | undefined;
 
@@ -447,7 +448,7 @@ router.get("/admin/sms/provider", adminAuth, async (_req, res) => {
 });
 
 /* PUT /admin/sms/provider — update global provider config */
-router.put("/admin/sms/provider", adminAuth, async (req: any, res) => {
+router.put("/admin/sms/provider", adminAuth, async (req: Request, res: Response) => {
   const { provider, api_url, api_key, sender_name } = req.body;
   await pool.query(`
     INSERT INTO platform_settings (key, value) VALUES ('sms_provider', $1::jsonb)
@@ -476,7 +477,7 @@ router.get("/admin/sms/templates", adminAuth, async (_req, res) => {
 });
 
 /* PUT /admin/sms/templates — save global platform SMS templates */
-router.put("/admin/sms/templates", adminAuth, async (req: any, res) => {
+router.put("/admin/sms/templates", adminAuth, async (req: Request, res: Response) => {
   const templates = req.body;
   if (!templates || typeof templates !== "object") {
     return res.status(400).json({ error: "Corpo inválido. Envie um objecto JSON com os templates." });
@@ -507,7 +508,7 @@ router.get("/admin/sms/template-defaults", adminAuth, async (_req, res) => {
 });
 
 /* POST /admin/sms/send — admin bulk send to multiple schools */
-router.post("/admin/sms/send", adminAuth, async (req: any, res) => {
+router.post("/admin/sms/send", adminAuth, async (req: Request, res: Response) => {
   const { mensagem, school_ids, todos } = req.body;
   if (!mensagem) return res.status(400).json({ error: "mensagem é obrigatória." });
 

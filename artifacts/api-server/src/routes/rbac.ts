@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { toError } from "../lib/errors";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import * as crypto from "crypto";
@@ -70,7 +71,7 @@ export async function runRBACMigration() {
 }
 
 /* ─── Auth middleware (school session) ─── */
-async function schoolAuth(req: any, res: any, next: any) {
+async function schoolAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autorizado" });
   const token = auth.slice(7);
@@ -94,7 +95,7 @@ async function logAudit(
   actor: string,
   acao: string,
   alvo: string | null,
-  detalhe: Record<string, any>,
+  detalhe: Record<string, unknown>,
   ip?: string
 ) {
   await db.execute(sql`
@@ -129,9 +130,9 @@ function generateTempPassword(): string {
 ══════════════════════════════════════════ */
 
 /* GET /school/rbac/roles */
-router.get("/school/rbac/roles", schoolAuth, async (req: any, res) => {
+router.get("/school/rbac/roles", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const roles = await db.execute(sql`
       SELECT r.id, r.nome, r.descricao, r.cor, r.created_at,
         COUNT(DISTINCT su.id)::int AS total_utilizadores
@@ -167,9 +168,9 @@ router.get("/school/rbac/roles", schoolAuth, async (req: any, res) => {
 });
 
 /* POST /school/rbac/roles */
-router.post("/school/rbac/roles", schoolAuth, async (req: any, res) => {
+router.post("/school/rbac/roles", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const { nome, descricao, cor, permissions } = req.body;
     if (!nome?.trim()) return res.status(400).json({ error: "Nome obrigatório" });
 
@@ -192,7 +193,7 @@ router.post("/school/rbac/roles", schoolAuth, async (req: any, res) => {
       }
     }
 
-    await logAudit(sid, req.actorEmail, "criar_role", nome, { role_id: role.id }, req.ip);
+    await logAudit(sid, req.actorEmail!, "criar_role", nome, { role_id: role.id }, req.ip);
     res.status(201).json(role);
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -200,9 +201,9 @@ router.post("/school/rbac/roles", schoolAuth, async (req: any, res) => {
 });
 
 /* PUT /school/rbac/roles/:id */
-router.put("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
+router.put("/school/rbac/roles/:id", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const roleId = Number(req.params.id);
     const { nome, descricao, cor, permissions } = req.body;
 
@@ -224,7 +225,7 @@ router.put("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
       }
     }
 
-    await logAudit(sid, req.actorEmail, "editar_role", nome, { role_id: roleId }, req.ip);
+    await logAudit(sid, req.actorEmail!, "editar_role", nome, { role_id: roleId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -232,9 +233,9 @@ router.put("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* DELETE /school/rbac/roles/:id */
-router.delete("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
+router.delete("/school/rbac/roles/:id", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const roleId = Number(req.params.id);
 
     const check = await db.execute(sql`SELECT nome FROM staff_roles WHERE id=${roleId} AND school_id=${sid}`);
@@ -246,7 +247,7 @@ router.delete("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
     }
 
     await db.execute(sql`DELETE FROM staff_roles WHERE id=${roleId} AND school_id=${sid}`);
-    await logAudit(sid, req.actorEmail, "eliminar_role", (check.rows[0] as any).nome, { role_id: roleId }, req.ip);
+    await logAudit(sid, req.actorEmail!, "eliminar_role", (check.rows[0] as any).nome, { role_id: roleId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -258,9 +259,9 @@ router.delete("/school/rbac/roles/:id", schoolAuth, async (req: any, res) => {
 ══════════════════════════════════════════ */
 
 /* GET /school/rbac/staff */
-router.get("/school/rbac/staff", schoolAuth, async (req: any, res) => {
+router.get("/school/rbac/staff", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const { role_id, status, q } = req.query;
 
     const users = await db.execute(sql`
@@ -283,9 +284,9 @@ router.get("/school/rbac/staff", schoolAuth, async (req: any, res) => {
 });
 
 /* POST /school/rbac/staff */
-router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
+router.post("/school/rbac/staff", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const { nome, email, telefone, role_id, password } = req.body;
     if (!nome?.trim() || !email?.trim()) return res.status(400).json({ error: "Nome e email são obrigatórios" });
     if (!password?.trim()) return res.status(400).json({ error: "Palavra-passe obrigatória" });
@@ -300,7 +301,7 @@ router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
     `);
 
     const user = userRes.rows[0] as any;
-    await logAudit(sid, req.actorEmail, "criar_staff", email, { staff_id: user.id, role_id }, req.ip);
+    await logAudit(sid, req.actorEmail!, "criar_staff", email, { staff_id: user.id, role_id }, req.ip);
     res.status(201).json({ ...user });
   } catch (e: any) {
     if (e.message?.includes("unique")) return res.status(400).json({ error: "Já existe um utilizador com este email nesta escola" });
@@ -309,9 +310,9 @@ router.post("/school/rbac/staff", schoolAuth, async (req: any, res) => {
 });
 
 /* PUT /school/rbac/staff/:id */
-router.put("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
+router.put("/school/rbac/staff/:id", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const userId = Number(req.params.id);
     const { nome, email, telefone, role_id, password } = req.body;
 
@@ -330,7 +331,7 @@ router.put("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
       await db.execute(sql`UPDATE staff_users SET password_hash=${newHash}, updated_at=now() WHERE id=${userId} AND school_id=${sid}`);
     }
 
-    await logAudit(sid, req.actorEmail, "editar_staff", email, { staff_id: userId, password_changed: !!password?.trim() }, req.ip);
+    await logAudit(sid, req.actorEmail!, "editar_staff", email, { staff_id: userId, password_changed: !!password?.trim() }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -338,9 +339,9 @@ router.put("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
 });
 
 /* POST /school/rbac/staff/:id/toggle-status — Kill Switch */
-router.post("/school/rbac/staff/:id/toggle-status", schoolAuth, async (req: any, res) => {
+router.post("/school/rbac/staff/:id/toggle-status", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const userId = Number(req.params.id);
     const { status } = req.body; // 'activo' | 'bloqueado' | 'inactivo'
 
@@ -356,7 +357,7 @@ router.post("/school/rbac/staff/:id/toggle-status", schoolAuth, async (req: any,
     `);
 
     const acao = status === "bloqueado" ? "bloquear_staff" : status === "inactivo" ? "desactivar_staff" : "activar_staff";
-    await logAudit(sid, req.actorEmail, acao, (check.rows[0] as any).email, { staff_id: userId, novo_status: status }, req.ip);
+    await logAudit(sid, req.actorEmail!, acao, (check.rows[0] as any).email, { staff_id: userId, novo_status: status }, req.ip);
     res.json({ ok: true, novo_status: status });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -364,9 +365,9 @@ router.post("/school/rbac/staff/:id/toggle-status", schoolAuth, async (req: any,
 });
 
 /* POST /school/rbac/staff/:id/reset-password */
-router.post("/school/rbac/staff/:id/reset-password", schoolAuth, async (req: any, res) => {
+router.post("/school/rbac/staff/:id/reset-password", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const userId = Number(req.params.id);
 
     const check = await db.execute(sql`SELECT email FROM staff_users WHERE id=${userId} AND school_id=${sid}`);
@@ -379,7 +380,7 @@ router.post("/school/rbac/staff/:id/reset-password", schoolAuth, async (req: any
       UPDATE staff_users SET password_hash=${hash}, updated_at=now() WHERE id=${userId} AND school_id=${sid}
     `);
 
-    await logAudit(sid, req.actorEmail, "reset_password", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
+    await logAudit(sid, req.actorEmail!, "reset_password", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
     res.json({ ok: true, temp_password: tempPass });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -387,16 +388,16 @@ router.post("/school/rbac/staff/:id/reset-password", schoolAuth, async (req: any
 });
 
 /* DELETE /school/rbac/staff/:id */
-router.delete("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
+router.delete("/school/rbac/staff/:id", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const userId = Number(req.params.id);
 
     const check = await db.execute(sql`SELECT email FROM staff_users WHERE id=${userId} AND school_id=${sid}`);
     if (!check.rows.length) return res.status(404).json({ error: "Utilizador não encontrado" });
 
     await db.execute(sql`DELETE FROM staff_users WHERE id=${userId} AND school_id=${sid}`);
-    await logAudit(sid, req.actorEmail, "eliminar_staff", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
+    await logAudit(sid, req.actorEmail!, "eliminar_staff", (check.rows[0] as any).email, { staff_id: userId }, req.ip);
     res.json({ ok: true });
   } catch (e: any) {
     req.log?.error(e); res.status(500).json({ error: "Erro interno do servidor." });
@@ -408,9 +409,9 @@ router.delete("/school/rbac/staff/:id", schoolAuth, async (req: any, res) => {
 ══════════════════════════════════════════ */
 
 /* GET /school/rbac/audit-log */
-router.get("/school/rbac/audit-log", schoolAuth, async (req: any, res) => {
+router.get("/school/rbac/audit-log", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const limit = Math.min(Number(req.query.limit ?? 30), 100);
     const offset = Number(req.query.offset ?? 0);
     const acao = req.query.acao as string | undefined;
@@ -438,9 +439,9 @@ router.get("/school/rbac/audit-log", schoolAuth, async (req: any, res) => {
 });
 
 /* GET /school/rbac/summary — dashboard stats */
-router.get("/school/rbac/summary", schoolAuth, async (req: any, res) => {
+router.get("/school/rbac/summary", schoolAuth, async (req: Request, res: Response) => {
   try {
-    const sid = req.schoolId;
+    const sid = req.schoolId!;
     const [users, roles, audit] = await Promise.all([
       db.execute(sql`
         SELECT
@@ -485,7 +486,7 @@ async function adminAuthMiddleware(req: any, res: any, next: any) {
 }
 
 /* GET /admin/rbac/:schoolId/summary */
-router.get("/admin/rbac/:schoolId/summary", adminAuthMiddleware, async (req: any, res) => {
+router.get("/admin/rbac/:schoolId/summary", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const [users, roles, audit] = await Promise.all([
@@ -507,7 +508,7 @@ router.get("/admin/rbac/:schoolId/summary", adminAuthMiddleware, async (req: any
 });
 
 /* GET /admin/rbac/:schoolId/roles */
-router.get("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: any, res) => {
+router.get("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const roles = await db.execute(sql`
@@ -530,7 +531,7 @@ router.get("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: any, 
 });
 
 /* POST /admin/rbac/:schoolId/roles */
-router.post("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: any, res) => {
+router.post("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const { nome, descricao, cor, permissions } = req.body;
@@ -557,7 +558,7 @@ router.post("/admin/rbac/:schoolId/roles", adminAuthMiddleware, async (req: any,
 });
 
 /* PUT /admin/rbac/:schoolId/roles/:roleId */
-router.put("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async (req: any, res) => {
+router.put("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const roleId = Number(req.params.roleId);
@@ -581,7 +582,7 @@ router.put("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async (re
 });
 
 /* DELETE /admin/rbac/:schoolId/roles/:roleId */
-router.delete("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async (req: any, res) => {
+router.delete("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const roleId = Number(req.params.roleId);
@@ -597,7 +598,7 @@ router.delete("/admin/rbac/:schoolId/roles/:roleId", adminAuthMiddleware, async 
 });
 
 /* GET /admin/rbac/:schoolId/staff */
-router.get("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any, res) => {
+router.get("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const { role_id, status, q } = req.query;
@@ -617,7 +618,7 @@ router.get("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any, 
 });
 
 /* POST /admin/rbac/:schoolId/staff */
-router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any, res) => {
+router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const { nome, email, telefone, role_id, password } = req.body;
@@ -640,7 +641,7 @@ router.post("/admin/rbac/:schoolId/staff", adminAuthMiddleware, async (req: any,
 });
 
 /* PUT /admin/rbac/:schoolId/staff/:userId */
-router.put("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (req: any, res) => {
+router.put("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const userId = Number(req.params.userId);
@@ -660,7 +661,7 @@ router.put("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (re
 });
 
 /* POST /admin/rbac/:schoolId/staff/:userId/toggle-status */
-router.post("/admin/rbac/:schoolId/staff/:userId/toggle-status", adminAuthMiddleware, async (req: any, res) => {
+router.post("/admin/rbac/:schoolId/staff/:userId/toggle-status", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const userId = Number(req.params.userId);
@@ -677,7 +678,7 @@ router.post("/admin/rbac/:schoolId/staff/:userId/toggle-status", adminAuthMiddle
 });
 
 /* POST /admin/rbac/:schoolId/staff/:userId/reset-password */
-router.post("/admin/rbac/:schoolId/staff/:userId/reset-password", adminAuthMiddleware, async (req: any, res) => {
+router.post("/admin/rbac/:schoolId/staff/:userId/reset-password", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const userId = Number(req.params.userId);
@@ -691,7 +692,7 @@ router.post("/admin/rbac/:schoolId/staff/:userId/reset-password", adminAuthMiddl
 });
 
 /* DELETE /admin/rbac/:schoolId/staff/:userId */
-router.delete("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (req: any, res) => {
+router.delete("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const userId = Number(req.params.userId);
@@ -704,7 +705,7 @@ router.delete("/admin/rbac/:schoolId/staff/:userId", adminAuthMiddleware, async 
 });
 
 /* GET /admin/rbac/:schoolId/audit-log */
-router.get("/admin/rbac/:schoolId/audit-log", adminAuthMiddleware, async (req: any, res) => {
+router.get("/admin/rbac/:schoolId/audit-log", adminAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const sid = Number(req.params.schoolId);
     const limit = Math.min(Number(req.query.limit ?? 30), 100);
@@ -731,7 +732,7 @@ router.get("/admin/rbac/:schoolId/audit-log", adminAuthMiddleware, async (req: a
 ══════════════════════════════════════════ */
 
 /* Exported middleware — used by staff-portal.ts routes */
-export async function staffAuth(req: any, res: any, next: any) {
+export async function staffAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const auth = req.headers.authorization;
     if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Não autorizado" });
@@ -749,7 +750,7 @@ export async function staffAuth(req: any, res: any, next: any) {
 
     if (!rows.rows.length) return res.status(401).json({ error: "Sessão inválida" });
 
-    const s = rows.rows[0] as any;
+    const s = rows.rows[0] as { school_id: number; staff_id: number; email: string; nome: string; status: string; role_nome: string };
     if (s.status !== "activo") return res.status(403).json({ error: "Conta inactiva ou bloqueada. Contacte o administrador." });
 
     req.schoolId   = s.school_id;
@@ -761,8 +762,9 @@ export async function staffAuth(req: any, res: any, next: any) {
 
     await db.execute(sql`UPDATE staff_users SET ultimo_acesso = now() WHERE id = ${s.staff_id}`);
     next();
-  } catch (e: any) {
-    if (e.message?.includes("staff_sessions") || e.message?.includes("does not exist")) {
+  } catch (e: unknown) {
+    const msg = toError(e).message;
+    if (msg.includes("staff_sessions") || msg.includes("does not exist")) {
       return res.status(503).json({ error: "Serviço temporariamente indisponível." });
     }
     res.status(500).json({ error: "Erro interno do servidor." });
@@ -770,7 +772,7 @@ export async function staffAuth(req: any, res: any, next: any) {
 }
 
 /* POST /school/rbac/staff/login */
-router.post("/school/rbac/staff/login", loginRateLimiter, async (req: any, res) => {
+router.post("/school/rbac/staff/login", loginRateLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     if (!email?.trim() || !password) return res.status(400).json({ error: "Email e password obrigatórios" });
@@ -825,7 +827,7 @@ router.post("/school/rbac/staff/login", loginRateLimiter, async (req: any, res) 
 });
 
 /* GET /school/rbac/staff/me */
-router.get("/school/rbac/staff/me", staffAuth, async (req: any, res) => {
+router.get("/school/rbac/staff/me", staffAuth, async (req: Request, res: Response) => {
   try {
     const rows = await db.execute(sql`
       SELECT su.id, su.nome, su.email, su.telefone, su.status,
@@ -845,7 +847,7 @@ router.get("/school/rbac/staff/me", staffAuth, async (req: any, res) => {
 });
 
 /* POST /school/rbac/staff/logout */
-router.post("/school/rbac/staff/logout", async (req: any, res) => {
+router.post("/school/rbac/staff/logout", async (req: Request, res: Response) => {
   try {
     const auth = req.headers.authorization;
     if (auth?.startsWith("Bearer ")) {
@@ -857,7 +859,7 @@ router.post("/school/rbac/staff/logout", async (req: any, res) => {
 });
 
 /* POST /school/rbac/staff/change-password */
-router.post("/school/rbac/staff/change-password", staffAuth, async (req: any, res) => {
+router.post("/school/rbac/staff/change-password", staffAuth, async (req: Request, res: Response) => {
   try {
     const { current_password, new_password } = req.body;
     if (!current_password || !new_password?.trim()) {
