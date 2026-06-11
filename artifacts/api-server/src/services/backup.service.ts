@@ -61,9 +61,19 @@ export async function runBackupMigration(): Promise<void> {
 function getConfig() {
   const bucket  = process.env["BACKUP_S3_BUCKET"] ?? "";
   const prefix  = process.env["BACKUP_S3_PREFIX"] ?? "kiwara/db";
-  const key     = process.env["BACKUP_ENCRYPTION_KEY"] ?? "";
-  const region  = process.env["AWS_REGION"] ?? process.env["AWS_DEFAULT_REGION"] ?? "af-south-1";
   const enabled = process.env["BACKUP_ENABLED"] === "true";
+
+  // Chave obrigatória quando backup está activo — falha explícita em vez de cifrar com string vazia
+  const key = enabled
+    ? (() => {
+        const k = process.env["BACKUP_ENCRYPTION_KEY"];
+        if (!k || k.length < 32)
+          throw new Error("[backup] BACKUP_ENCRYPTION_KEY não definida ou demasiado curta (mín. 32 chars). Configure em Replit Secrets.");
+        return k;
+      })()
+    : (process.env["BACKUP_ENCRYPTION_KEY"] ?? "");
+
+  const region  = process.env["AWS_REGION"] ?? process.env["AWS_DEFAULT_REGION"] ?? "af-south-1";
 
   const pgHost  = process.env["PGHOST"] ?? "localhost";
   const pgPort  = process.env["PGPORT"] ?? "5432";
