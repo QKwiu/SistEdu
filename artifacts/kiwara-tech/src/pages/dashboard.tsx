@@ -16,7 +16,7 @@ import {
   Paperclip, FileCheck, CalendarDays, MessageSquare, ExternalLink, BadgeCheck,
   Eye, FileImage, Link as LinkIcon, Smartphone, Send, ToggleLeft, ToggleRight,
   ChevronLeft, ChevronRight, ListFilter,
-  Megaphone, CheckCheck, XCircle, Info,
+  Megaphone, CheckCheck, XCircle, Info, Check,
   Pencil, Lock, Save, EyeOff, Package, Globe, ShieldOff, BadgePercent, Tag,
   Zap, Printer, Building2, Hash, MessageCircle, ArrowRight, PlayCircle, ArrowUpRight,
   ShoppingCart, Truck, Store,
@@ -4246,6 +4246,24 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
 }
 
 /* ─── Reconciliação View (School) ─── */
+/* ── helper puro: estado de pré-validação de uma transferência ── */
+function badgeEstadoFor(m: {
+  pre_validacao_estado?: number | null;
+  comprovativo_url?: string | null;
+  status?: string;
+}): "verde" | "amarelo" | "vermelho" {
+  if (m.pre_validacao_estado === 3) return "vermelho";
+  if (m.pre_validacao_estado === 2) return "amarelo";
+  return "verde"; // 1 ou null → verde (legacy sem pre-validação)
+}
+
+function flagLabel(f: string): string {
+  if (f === "duplicado_confirmado") return "Referência já confirmada anteriormente";
+  if (f === "possivel_duplicado")   return "Referência já pendente noutro comprovativo";
+  if (f === "divergencia_valor")    return "Valor diverge da propina";
+  return f;
+}
+
 function ReconciliacaoView({ token }: { token: string | null }) {
   const [propinas, setPropinas] = useState<RecPropina[]>([]);
   const [stats, setStats] = useState<RecStats | null>(null);
@@ -4270,6 +4288,16 @@ function ReconciliacaoView({ token }: { token: string | null }) {
   const [manuaisActionId, setManuaisActionId] = useState<number | null>(null);
   const [manuaisRejModal, setManuaisRejModal] = useState<any | null>(null);
   const [manuaisRejMotivo, setManuaisRejMotivo] = useState("");
+  /* ── Reconciliação: novos estados de pré-validação ── */
+  const [manuaisFiltroEstado, setManuaisFiltroEstado] = useState<"" | "verde" | "amarelo" | "vermelho">("");
+  const [manuaisFiltroBank, setManuaisFiltroBank]     = useState("");
+  const [manuaisSearch, setManuaisSearch]             = useState("");
+  const [manuaisDetalhe, setManuaisDetalhe]           = useState<any | null>(null);
+  const [manuaisDetalheOpcao, setManuaisDetalheOpcao] = useState<"ignorar" | "credito">("ignorar");
+  const [manuaisLoteModal, setManuaisLoteModal]       = useState(false);
+  const [manuaisLoteLoading, setManuaisLoteLoading]   = useState(false);
+  const [manuaisLoteResult, setManuaisLoteResult]     = useState<{ confirmadas: number; total_valor: number } | null>(null);
+  const [manuaisDetalheLoading, setManuaisDetalheLoading] = useState(false);
 
   /* ── Fecho de Caixa state ── */
   /* helper: compute inicio/fim from a named period (relative to today)
@@ -4468,6 +4496,32 @@ function ReconciliacaoView({ token }: { token: string | null }) {
     return Array.from(map.values()).sort((a, b) => b.multa - a.multa);
   }, [propinas]);
 
+  /* ── Computed: manuais filtrados e contagens por badge ── */
+  const manuaisPendentes = useMemo(() =>
+    manuais.filter(m => m.status === "pago_manual_pendente"), [manuais]);
+  const manuaisVerdes = useMemo(() =>
+    manuaisPendentes.filter(m => badgeEstadoFor(m) === "verde"), [manuaisPendentes]);
+  const manuaisAmarelos = useMemo(() =>
+    manuaisPendentes.filter(m => badgeEstadoFor(m) === "amarelo"), [manuaisPendentes]);
+  const manuaisVermelhos = useMemo(() =>
+    manuaisPendentes.filter(m => badgeEstadoFor(m) === "vermelho"), [manuaisPendentes]);
+  const manuaisBancos = useMemo(() => {
+    const banks = new Set<string>();
+    manuais.forEach(m => { if (m.comprovativo_banco_origem) banks.add(m.comprovativo_banco_origem); });
+    return Array.from(banks).sort();
+  }, [manuais]);
+  const manuaisFiltrados = useMemo(() => manuais.filter(m => {
+    const badge = badgeEstadoFor(m);
+    if (manuaisFiltroEstado && badge !== manuaisFiltroEstado) return false;
+    if (manuaisFiltroBank && m.comprovativo_banco_origem !== manuaisFiltroBank) return false;
+    if (manuaisSearch) {
+      const q = manuaisSearch.toLowerCase();
+      if (!m.aluno_nome?.toLowerCase().includes(q) &&
+          !m.comprovativo_ref_transf?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }), [manuais, manuaisFiltroEstado, manuaisFiltroBank, manuaisSearch]);
+
   return (
     <motion.div key="reconciliacao" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
       className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
@@ -4511,18 +4565,89 @@ function ReconciliacaoView({ token }: { token: string | null }) {
 
       {recSubTab === "transferencias" && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-2">
-              <ArrowUpRight className="w-4 h-4 text-amber-600"/>
-              <h3 className="font-semibold text-slate-900 text-sm">Transferências Bancárias Manuais</h3>
-              <span className="text-xs text-slate-400">
-                {manuais.filter(m => m.status === "pago_manual_pendente").length} aguardam confirmação
-              </span>
+
+          {/* ── Cabeçalho + filtros ── */}
+          <div className="px-5 py-4 border-b border-slate-100">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <ArrowUpRight className="w-4 h-4 text-amber-600 shrink-0"/>
+                <h3 className="font-semibold text-slate-900 text-sm">Transferências Bancárias Manuais</h3>
+                {manuaisPendentes.length > 0 && (
+                  <span className="text-xs text-slate-400">{manuaisPendentes.length} aguardam confirmação</span>
+                )}
+                {/* Contadores por badge */}
+                {manuaisPendentes.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {manuaisVerdes.length > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full font-semibold border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"/>
+                        {manuaisVerdes.length} {manuaisVerdes.length === 1 ? "pronto" : "prontos"}
+                      </span>
+                    )}
+                    {manuaisAmarelos.length > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-semibold border border-amber-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block"/>
+                        {manuaisAmarelos.length} atenção
+                      </span>
+                    )}
+                    {manuaisVermelhos.length > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-red-50 text-red-700 rounded-full font-semibold border border-red-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"/>
+                        {manuaisVermelhos.length} {manuaisVermelhos.length === 1 ? "duplicado" : "duplicados"}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={loadManuais}
+                  className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <RefreshCw className="w-3.5 h-3.5"/>Atualizar
+                </button>
+                <button
+                  disabled={manuaisVerdes.length === 0}
+                  onClick={() => { setManuaisLoteResult(null); setManuaisLoteModal(true); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  <CheckCheck className="w-3.5 h-3.5"/>
+                  Confirmar todas 🟢{manuaisVerdes.length > 0 ? ` (${manuaisVerdes.length})` : ""}
+                </button>
+              </div>
             </div>
-            <button onClick={loadManuais} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
-              <RefreshCw className="w-3.5 h-3.5"/>Atualizar
-            </button>
+
+            {/* Barra de filtros */}
+            {manuais.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <select value={manuaisFiltroEstado} onChange={e => setManuaisFiltroEstado(e.target.value as "" | "verde" | "amarelo" | "vermelho")}
+                  className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <option value="">Todos os estados</option>
+                  <option value="verde">🟢 Prontos</option>
+                  <option value="amarelo">🟡 Requer atenção</option>
+                  <option value="vermelho">🔴 Possível duplicado</option>
+                </select>
+                {manuaisBancos.length > 1 && (
+                  <select value={manuaisFiltroBank} onChange={e => setManuaisFiltroBank(e.target.value)}
+                    className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                    <option value="">Todos os bancos</option>
+                    {manuaisBancos.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                )}
+                <div className="relative flex-1 min-w-[180px] max-w-xs">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none"/>
+                  <input value={manuaisSearch} onChange={e => setManuaisSearch(e.target.value)}
+                    placeholder="Pesquisar aluno ou referência..."
+                    className="w-full pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                </div>
+                {(manuaisFiltroEstado || manuaisFiltroBank || manuaisSearch) && (
+                  <button onClick={() => { setManuaisFiltroEstado(""); setManuaisFiltroBank(""); setManuaisSearch(""); }}
+                    className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1">
+                    <X className="w-3 h-3"/>Limpar
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* ── Conteúdo ── */}
           {manuaisLoading ? (
             <div className="py-12 flex items-center justify-center">
               <RefreshCw className="w-6 h-6 animate-spin text-slate-400"/>
@@ -4533,105 +4658,172 @@ function ReconciliacaoView({ token }: { token: string | null }) {
               <p className="font-semibold">Sem transferências manuais</p>
               <p className="text-sm">Nenhum encarregado submeteu comprovativo por enquanto.</p>
             </div>
+          ) : manuaisFiltrados.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">
+              Nenhuma transferência corresponde aos filtros seleccionados.
+            </div>
           ) : (
-            <div className="divide-y divide-slate-100">
-              {manuais.map(m => (
-                <div key={m.id} className="px-5 py-4">
-                  <div className="flex items-start gap-3">
-                    <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${
-                      m.status === "pago_manual_pendente" ? "bg-amber-400" :
-                      m.status === "pago_manual"          ? "bg-emerald-400" : "bg-slate-300"
-                    }`}/>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-slate-900 text-sm">{m.aluno_nome}</span>
-                        {m.turma && <span className="text-xs text-slate-400">{m.turma}</span>}
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                          m.status === "pago_manual_pendente" ? "bg-amber-100 text-amber-700" :
-                          m.status === "pago_manual"          ? "bg-emerald-100 text-emerald-700" :
-                                                                 "bg-slate-100 text-slate-600"
-                        }`}>
-                          {m.status === "pago_manual_pendente" ? "Aguarda confirmação" :
-                           m.status === "pago_manual"          ? "Confirmado" : m.status}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500 flex items-center flex-wrap gap-x-3 gap-y-0.5">
-                        <span>{m.mes} {m.ano}</span>
-                        <span className="font-semibold text-slate-700">
-                          {m.comprovativo_valor ? `${Number(m.comprovativo_valor).toLocaleString("pt-AO")} AOA` : `${Number(m.montante).toLocaleString("pt-AO")} AOA`}
-                        </span>
-                        {m.comprovativo_banco_origem && <span>Banco: {m.comprovativo_banco_origem}</span>}
-                        {m.comprovativo_ref_transf && <span>Ref: {m.comprovativo_ref_transf}</span>}
-                        {m.comprovativo_data && <span>Data: {new Date(m.comprovativo_data).toLocaleDateString("pt-AO")}</span>}
-                        {m.comprovativo_submetido_em && <span>Submetido: {new Date(m.comprovativo_submetido_em).toLocaleString("pt-AO")}</span>}
-                      </div>
-                      {m.comprovativo_url && (
-                        <a href={`${API}${m.comprovativo_url}`} target="_blank" rel="noopener noreferrer"
-                          className="mt-1.5 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                          <FileText className="w-3 h-3"/>Ver comprovativo
-                        </a>
-                      )}
-                      {m.motivo_rejeicao && (
-                        <p className="mt-1 text-xs text-red-600 bg-red-50 rounded px-2 py-1">
-                          Motivo rejeição: {m.motivo_rejeicao}
-                        </p>
-                      )}
-                    </div>
-                    {m.status === "pago_manual_pendente" && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          disabled={manuaisActionId === m.id}
-                          onClick={async () => {
-                            setManuaisActionId(m.id);
-                            try {
-                              const r = await fetch(`${API}/school/reconciliacao/manuais/${m.id}/confirmar`, {
-                                method: "POST",
-                                headers: { ...authHeader(), "Content-Type": "application/json" },
-                                body: JSON.stringify({}),
-                              });
-                              if (r.ok) loadManuais();
-                            } finally { setManuaisActionId(null); }
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-1">
-                          {manuaisActionId === m.id ? <RefreshCw className="w-3 h-3 animate-spin"/> : <CheckCircle2 className="w-3 h-3"/>}
-                          Confirmar
-                        </button>
-                        <button
-                          onClick={() => { setManuaisRejModal(m); setManuaisRejMotivo(""); }}
-                          className="px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-50 flex items-center gap-1">
-                          <XCircle className="w-3 h-3"/>Rejeitar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-left">
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-28">Estado</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Aluno</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Propina</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Val. Subm.</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Val. Propina</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Banco / Ref.</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Submetido</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Acções</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {manuaisFiltrados.map(m => {
+                    const badge = badgeEstadoFor(m);
+                    const isPendente = m.status === "pago_manual_pendente";
+                    const valorSubm = m.comprovativo_valor != null ? Number(m.comprovativo_valor) : null;
+                    const valorProp = Number(m.montante);
+                    const diff = valorSubm != null ? valorSubm - valorProp : 0;
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                        {/* Badge estado */}
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            badge === "verde"   ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+                            badge === "amarelo" ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                                                  "bg-red-50 text-red-700 border border-red-200"
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              badge === "verde" ? "bg-emerald-500" : badge === "amarelo" ? "bg-amber-500" : "bg-red-500"
+                            }`}/>
+                            {badge === "verde" ? "Pronto" : badge === "amarelo" ? "Atenção" : "Duplicado"}
+                          </span>
+                          {m.status === "pago_manual" && (
+                            <div className="mt-1 text-xs text-emerald-600 font-medium">Confirmado</div>
+                          )}
+                          {m.status === "contingencia" && (
+                            <div className="mt-1 text-xs text-slate-400">Sem comprovativo</div>
+                          )}
+                        </td>
+                        {/* Aluno */}
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-900">{m.aluno_nome}</div>
+                          {m.turma && <div className="text-xs text-slate-400">{m.turma}</div>}
+                        </td>
+                        {/* Propina */}
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap text-xs">{m.mes}/{m.ano}</td>
+                        {/* Valor submetido */}
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {valorSubm != null ? (
+                            <>
+                              <div className={`font-semibold text-sm ${Math.abs(diff) > 0 ? "text-amber-700" : "text-slate-900"}`}>
+                                {valorSubm.toLocaleString("pt-AO")} AOA
+                              </div>
+                              {Math.abs(diff) > 0.01 && (
+                                <div className="text-xs text-amber-600">
+                                  {diff > 0 ? "+" : ""}{diff.toLocaleString("pt-AO")}
+                                </div>
+                              )}
+                            </>
+                          ) : <span className="text-slate-400 text-xs">—</span>}
+                        </td>
+                        {/* Valor propina */}
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <span className="font-semibold text-slate-900 text-sm">{valorProp.toLocaleString("pt-AO")} AOA</span>
+                        </td>
+                        {/* Banco / Ref */}
+                        <td className="px-4 py-3">
+                          {m.comprovativo_banco_origem && (
+                            <div className="text-slate-700 text-xs font-medium">{m.comprovativo_banco_origem}</div>
+                          )}
+                          {m.comprovativo_ref_transf && (
+                            <div className="text-slate-400 text-xs font-mono">{m.comprovativo_ref_transf}</div>
+                          )}
+                        </td>
+                        {/* Data submissão */}
+                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                          {m.comprovativo_submetido_em
+                            ? new Date(m.comprovativo_submetido_em).toLocaleDateString("pt-AO")
+                            : "—"}
+                        </td>
+                        {/* Acções */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isPendente && badge === "verde" && (
+                              <>
+                                <button disabled={manuaisActionId === m.id} title="Confirmar pagamento"
+                                  onClick={async () => {
+                                    setManuaisActionId(m.id);
+                                    try {
+                                      const r = await fetch(`${API}/school/reconciliacao/manuais/${m.id}/confirmar`, {
+                                        method: "POST", headers: { ...authHeader(), "Content-Type": "application/json" }, body: JSON.stringify({}),
+                                      });
+                                      if (r.ok) loadManuais();
+                                    } finally { setManuaisActionId(null); }
+                                  }}
+                                  className="w-7 h-7 flex items-center justify-center bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-60 transition-colors">
+                                  {manuaisActionId === m.id ? <RefreshCw className="w-3 h-3 animate-spin"/> : <Check className="w-3 h-3"/>}
+                                </button>
+                                <button title="Rejeitar comprovativo"
+                                  onClick={() => { setManuaisRejModal(m); setManuaisRejMotivo(""); }}
+                                  className="w-7 h-7 flex items-center justify-center border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors">
+                                  <X className="w-3 h-3"/>
+                                </button>
+                              </>
+                            )}
+                            {isPendente && (badge === "amarelo" || badge === "vermelho") && (
+                              <button onClick={() => { setManuaisDetalheOpcao("ignorar"); setManuaisDetalhe(m); }}
+                                className="px-2.5 py-1 text-xs font-semibold border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1">
+                                <Eye className="w-3 h-3"/>Ver
+                              </button>
+                            )}
+                            {m.status === "pago_manual" && m.confirmado_por && (
+                              <span className="text-xs text-slate-400 text-right leading-tight">
+                                {m.confirmado_por}<br/>
+                                {m.confirmado_em && new Date(m.confirmado_em).toLocaleDateString("pt-AO")}
+                              </span>
+                            )}
+                            {m.comprovativo_url && (
+                              <a href={`${API}${m.comprovativo_url}`} target="_blank" rel="noopener noreferrer"
+                                title="Ver comprovativo"
+                                className="w-7 h-7 flex items-center justify-center border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-50 transition-colors">
+                                <FileText className="w-3 h-3"/>
+                              </a>
+                            )}
+                          </div>
+                          {m.motivo_rejeicao && (
+                            <div className="mt-1 text-xs text-red-600 text-right">{m.motivo_rejeicao}</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
 
-          {/* Modal rejeição */}
+          {/* ── Modal: rejeição ── */}
           {manuaisRejModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={e=>{ if(e.target===e.currentTarget) setManuaisRejModal(null); }}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+              onClick={e => { if (e.target === e.currentTarget) setManuaisRejModal(null); }}>
               <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5">
                 <h4 className="font-bold text-slate-900 mb-1">Rejeitar Comprovativo</h4>
-                <p className="text-sm text-slate-500 mb-4">{manuaisRejModal.aluno_nome} · {manuaisRejModal.mes} {manuaisRejModal.ano}</p>
+                <p className="text-sm text-slate-500 mb-4">{manuaisRejModal.aluno_nome} · {manuaisRejModal.mes}/{manuaisRejModal.ano}</p>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Motivo de rejeição *</label>
-                <textarea
-                  value={manuaisRejMotivo} onChange={e=>setManuaisRejMotivo(e.target.value)}
+                <textarea value={manuaisRejMotivo} onChange={e => setManuaisRejMotivo(e.target.value)}
                   rows={3} placeholder="ex: Valor incorrecto, comprovativo ilegível..."
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-300"/>
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"/>
                 <div className="flex gap-3">
-                  <button onClick={() => setManuaisRejModal(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">
-                    Cancelar
-                  </button>
+                  <button onClick={() => setManuaisRejModal(null)}
+                    className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
                   <button
                     disabled={!manuaisRejMotivo.trim() || manuaisActionId === manuaisRejModal.id}
                     onClick={async () => {
                       setManuaisActionId(manuaisRejModal.id);
                       try {
                         const r = await fetch(`${API}/school/reconciliacao/manuais/${manuaisRejModal.id}/rejeitar`, {
-                          method: "POST",
-                          headers: { ...authHeader(), "Content-Type": "application/json" },
+                          method: "POST", headers: { ...authHeader(), "Content-Type": "application/json" },
                           body: JSON.stringify({ motivo: manuaisRejMotivo }),
                         });
                         if (r.ok) { setManuaisRejModal(null); loadManuais(); }
@@ -4642,6 +4834,205 @@ function ReconciliacaoView({ token }: { token: string | null }) {
                     Rejeitar
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Modal: detalhe 🟡 / 🔴 ── */}
+          {manuaisDetalhe && (() => {
+            const diff = manuaisDetalhe.comprovativo_valor != null
+              ? Number(manuaisDetalhe.comprovativo_valor) - Number(manuaisDetalhe.montante)
+              : 0;
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+                onClick={e => { if (e.target === e.currentTarget) setManuaisDetalhe(null); }}>
+                <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col">
+                  {/* Header */}
+                  <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-slate-100 shrink-0">
+                    <div>
+                      <h4 className="font-bold text-slate-900">Transferência — {manuaisDetalhe.aluno_nome}</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {manuaisDetalhe.turma && `${manuaisDetalhe.turma} · `}{manuaisDetalhe.mes}/{manuaisDetalhe.ano}
+                      </p>
+                    </div>
+                    <button onClick={() => setManuaisDetalhe(null)} className="text-slate-400 hover:text-slate-600 ml-4 shrink-0">
+                      <X className="w-5 h-5"/>
+                    </button>
+                  </div>
+
+                  {/* Body */}
+                  <div className="px-5 py-4 space-y-4 overflow-y-auto">
+                    {/* Flags de alerta */}
+                    {(manuaisDetalhe.pre_validacao_flags ?? []).map((f: string) => (
+                      <div key={f} className={`flex items-start gap-2 text-xs p-3 rounded-xl ${
+                        f === "duplicado_confirmado" || f === "possivel_duplicado"
+                          ? "bg-red-50 text-red-700 border border-red-200"
+                          : "bg-amber-50 text-amber-700 border border-amber-200"
+                      }`}>
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5"/>
+                        <span className="font-medium">{flagLabel(f)}</span>
+                      </div>
+                    ))}
+
+                    {/* Dados submetidos */}
+                    <div>
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Submetido pelo encarregado</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <dt className="text-slate-500">Valor</dt>
+                        <dd className="font-semibold text-slate-900">
+                          {manuaisDetalhe.comprovativo_valor != null
+                            ? `${Number(manuaisDetalhe.comprovativo_valor).toLocaleString("pt-AO")} AOA`
+                            : "—"}
+                        </dd>
+                        <dt className="text-slate-500">Data</dt>
+                        <dd className="text-slate-900">
+                          {manuaisDetalhe.comprovativo_data
+                            ? new Date(manuaisDetalhe.comprovativo_data).toLocaleDateString("pt-AO")
+                            : "—"}
+                        </dd>
+                        <dt className="text-slate-500">Banco</dt>
+                        <dd className="text-slate-900">{manuaisDetalhe.comprovativo_banco_origem ?? "—"}</dd>
+                        <dt className="text-slate-500">Referência</dt>
+                        <dd className="font-mono text-slate-900 text-xs break-all">{manuaisDetalhe.comprovativo_ref_transf ?? "—"}</dd>
+                      </dl>
+                      {manuaisDetalhe.comprovativo_url && (
+                        <a href={`${API}${manuaisDetalhe.comprovativo_url}`} target="_blank" rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                          <FileText className="w-3 h-3"/>Ver comprovativo
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Propina associada */}
+                    <div>
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Propina associada</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <dt className="text-slate-500">Aluno</dt>
+                        <dd className="font-semibold text-slate-900">{manuaisDetalhe.aluno_nome}{manuaisDetalhe.turma ? ` — ${manuaisDetalhe.turma}` : ""}</dd>
+                        <dt className="text-slate-500">Mês</dt>
+                        <dd className="text-slate-900">{manuaisDetalhe.mes}/{manuaisDetalhe.ano}</dd>
+                        <dt className="text-slate-500">Valor</dt>
+                        <dd className="font-semibold text-slate-900">{Number(manuaisDetalhe.montante).toLocaleString("pt-AO")} AOA</dd>
+                        <dt className="text-slate-500">Estado</dt>
+                        <dd className="uppercase text-xs font-semibold text-slate-900">{manuaisDetalhe.status}</dd>
+                      </dl>
+                    </div>
+
+                    {/* Diferença de valor */}
+                    {Math.abs(diff) > 0.01 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <div className="text-sm font-semibold text-amber-800 mb-3">
+                          Diferença: {diff > 0 ? "+" : ""}{diff.toLocaleString("pt-AO")} AOA
+                        </div>
+                        <p className="text-xs font-semibold text-amber-700 mb-2">O que fazer com a diferença?</p>
+                        <div className="space-y-2">
+                          <label className="flex items-start gap-2.5 cursor-pointer">
+                            <input type="radio" name="opcao_diferenca" value="ignorar"
+                              checked={manuaisDetalheOpcao === "ignorar"}
+                              onChange={() => setManuaisDetalheOpcao("ignorar")}
+                              className="mt-0.5 accent-amber-600"/>
+                            <span className="text-xs text-amber-800">Ignorar — confirmar com o valor da propina ({Number(manuaisDetalhe.montante).toLocaleString("pt-AO")} AOA)</span>
+                          </label>
+                          <label className="flex items-start gap-2.5 cursor-pointer">
+                            <input type="radio" name="opcao_diferenca" value="credito"
+                              checked={manuaisDetalheOpcao === "credito"}
+                              onChange={() => setManuaisDetalheOpcao("credito")}
+                              className="mt-0.5 accent-amber-600"/>
+                            <span className="text-xs text-amber-800">Registar diferença como crédito a favor do aluno</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex gap-3 px-5 pb-5 pt-3 border-t border-slate-100 shrink-0">
+                    <button
+                      onClick={() => { setManuaisRejModal(manuaisDetalhe); setManuaisRejMotivo(""); setManuaisDetalhe(null); }}
+                      className="flex-1 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5">
+                      <XCircle className="w-4 h-4"/>Rejeitar
+                    </button>
+                    <button
+                      disabled={manuaisDetalheLoading}
+                      onClick={async () => {
+                        setManuaisDetalheLoading(true);
+                        try {
+                          const r = await fetch(`${API}/school/reconciliacao/manuais/${manuaisDetalhe.id}/confirmar`, {
+                            method: "POST", headers: { ...authHeader(), "Content-Type": "application/json" },
+                            body: JSON.stringify({ opcao_diferenca: manuaisDetalheOpcao }),
+                          });
+                          if (r.ok) { setManuaisDetalhe(null); loadManuais(); }
+                        } finally { setManuaisDetalheLoading(false); }
+                      }}
+                      className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-1.5">
+                      {manuaisDetalheLoading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4"/>}
+                      Confirmar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Modal: confirmar em massa ── */}
+          {manuaisLoteModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+              onClick={e => { if (e.target === e.currentTarget && !manuaisLoteLoading) setManuaisLoteModal(false); }}>
+              <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5">
+                {manuaisLoteResult ? (
+                  /* Resultado */
+                  <div className="text-center">
+                    <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-emerald-100 rounded-full">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-600"/>
+                    </div>
+                    <h4 className="font-bold text-slate-900 mb-1">Confirmação concluída</h4>
+                    <p className="text-sm text-slate-500 mb-1">
+                      {manuaisLoteResult.confirmadas} transferência(s) confirmada(s)
+                    </p>
+                    <p className="text-lg font-bold text-emerald-700 mb-5">
+                      {Number(manuaisLoteResult.total_valor).toLocaleString("pt-AO")} AOA
+                    </p>
+                    <button onClick={() => setManuaisLoteModal(false)}
+                      className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-slate-800">
+                      Fechar
+                    </button>
+                  </div>
+                ) : (
+                  /* Confirmação */
+                  <>
+                    <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-emerald-50 rounded-full border border-emerald-200">
+                      <CheckCheck className="w-6 h-6 text-emerald-600"/>
+                    </div>
+                    <h4 className="font-bold text-slate-900 text-center mb-2">Confirmar em Massa</h4>
+                    <p className="text-sm text-slate-600 text-center mb-1">
+                      Vai confirmar <span className="font-semibold text-slate-900">{manuaisVerdes.length} transferência(s)</span> no valor total de
+                    </p>
+                    <p className="text-xl font-bold text-emerald-700 text-center mb-1">
+                      {manuaisVerdes.reduce((s, mv) => s + Number(mv.montante), 0).toLocaleString("pt-AO")} AOA
+                    </p>
+                    <p className="text-xs text-slate-400 text-center mb-5">Apenas as marcadas como 🟢 Prontas serão processadas.</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setManuaisLoteModal(false)} disabled={manuaisLoteLoading}
+                        className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                        Cancelar
+                      </button>
+                      <button disabled={manuaisLoteLoading}
+                        onClick={async () => {
+                          setManuaisLoteLoading(true);
+                          try {
+                            const r = await fetch(`${API}/school/reconciliacao/manuais/confirmar-lote`, {
+                              method: "POST", headers: { ...authHeader(), "Content-Type": "application/json" }, body: JSON.stringify({}),
+                            });
+                            if (r.ok) { const d = await r.json(); setManuaisLoteResult(d); loadManuais(); }
+                          } finally { setManuaisLoteLoading(false); }
+                        }}
+                        className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-1.5">
+                        {manuaisLoteLoading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <CheckCheck className="w-4 h-4"/>}
+                        Confirmar
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}

@@ -96,6 +96,10 @@ export async function runContingenciaMigration() {
     ALTER TABLE propinas ADD COLUMN IF NOT EXISTS motivo_rejeicao        TEXT;
     ALTER TABLE propinas ADD COLUMN IF NOT EXISTS tentativas_emis        INT DEFAULT 0;
 
+    ALTER TABLE propinas ADD COLUMN IF NOT EXISTS pre_validacao_estado SMALLINT;
+    ALTER TABLE propinas ADD COLUMN IF NOT EXISTS pre_validacao_flags  TEXT[] DEFAULT '{}';
+    ALTER TABLE propinas ADD COLUMN IF NOT EXISTS pre_validacao_em     TIMESTAMPTZ;
+
     CREATE TABLE IF NOT EXISTS emis_health_log (
       id         SERIAL PRIMARY KEY,
       school_id  INTEGER REFERENCES schools(id),
@@ -116,6 +120,55 @@ export async function runContingenciaMigration() {
     );
   `);
   console.log("[contingencia] migration OK");
+}
+
+/* ─── Pré-validação de comprovativo ───────────────────────────────
+   Retorna:
+     estado 1 = verde   (pronto a confirmar)
+     estado 2 = amarelo (divergência de valor)
+     estado 3 = vermelho (duplicado detectado)
+   ─────────────────────────────────────────────────────────────── */
+async function preValidarComprovativo(params: {
+  school_id:        number;
+  propina_id:       number;
+  valor_submetido:  number;
+  montante_propina: number;
+  ref_transferencia: string;
+}): Promise<{ estado: 1 | 2 | 3; flags: string[] }> {
+  const flags: string[] = [];
+  let estado: 1 | 2 | 3 = 1;
+
+  // Duplicado já confirmado → vermelho
+  const dupConf = await pool.query(
+    `SELECT id FROM propinas
+     WHERE school_id=$1 AND comprovativo_ref_transf=$2
+       AND status='pago_manual' AND id<>$3
+     LIMIT 1`,
+    [params.school_id, params.ref_transferencia, params.propina_id]
+  );
+  if (dupConf.rows.length) { flags.push("duplicado_confirmado"); estado = 3; }
+
+  // Duplicado pendente → vermelho
+  if (estado < 3) {
+    const dupPend = await pool.query(
+      `SELECT id FROM propinas
+       WHERE school_id=$1 AND comprovativo_ref_transf=$2
+         AND status='pago_manual_pendente' AND id<>$3
+       LIMIT 1`,
+      [params.school_id, params.ref_transferencia, params.propina_id]
+    );
+    if (dupPend.rows.length) { flags.push("possivel_duplicado"); estado = 3; }
+  }
+
+  // Divergência de valor (> 0.5%) → amarelo
+  const diff = Math.abs(params.valor_submetido - params.montante_propina);
+  const pct  = params.montante_propina > 0 ? diff / params.montante_propina : 0;
+  if (diff > 0 && pct > 0.005) {
+    flags.push("divergencia_valor");
+    if (estado === 1) estado = 2;
+  }
+
+  return { estado, flags };
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -224,6 +277,7 @@ router.get("/school/reconciliacao/manuais", schoolAuth, async (req: Request, res
        p.comprovativo_ref_transf, p.comprovativo_valor, p.comprovativo_submetido_em,
        p.referencia AS ref_provisoria,
        p.confirmado_por, p.confirmado_em, p.motivo_rejeicao,
+       p.pre_validacao_estado, p.pre_validacao_flags, p.pre_validacao_em,
        s.nome AS aluno_nome, s.numero_processo, t.nome AS turma
      FROM propinas p
      JOIN students s ON s.id = p.student_id
@@ -260,24 +314,65 @@ router.get("/school/reconciliacao/manuais/:id", schoolAuth, async (req: Request,
   res.json(r.rows[0]);
 });
 
+/* POST /school/reconciliacao/manuais/confirmar-lote — confirmação em massa (apenas 🟢) */
+router.post("/school/reconciliacao/manuais/confirmar-lote", schoolAuth, async (req: Request, res: Response) => {
+  const school = await getSchoolFromToken(req.schoolToken!);
+  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    /* Confirma apenas: verde (pre_validacao_estado=1) OU legacy sem estado mas com comprovativo */
+    const r = await client.query(
+      `UPDATE propinas
+       SET status           = 'pago_manual',
+           pago_em          = NOW(),
+           confirmado_por   = $1,
+           confirmado_em    = NOW(),
+           baixa_manual     = TRUE,
+           baixa_manual_por = $1,
+           baixa_manual_em  = NOW(),
+           baixa_manual_obs = 'Confirmação em massa via reconciliação'
+       WHERE school_id=$2
+         AND status='pago_manual_pendente'
+         AND (pre_validacao_estado = 1
+              OR (pre_validacao_estado IS NULL AND comprovativo_url IS NOT NULL))
+       RETURNING id, montante, student_id`,
+      [school.school_name, school.school_id]
+    );
+    await client.query("COMMIT");
+    const total_valor = r.rows.reduce((s, row) => s + Number(row.montante), 0);
+    res.json({ ok: true, confirmadas: r.rows.length, total_valor });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+});
+
 /* POST /school/reconciliacao/manuais/:id/confirmar — Camada 5: admin confirma */
 router.post("/school/reconciliacao/manuais/:id/confirmar", schoolAuth, async (req: Request, res: Response) => {
   const school = await getSchoolFromToken(req.schoolToken!);
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
-  const { observacao } = req.body;
+  const { observacao, opcao_diferenca } = req.body;
+  /* opcao_diferenca: "ignorar" | "credito" | undefined → confirma normalmente */
+  const obs = opcao_diferenca === "credito"
+    ? "Diferença registada como crédito a favor do aluno"
+    : (observacao ?? "Confirmado via reconciliação de transferência");
   const r = await pool.query(
     `UPDATE propinas
-     SET status        = 'pago_manual',
-         pago_em       = NOW(),
-         confirmado_por = $1,
-         confirmado_em  = NOW(),
-         baixa_manual   = TRUE,
+     SET status           = 'pago_manual',
+         pago_em          = NOW(),
+         confirmado_por   = $1,
+         confirmado_em    = NOW(),
+         baixa_manual     = TRUE,
          baixa_manual_por = $1,
          baixa_manual_em  = NOW(),
-         baixa_manual_obs = COALESCE($2, 'Confirmado via reconciliação de transferência')
+         baixa_manual_obs = $2
      WHERE id=$3 AND school_id=$4 AND status='pago_manual_pendente'
      RETURNING id, mes, ano, montante, student_id`,
-    [school.school_name, observacao ?? null, req.params.id, school.school_id]
+    [school.school_name, obs, req.params.id, school.school_id]
   );
   if (!r.rows.length) return res.status(409).json({ error: "Propina não encontrada ou não está aguarda confirmação." });
   res.json({ ok: true, propina: r.rows[0] });
@@ -409,6 +504,32 @@ router.post("/guardian/propinas/:id/comprovativo", guardianAuth, (req: any, res:
           propina_id,
         ]
       );
+
+      /* ── Pré-validação automática ─────────────────────────────── */
+      try {
+        const schoolR = await pool.query(
+          `SELECT school_id FROM students WHERE id=(SELECT student_id FROM propinas WHERE id=$1)`,
+          [propina_id]
+        );
+        if (schoolR.rows.length) {
+          const { estado, flags } = await preValidarComprovativo({
+            school_id:        schoolR.rows[0].school_id,
+            propina_id,
+            valor_submetido:  Number(valor),
+            montante_propina: Number(propina.montante),
+            ref_transferencia,
+          });
+          await pool.query(
+            `UPDATE propinas
+             SET pre_validacao_estado=$1, pre_validacao_flags=$2, pre_validacao_em=NOW()
+             WHERE id=$3`,
+            [estado, flags, propina_id]
+          );
+        }
+      } catch (ve) {
+        console.warn("[contingencia:pre-validacao]", ve);
+        /* Falha de validação não bloqueia a submissão */
+      }
 
       res.json({ ok: true, status: "pago_manual_pendente" });
     } catch (e: any) {

@@ -1,0 +1,141 @@
+RECONCILIAÇÃO MANUAL DE TRANSFERÊNCIAS
+Optimização do Processo — Perfil de Gestão
+
+CONTEXTO
+Já existe o separador Transferências na Reconciliação Financeira. O gestor vê os comprovativos submetidos pelos encarregados e confirma manualmente. O objectivo é tornar este processo mais rápido e com menos erro humano.
+
+1. PROBLEMA ACTUAL
+Gestor recebe comprovativo → abre um a um → confirma manualmente
+→ Lento para volumes altos
+→ Risco de confirmar valor errado
+→ Sem cruzamento automático com propinas pendentes
+→ Sem detecção de duplicados
+
+2. MELHORIAS A IMPLEMENTAR
+
+2.1 — Pré-validação Automática ao Submeter Comprovativo
+Quando o encarregado submete o comprovativo, o backend deve cruzar automaticamente os dados antes de chegar ao gestor:
+Encarregado submete:
+  - Valor: 25 000 AOA
+  - Data: 2026-06-10
+  - Banco: BAI
+  - Referência transferência: TRF-2026-0045
+
+Backend verifica automaticamente:
+  ├── Existe propina CONTINGENCIA para este aluno com este valor?
+  │     └── SIM → pré-associar automaticamente
+  │     └── NÃO → flag "valor não corresponde a nenhuma propina"
+  │
+  ├── Já existe comprovativo com esta referência de transferência?
+  │     └── SIM → flag "possível duplicado"
+  │
+  └── O valor submetido bate com o valor da propina?
+        └── NÃO → flag "divergência de valor — requer atenção"
+Resultado: Quando chega ao gestor, cada transferência já tem um estado de pré-validação:
+BadgeSignificado🟢 Pronto a confirmarValor correcto + propina encontrada + sem duplicado🟡 Requer atençãoValor divergente ou propina ambígua🔴 Possível duplicadoReferência já submetida anteriormente
+
+2.2 — Vista de Reconciliação Optimizada
+Substituir lista simples por vista com acção rápida:
+┌─────────────────────────────────────────────────────────────────────┐
+│ Transferências Bancárias Manuais          [ Confirmar todas 🟢 ]    │
+│ 3 aguardam confirmação                                              │
+├──────────────┬──────────┬───────────┬──────────┬────────┬──────────┤
+│ Encarregado  │ Aluno    │ Propina   │ Valor    │ Estado │ Acções   │
+├──────────────┼──────────┼───────────┼──────────┼────────┼──────────┤
+│ João Silva   │ Ana S.   │ Jun 2026  │ 25 000   │ 🟢     │ [✓] [✕] │
+│ Maria Costa  │ Pedro C. │ Jun 2026  │ 25 000   │ 🟢     │ [✓] [✕] │
+│ Paulo Lopes  │ Rui L.   │ Jun 2026  │ 30 000   │ 🟡     │ [Ver]   │
+└──────────────┴──────────┴───────────┴──────────┴────────┴──────────┘
+Funcionalidades da vista:
+[ ✓ ] — Confirmar individualmente (1 clique)
+[ ✕ ] — Rejeitar individualmente (1 clique + motivo)
+[ Ver ] — Abrir detalhe (casos com flag)
+[ Confirmar todas 🟢 ] — Confirmar em massa apenas as validadas
+
+2.3 — Confirmação em Massa
+Botão [ Confirmar todas 🟢 ] apenas activo se:
+  → Existe pelo menos 1 transferência com badge 🟢
+  → Gestor tem permissão de confirmação em massa
+
+Ao clicar:
+  → Modal de confirmação:
+    "Vai confirmar X transferências no valor total de Y AOA.
+     Apenas as marcadas como 🟢 serão processadas.
+     Confirmar?"
+
+  → Backend processa em transacção única:
+    ├── Cada propina → PAGO_MANUAL
+    ├── Histórico registado para cada uma
+    └── Notificação enviada a cada encarregado
+
+2.4 — Painel de Detalhe (casos com flag 🟡 ou 🔴)
+┌──────────────────────────────────────────────────────┐
+│ Transferência — Paulo Lopes                     ✕    │
+├──────────────────────────────────────────────────────┤
+│ ⚠️ Atenção: valor submetido diverge da propina       │
+│                                                      │
+│ Submetido pelo encarregado:                          │
+│   Valor:      30 000 AOA                             │
+│   Data:       2026-06-09                             │
+│   Banco:      BFA                                    │
+│   Referência: TRF-BFA-0091                           │
+│   [ Ver comprovativo ]                               │
+│                                                      │
+│ Propina associada automaticamente:                   │
+│   Aluno:   Rui Lopes — 8ª Classe B                  │
+│   Mês:     Junho 2026                               │
+│   Valor:   25 000 AOA                               │
+│   Estado:  CONTINGENCIA                             │
+│                                                      │
+│ Diferença: + 5 000 AOA                              │
+│                                                      │
+│ O que fazer com a diferença?                         │
+│ ○ Ignorar — confirmar apenas 25 000 AOA              │
+│ ○ Registar como crédito na conta do aluno            │
+│ ○ Rejeitar — pedir novo comprovativo                 │
+│                                                      │
+│ [ Rejeitar ]          [ Confirmar com opção acima ]  │
+└──────────────────────────────────────────────────────┘
+
+2.5 — Filtros e Pesquisa
+Filtros disponíveis na lista:
+  ├── Estado: Todos / 🟢 Prontos / 🟡 Atenção / 🔴 Duplicados
+  ├── Banco:  Todos / BAI / BFA / BPC / BCI / ...
+  ├── Período: data de submissão
+  └── Pesquisa por nome do encarregado ou aluno
+
+2.6 — Detecção de Duplicados
+Backend verifica ao submeter e ao confirmar:
+  → Mesma referência de transferência já confirmada?
+  → Mesmo encarregado + mesmo mês + mesmo valor nas últimas 24h?
+  → Se sim → bloquear confirmação + mostrar registo original ao gestor
+
+2.7 — Notificações Automáticas
+Ao confirmar:
+  → Encarregado recebe: "Pagamento de Junho 2026 confirmado. Obrigado."
+
+Ao rejeitar:
+  → Encarregado recebe: "Comprovativo rejeitado. Motivo: [X].
+     Por favor submeta novamente."
+
+Gestor recebe diariamente (se EMIS em contingência):
+  → Resumo: X confirmados / Y pendentes / Z rejeitados
+
+3. REGRAS DE BACKEND
+1. Pré-validação automática ao receber comprovativo
+2. Cruzamento valor submetido vs valor da propina
+3. Detecção de duplicados por referência de transferência
+4. Confirmação em massa apenas para transferências 🟢
+5. Diferença de valor → opções: ignorar / crédito / rejeitar
+6. Todo o histórico registado com: gestor que confirmou + timestamp
+7. Notificação automática ao encarregado em cada acção
+
+4. RESUMO DO FLUXO OPTIMIZADO
+ANTES                          DEPOIS
+─────────────────────          ──────────────────────────────
+Gestor abre um a um            Backend pré-valida ao submeter
+Confirma manualmente           Gestor vê badge por transferência
+Sem cruzamento automático      🟢 confirma em 1 clique
+Sem detecção de duplicados     [ Confirmar todas 🟢 ] em massa
+Sem gestão de diferenças       Diferença → crédito ou rejeição
+Notificação manual             Notificação automática
