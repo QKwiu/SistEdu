@@ -1290,7 +1290,6 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
   if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
   const { propina_ids = [], emolumento_items = [] } = req.body;
-  console.log(`[referencia] school=${school.school_id} propina_ids=${JSON.stringify(propina_ids)} emol_items=${emolumento_items.length}`);
   if (!propina_ids?.length && !emolumento_items?.length)
     return res.status(400).json({ error: "Selecione pelo menos uma propina ou emolumento." });
 
