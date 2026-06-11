@@ -89,4 +89,25 @@ async function uploadsAuth(req: Request, res: Response, next: NextFunction) {
 const uploadsDir = path.join(__dirname, "..", "uploads");
 app.use("/api/uploads", uploadsAuth, express.static(uploadsDir));
 
+/* ── 404 handler ── */
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: "Recurso não encontrado." });
+});
+
+/* ── Global Express error handler (4-argument signature required) ── */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const message =
+    err instanceof Error ? err.message : "Erro interno do servidor.";
+  const status =
+    (err as { status?: number; statusCode?: number })?.status ??
+    (err as { status?: number; statusCode?: number })?.statusCode ??
+    500;
+
+  logger.error({ err, method: req.method, url: req.url }, "Unhandled error");
+
+  if (res.headersSent) return;
+  res.status(status).json({ error: message });
+});
+
 export default app;

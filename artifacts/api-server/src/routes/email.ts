@@ -76,28 +76,31 @@ const TestEmailSchema = z.object({
 ══════════════════════════════════════════════════════════════════ */
 
 router.get("/school/email-config", schoolAuth, async (req: Request, res: Response) => {
-  const school = await getSchoolFromToken(req.schoolToken!);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  try {
+    const school = await getSchoolFromToken(req.schoolToken!);
+    if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const r = await pool.query(
-    `SELECT
-       provider_type,
-       email_from,
-       smtp_host,
-       smtp_port,
-       smtp_user,
-       -- Indica se a password está configurada sem revelar o valor
-       (smtp_password_ct IS NOT NULL) AS smtp_password_configurada,
-       (sendgrid_key_ct  IS NOT NULL) AS sendgrid_key_configurada,
-       activo,
-       actualizado_em
-     FROM school_email_config
-     WHERE school_id = $1`,
-    [school.school_id]
-  );
+    const r = await pool.query(
+      `SELECT
+         provider_type,
+         email_from,
+         smtp_host,
+         smtp_port,
+         smtp_user,
+         (smtp_password_ct IS NOT NULL) AS smtp_password_configurada,
+         (sendgrid_key_ct  IS NOT NULL) AS sendgrid_key_configurada,
+         activo,
+         actualizado_em
+       FROM school_email_config
+       WHERE school_id = $1`,
+      [school.school_id]
+    );
 
-  if (!r.rows[0]) return res.json(null);
-  return res.json(r.rows[0]);
+    if (!r.rows[0]) return res.json(null);
+    return res.json(r.rows[0]);
+  } catch (err) {
+    return res.status(500).json({ error: "Erro ao carregar configuração de e-mail." });
+  }
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -105,32 +108,36 @@ router.get("/school/email-config", schoolAuth, async (req: Request, res: Respons
 ══════════════════════════════════════════════════════════════════ */
 
 router.put("/school/email-config", schoolAuth, async (req: Request, res: Response) => {
-  const school = await getSchoolFromToken(req.schoolToken!);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  try {
+    const school = await getSchoolFromToken(req.schoolToken!);
+    if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const parse = EmailConfigSchema.safeParse(req.body);
-  if (!parse.success) {
-    return res.status(400).json({
-      error:    "Payload inválido.",
-      detalhes: parse.error.flatten().fieldErrors,
+    const parse = EmailConfigSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({
+        error:    "Payload inválido.",
+        detalhes: parse.error.flatten().fieldErrors,
+      });
+    }
+
+    const d = parse.data;
+
+    await saveEmailConfig({
+      schoolId:      school.school_id,
+      providerType:  d.provider_type as EmailProvider,
+      emailFrom:     d.email_from,
+      smtpHost:      d.smtp_host,
+      smtpPort:      d.smtp_port,
+      smtpUser:      d.smtp_user,
+      smtpPassword:  d.smtp_password,
+      sendgridApiKey: d.sendgrid_api_key,
+      activo:        d.activo,
     });
+
+    return res.json({ ok: true, message: "Configuração de e-mail guardada com sucesso." });
+  } catch (err) {
+    return res.status(500).json({ error: "Erro ao guardar configuração de e-mail." });
   }
-
-  const d = parse.data;
-
-  await saveEmailConfig({
-    schoolId:      school.school_id,
-    providerType:  d.provider_type as EmailProvider,
-    emailFrom:     d.email_from,
-    smtpHost:      d.smtp_host,
-    smtpPort:      d.smtp_port,
-    smtpUser:      d.smtp_user,
-    smtpPassword:  d.smtp_password,
-    sendgridApiKey: d.sendgrid_api_key,
-    activo:        d.activo,
-  });
-
-  return res.json({ ok: true, message: "Configuração de e-mail guardada com sucesso." });
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -138,46 +145,51 @@ router.put("/school/email-config", schoolAuth, async (req: Request, res: Respons
 ══════════════════════════════════════════════════════════════════ */
 
 router.post("/school/email-config/test", schoolAuth, async (req: Request, res: Response) => {
-  const school = await getSchoolFromToken(req.schoolToken!);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  try {
+    const school = await getSchoolFromToken(req.schoolToken!);
+    if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const parse = TestEmailSchema.safeParse(req.body);
-  if (!parse.success) {
-    return res.status(400).json({
-      error:    "Payload inválido.",
-      detalhes: parse.error.flatten().fieldErrors,
+    const parse = TestEmailSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({
+        error:    "Payload inválido.",
+        detalhes: parse.error.flatten().fieldErrors,
+      });
+    }
+
+    const html = `
+      <div style="font-family:sans-serif;max-width:560px;margin:auto">
+        <h2 style="color:#1a56db">✓ Configuração de E-mail Activa</h2>
+        <p>Este e-mail confirma que as suas credenciais de e-mail estão correctamente configuradas no <strong>Kiwara Tech</strong>.</p>
+        <p style="color:#6b7280;font-size:12px">Escola: ${school.name} · ${new Date().toLocaleString("pt-AO")}</p>
+      </div>`;
+
+    const result = await sendSchoolEmail(
+      school.school_id,
+      parse.data.to,
+      "✓ Teste de Configuração — Kiwara Tech",
+      html
+    );
+
+    if (result.status === "SENT") {
+      return res.json({
+        ok:        true,
+        message:   `E-mail de teste enviado para ${parse.data.to}.`,
+        log_id:    result.logId,
+        message_id: result.messageId,
+      });
+    }
+
+    return res.status(502).json({
+      ok:      false,
+      error:   "Falha no envio. Verifique as credenciais e tente novamente.",
+      detalhe: result.erro,
+      log_id:  result.logId,
     });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro interno.";
+    return res.status(500).json({ error: `Erro ao enviar e-mail de teste: ${message}` });
   }
-
-  const html = `
-    <div style="font-family:sans-serif;max-width:560px;margin:auto">
-      <h2 style="color:#1a56db">✓ Configuração de E-mail Activa</h2>
-      <p>Este e-mail confirma que as suas credenciais de e-mail estão correctamente configuradas no <strong>Kiwara Tech</strong>.</p>
-      <p style="color:#6b7280;font-size:12px">Escola: ${school.name} · ${new Date().toLocaleString("pt-AO")}</p>
-    </div>`;
-
-  const result = await sendSchoolEmail(
-    school.school_id,
-    parse.data.to,
-    "✓ Teste de Configuração — Kiwara Tech",
-    html
-  );
-
-  if (result.status === "SENT") {
-    return res.json({
-      ok:        true,
-      message:   `E-mail de teste enviado para ${parse.data.to}.`,
-      log_id:    result.logId,
-      message_id: result.messageId,
-    });
-  }
-
-  return res.status(502).json({
-    ok:      false,
-    error:   "Falha no envio. Verifique as credenciais e tente novamente.",
-    detalhe: result.erro,
-    log_id:  result.logId,
-  });
 });
 
 /* ══════════════════════════════════════════════════════════════════
@@ -185,41 +197,45 @@ router.post("/school/email-config/test", schoolAuth, async (req: Request, res: R
 ══════════════════════════════════════════════════════════════════ */
 
 router.get("/school/email-logs", schoolAuth, async (req: Request, res: Response) => {
-  const school = await getSchoolFromToken(req.schoolToken!);
-  if (!school) return res.status(401).json({ error: "Sessão inválida." });
+  try {
+    const school = await getSchoolFromToken(req.schoolToken!);
+    if (!school) return res.status(401).json({ error: "Sessão inválida." });
 
-  const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
-  const status = req.query.status;
-  const offset = (page - 1) * limit;
+    const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"), 10));
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+    const status = req.query.status;
+    const offset = (page - 1) * limit;
 
-  const conditions: string[] = ["school_id = $1"];
-  const params: unknown[]    = [school.school_id];
+    const conditions: string[] = ["school_id = $1"];
+    const params: unknown[]    = [school.school_id];
 
-  if (status && ["PENDING", "SENT", "FAILED"].includes(String(status).toUpperCase())) {
-    conditions.push(`status = $${params.length + 1}`);
-    params.push(String(status).toUpperCase());
+    if (status && ["PENDING", "SENT", "FAILED"].includes(String(status).toUpperCase())) {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(String(status).toUpperCase());
+    }
+
+    const where = conditions.join(" AND ");
+
+    const [countR, rowsR] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM email_logs WHERE ${where}`, params),
+      pool.query(
+        `SELECT id, destinatario, assunto, status, provider, message_id, erro, criado_em
+         FROM email_logs WHERE ${where}
+         ORDER BY criado_em DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      ),
+    ]);
+
+    return res.json({
+      total: parseInt(countR.rows[0].count, 10),
+      page,
+      limit,
+      logs:  rowsR.rows,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Erro ao carregar logs de e-mail." });
   }
-
-  const where = conditions.join(" AND ");
-
-  const [countR, rowsR] = await Promise.all([
-    pool.query(`SELECT COUNT(*) FROM email_logs WHERE ${where}`, params),
-    pool.query(
-      `SELECT id, destinatario, assunto, status, provider, message_id, erro, criado_em
-       FROM email_logs WHERE ${where}
-       ORDER BY criado_em DESC
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, limit, offset]
-    ),
-  ]);
-
-  return res.json({
-    total: parseInt(countR.rows[0].count, 10),
-    page,
-    limit,
-    logs:  rowsR.rows,
-  });
 });
 
 export default router;

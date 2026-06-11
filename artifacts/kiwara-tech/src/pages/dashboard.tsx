@@ -1034,7 +1034,7 @@ function OcorrenciasView({ token, schoolName }: { token: string | null; schoolNa
       ]);
       if (sRes.ok) setStudents(await sRes.json());
       if (oRes.ok) setOcorrencias(await oRes.json());
-    } catch {}
+    } catch (err) { setError(errMsg(err)); }
     setLoading(false);
   }, [token, filterStudent]);
 
@@ -1067,7 +1067,11 @@ function OcorrenciasView({ token, schoolName }: { token: string | null; schoolNa
   const handleDelete = async (id: number) => {
     if (!token || !confirm("Tem a certeza?")) return;
     setDeleting(id);
-    try { await fetch(`${API}/ocorrencias/${id}`, { method: "DELETE", headers }); setOcorrencias(prev => prev.filter(o => o.id !== id)); } catch {}
+    try {
+      const r = await fetch(`${API}/ocorrencias/${id}`, { method: "DELETE", headers });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); setError(e.error ?? "Erro ao eliminar ocorrência."); }
+      else setOcorrencias(prev => prev.filter(o => o.id !== id));
+    } catch (err) { setError(errMsg(err)); }
     setDeleting(null);
   };
 
@@ -10815,7 +10819,8 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
     try {
       const r = await fetch(`${API}/school/calendarios/${calId}/eventos`, { headers });
       if (r.ok) { const data = await r.json(); setEventos(prev => ({...prev, [calId]: data})); }
-    } catch {} finally { setLoadingEvt(null); }
+      else setEvtError("Erro ao carregar eventos do calendário.");
+    } catch (err) { setEvtError(errMsg(err)); } finally { setLoadingEvt(null); }
   };
 
   const toggleExpandCal = (id: number) => {
@@ -10895,9 +10900,10 @@ function CalendarioView({ token, turmas, moduloInfantil }: { token: string; turm
   const deleteEvt = async (calId: number, evtId: number) => {
     setDeletingEvt(evtId);
     try {
-      await fetch(`${API}/school/calendarios/${calId}/eventos/${evtId}`, { method:"DELETE", headers });
-      setEventos(prev => ({...prev, [calId]: (prev[calId]||[]).filter(e => e.id!==evtId)}));
-    } catch {} finally { setDeletingEvt(null); }
+      const r = await fetch(`${API}/school/calendarios/${calId}/eventos/${evtId}`, { method:"DELETE", headers });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); showToast(e.error ?? "Erro ao eliminar evento.", "error"); }
+      else setEventos(prev => ({...prev, [calId]: (prev[calId]||[]).filter(e => e.id!==evtId)}));
+    } catch (err) { showToast(errMsg(err), "error"); } finally { setDeletingEvt(null); }
   };
 
 
