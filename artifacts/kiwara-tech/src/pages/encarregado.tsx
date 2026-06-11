@@ -2976,6 +2976,17 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                 </div>
               </div>
 
+              {/* GPO não disponível — aviso imediato */}
+              {!availableMethods.allow_gpo_mcx ? (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-3">
+                  <AlertTriangle size={18} className="text-red-500 shrink-0 mt-0.5"/>
+                  <div>
+                    <p className="text-red-800 font-semibold text-sm">Multicaixa Express/GPO não disponível</p>
+                    <p className="text-red-700 text-xs mt-0.5">Pagamentos antecipados requerem GPO. Contacte a secretaria da escola para activar este método de pagamento.</p>
+                  </div>
+                </div>
+              ) : (
+              <div>
               {/* Infobox */}
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 flex gap-2 mb-4">
                 <Info size={14} className="text-violet-500 shrink-0 mt-0.5"/>
@@ -3123,6 +3134,8 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
                     ))}
                   </div>
                 </div>
+              )}
+              </div>
               )}
             </div>
           );
