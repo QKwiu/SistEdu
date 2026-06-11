@@ -89,7 +89,7 @@ interface DDSubscription {
   id: number;
   encarregado_id: number;
   school_id: number;
-  status: "active" | "cancellation_requested" | "cancelled";
+  status: "active" | "cancellation_requested" | "cancelled" | "ACTV" | "SUSP" | "CANC" | "EXPRD" | "PENDING";
   iban: string;
   emolumentos: string[];
   debit_day: number;
@@ -1511,19 +1511,19 @@ function DDSubscriptionCard({ sub, token, onCancelled }: {
   };
 
   const isCancelRequested = sub.status === "cancellation_requested";
-  const isSusp  = (sub.status as string) === "SUSP";
-  const isCanc  = (sub.status as string) === "CANC" || sub.status === "cancelled";
-  const isExprd = (sub.status as string) === "EXPRD";
+  const isSusp            = sub.status === "SUSP";
+  const isCanc            = sub.status === "CANC" || sub.status === "cancelled";
+  const isExprd           = sub.status === "EXPRD";
 
   const headerCfg = isCancelRequested
-    ? { bg: "bg-amber-50 border-b border-amber-200",    icon: <Clock size={14} className="text-amber-600"/>,   label: "Pedido de cancelamento em análise pelo colégio", textCls: "text-amber-800" }
+    ? { bg: "bg-amber-50 border-b border-amber-200",    icon: <Clock size={14} className="text-amber-600"/>,        label: "Pedido de cancelamento em análise pelo colégio", textCls: "text-amber-800" }
     : isSusp
-    ? { bg: "bg-orange-50 border-b border-orange-200",  icon: <AlertCircle size={14} className="text-orange-500"/>, label: "Mandato suspenso — contacte o colégio",        textCls: "text-orange-800" }
+    ? { bg: "bg-orange-50 border-b border-orange-200",  icon: <AlertCircle size={14} className="text-orange-500"/>, label: "Mandato suspenso — contacte o colégio",          textCls: "text-orange-800" }
     : isCanc
-    ? { bg: "bg-red-50 border-b border-red-200",        icon: <XCircle size={14} className="text-red-500"/>,   label: "Débito Direto cancelado",                       textCls: "text-red-800" }
+    ? { bg: "bg-red-50 border-b border-red-200",        icon: <XCircle size={14} className="text-red-500"/>,        label: "Débito Direto cancelado",                        textCls: "text-red-800" }
     : isExprd
-    ? { bg: "bg-slate-50 border-b border-slate-200",    icon: <Clock size={14} className="text-slate-400"/>,   label: "Mandato expirado — renove a adesão",             textCls: "text-slate-600" }
-    : { bg: "bg-violet-50 border-b border-violet-200",  icon: <BadgeCheck size={14} className="text-violet-700"/>, label: "Débito Direto Activo",                       textCls: "text-violet-800" };
+    ? { bg: "bg-slate-50 border-b border-slate-200",    icon: <Clock size={14} className="text-slate-400"/>,        label: "Mandato expirado — renove a adesão",              textCls: "text-slate-600" }
+    : { bg: "bg-violet-50 border-b border-violet-200",  icon: <BadgeCheck size={14} className="text-violet-700"/>,  label: "Débito Direto Activo",                           textCls: "text-violet-800" };
 
   return (
     <div className="bg-white rounded-2xl border-2 border-violet-200 shadow-sm overflow-hidden">
