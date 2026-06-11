@@ -21,6 +21,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { toError } from "../lib/errors";
 import crypto from "crypto";
+import { decodeSecret } from "../lib/crypto.js";
 import { pool } from "@workspace/db";
 import { sendSMS } from "../services/sms.service";
 
@@ -372,7 +373,23 @@ async function calculateSubmissionDate(
 
 async function getFcmConfig() {
   const r = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
-  return r.rows[0]?.value ?? null;
+  const raw = r.rows[0]?.value ?? null;
+  if (!raw) return null;
+  return decryptFcmConfigCreds(raw);
+}
+
+function decryptFcmConfigCreds(config: Record<string, any>): Record<string, any> {
+  const ENV_KEYS = ["test", "production", "staging", "dev"];
+  const out = { ...config };
+  for (const env of ENV_KEYS) {
+    const creds = out[env];
+    if (!creds || typeof creds !== "object") continue;
+    const pk = creds.private_key as string | undefined;
+    if (pk && typeof pk === "string" && pk !== "***") {
+      try { out[env] = { ...creds, private_key: decodeSecret(pk) }; } catch { /* mantém original */ }
+    }
+  }
+  return out;
 }
 
 async function sendFcmToGuardian(

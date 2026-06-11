@@ -148,6 +148,39 @@ export function decryptAES(payload: EncryptedPayload): string {
   return Buffer.concat([decipher.update(ctBytes), decipher.final()]).toString("utf8");
 }
 
+// ─── Cifra de secrets de configuração (formato portátil) ─────────────────────
+
+const ENC_PREFIX = "enc:" as const;
+
+/**
+ * Cifra um secret de configuração (ex: private_key FCM) com AES-256-GCM
+ * e devolve uma string portátil no formato "enc:<iv>:<tag>:<ciphertext>".
+ *
+ * O formato pode ser guardado directamente num campo TEXT/JSONB da BD.
+ * Usa a mesma APP_ENCRYPTION_KEY do encryptAES().
+ */
+export function encodeSecret(plaintext: string): string {
+  const { iv, tag, ciphertext } = encryptAES(plaintext);
+  return `${ENC_PREFIX}${iv}:${tag}:${ciphertext}`;
+}
+
+/**
+ * Decifra um valor produzido por encodeSecret().
+ *
+ * Retrocompatível: se o valor NÃO começar com "enc:" (ex: valor em texto claro
+ * existente antes da migração), devolve-o sem alterações.
+ *
+ * @throws Error se o formato enc: estiver malformado ou o auth tag falhar.
+ */
+export function decodeSecret(stored: string): string {
+  if (!stored.startsWith(ENC_PREFIX)) return stored;
+  const rest = stored.slice(ENC_PREFIX.length);
+  const parts = rest.split(":");
+  if (parts.length !== 3) throw new Error("[crypto] decodeSecret: formato inválido.");
+  const [iv, tag, ciphertext] = parts;
+  return decryptAES({ iv, tag, ciphertext });
+}
+
 // ─── Comparação segura ────────────────────────────────────────────────────────
 
 /**

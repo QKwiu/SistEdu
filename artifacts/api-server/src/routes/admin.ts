@@ -9,6 +9,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { loginRateLimiter } from "../lib/rate-limiters";
+import { encodeSecret, decodeSecret } from "../lib/crypto.js";
 
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -2212,6 +2213,45 @@ router.get("/admin/finance/reconciliation", adminAuth, async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: "Erro interno." }); }
 });
 
+/* ── Helpers FCM — cifra/decifra private_key antes de guardar/usar ─────────── */
+
+/**
+ * Cifra private_key em cada ambiente (test/production/staging/dev) do objecto
+ * fcm_config antes de persistir na BD.
+ * Retrocompatível: valores já cifrados (enc:...) ou "***" são preservados.
+ */
+function encryptFcmConfig(config: Record<string, any>): Record<string, any> {
+  const ENV_KEYS = ["test", "production", "staging", "dev"];
+  const out = { ...config };
+  for (const env of ENV_KEYS) {
+    const creds = out[env];
+    if (!creds || typeof creds !== "object") continue;
+    const pk = creds.private_key as string | undefined;
+    if (pk && typeof pk === "string" && pk !== "***" && !pk.startsWith("enc:")) {
+      out[env] = { ...creds, private_key: encodeSecret(pk) };
+    }
+  }
+  return out;
+}
+
+/**
+ * Decifra private_key em cada ambiente para uso em chamadas de API.
+ * Retrocompatível: valores sem prefixo enc: são devolvidos tal como estão.
+ */
+function decryptFcmConfig(config: Record<string, any>): Record<string, any> {
+  const ENV_KEYS = ["test", "production", "staging", "dev"];
+  const out = { ...config };
+  for (const env of ENV_KEYS) {
+    const creds = out[env];
+    if (!creds || typeof creds !== "object") continue;
+    const pk = creds.private_key as string | undefined;
+    if (pk && typeof pk === "string" && pk !== "***") {
+      try { out[env] = { ...creds, private_key: decodeSecret(pk) }; } catch { /* mantém */ }
+    }
+  }
+  return out;
+}
+
 /* ─── GET /admin/fcm-config ─── */
 router.get("/admin/fcm-config", adminAuth, async (_req, res) => {
   const r = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
@@ -2225,13 +2265,14 @@ router.put("/admin/fcm-config", adminAuth, async (req, res) => {
   const existing = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
   const current = (existing.rows[0]?.value ?? {}) as Record<string, unknown>;
   const merged = mergePreserveSecrets(current, incoming);
+  const toStore = encryptFcmConfig(merged);
   await pool.query(
     `INSERT INTO platform_config (key, value, updated_at, updated_by)
      VALUES ('fcm_config', $1::jsonb, NOW(), 'admin')
      ON CONFLICT (key) DO UPDATE SET value=$1::jsonb, updated_at=NOW(), updated_by='admin'`,
-    [JSON.stringify(merged)]
+    [JSON.stringify(toStore)]
   );
-  res.json({ ok: true, config: maskSecrets(merged) });
+  res.json({ ok: true, config: maskSecrets(toStore) });
 });
 
 /* ─── POST /admin/fcm-config/test ─── */
@@ -2244,7 +2285,8 @@ router.post("/admin/fcm-config/test", adminAuth, async (req, res) => {
   if (!config) return res.status(400).json({ error: "Configuração FCM não encontrada. Guarde as credenciais primeiro." });
 
   const activeEnv = env ?? config.active_env ?? "test";
-  const creds = config[activeEnv];
+  const decrypted = decryptFcmConfig(config);
+  const creds = decrypted[activeEnv];
   if (!creds?.project_id || !creds?.client_email || !creds?.private_key || creds.private_key === "***")
     return res.status(400).json({ error: `Credenciais FCM do ambiente '${activeEnv}' estão incompletas ou não foram guardadas.` });
 

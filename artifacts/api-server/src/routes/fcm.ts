@@ -2,6 +2,7 @@ import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { pool } from "@workspace/db";
+import { decodeSecret } from "../lib/crypto.js";
 
 const router = Router();
 
@@ -55,9 +56,31 @@ async function getSchoolFromToken(token: string) {
   return r.rows[0] ?? null;
 }
 
-async function getFcmConfig(): Promise<{ active_env: string; test?: any; production?: any } | null> {
+/** Devolve a config FCM com private_key decifrada (formato enc: → texto claro). */
+async function getFcmConfig(): Promise<Record<string, any> | null> {
   const r = await pool.query("SELECT value FROM platform_config WHERE key='fcm_config'");
-  return (r.rows[0]?.value as any) ?? null;
+  const raw = (r.rows[0]?.value as any) ?? null;
+  if (!raw) return null;
+  return decryptFcmConfigCreds(raw);
+}
+
+/** Decifra private_key em todos os ambientes presentes (test / production / staging). */
+function decryptFcmConfigCreds(config: Record<string, any>): Record<string, any> {
+  const ENV_KEYS = ["test", "production", "staging", "dev"] as const;
+  const out = { ...config };
+  for (const env of ENV_KEYS) {
+    const creds = out[env];
+    if (!creds || typeof creds !== "object") continue;
+    const pk = creds.private_key as string | undefined;
+    if (pk && typeof pk === "string" && pk !== "***") {
+      try {
+        out[env] = { ...creds, private_key: decodeSecret(pk) };
+      } catch (e) {
+        /* se falhar a decifra (ex: APP_ENCRYPTION_KEY mudou), mantém original */
+      }
+    }
+  }
+  return out;
 }
 
 /* Generate Google OAuth2 access token via JWT (no firebase-admin needed) */
