@@ -256,13 +256,18 @@ router.get("/guardian/alunos/:id/propinas", authMiddleware, async (req: any, res
         WHEN p.status = 'pendente'       AND pg.estado = 'PENDENTE' THEN 'ACTIVA'
         WHEN p.status = 'pendente'                                   THEN 'FUTURA'
         WHEN p.status = 'vencido'                                    THEN 'VENCIDA'
+        WHEN p.status = 'contingencia'                               THEN 'CONTINGENCIA'
         WHEN p.status IN ('pago','pago_com_atraso')                  THEN 'PAGO'
         WHEN p.status = 'pre_pago'                                   THEN 'PRE_PAGO'
         WHEN p.status = 'pago_anulado'                               THEN 'PAGO_ANULADO'
+        WHEN p.status = 'isento'                                     THEN 'ISENTO'
         ELSE UPPER(p.status)
       END AS estado,
       p.data_vencimento,
       p.bolsa_atribuicao_id,
+      p.pago_em,
+      p.metodo_pagamento,
+      p.comprovante_url,
       pg.id AS pagamento_id,
       pg.entidade,
       pg.referencia,
@@ -795,7 +800,7 @@ router.post("/guardian/propinas/checkout-isolado", authMiddleware, async (req: a
     JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
     LEFT JOIN pagamentos pg ON pg.propina_id = p.id AND pg.estado = 'PENDENTE'
     WHERE ea.encarregado_id = $1 AND p.id = $2
-      AND p.status IN ('pendente', 'vencido')
+      AND p.status IN ('pendente', 'vencido', 'contingencia')
   `, [guardian.id, propina_id]);
 
   if (!pRes.rows.length) return res.status(404).json({ error: "Propina não encontrada ou já paga." });
@@ -866,7 +871,7 @@ router.post("/guardian/propinas/antecipadas/checkout", authMiddleware, async (re
     });
 
   const alreadyPaid = checkRes.rows.filter((r: any) =>
-    ["pago","pago_com_atraso","pre_pago","pago_anulado"].includes(r.status)
+    ["pago","pago_com_atraso","pre_pago","pago_anulado","isento"].includes(r.status)
   );
   if (alreadyPaid.length > 0)
     return res.status(422).json({

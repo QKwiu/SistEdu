@@ -46,11 +46,12 @@ interface Propina {
   valor_base: number; multa: number; total: number;
   desconto: number;
   bolsa_atribuicao_id: number | null;
-  estado: "PENDENTE" | "PAGO" | "VENCIDO" | "ACTIVA" | "FUTURA" | "VENCIDA" | "PRE_PAGO" | "PAGO_ANULADO";
+  estado: "PENDENTE" | "PAGO" | "VENCIDO" | "ACTIVA" | "FUTURA" | "VENCIDA" | "CONTINGENCIA" | "PRE_PAGO" | "PAGO_ANULADO" | "ISENTO";
   data_vencimento: string;
   pagamento_id: number | null; entidade: string | null;
   referencia: string | null; ref_valor: number | null;
   ref_estado: string | null; validade: string | null;
+  pago_em: string | null; metodo_pagamento: string | null; comprovante_url: string | null;
 }
 interface GeneratedRef {
   entidade: string; referencia: string; valor: number; validade: string;
@@ -126,14 +127,16 @@ const fmt = (val: number | string) => fmtCurrency(val, "Kz");
 
 function StatusBadge({ estado }: { estado: string }) {
   const c: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
-    PAGO:         { label:"Pago",           cls:"bg-emerald-100 text-emerald-800 border-emerald-200", icon:<CheckCircle size={11}/> },
-    PENDENTE:     { label:"Pendente",       cls:"bg-amber-100 text-amber-800 border-amber-200",       icon:<Clock size={11}/> },
-    VENCIDO:      { label:"Vencido",        cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
-    ACTIVA:       { label:"Referência activa", cls:"bg-blue-100 text-blue-800 border-blue-200",       icon:<CreditCard size={11}/> },
-    FUTURA:       { label:"Mês futuro",     cls:"bg-gray-100 text-gray-600 border-gray-200",          icon:<Clock size={11}/> },
-    VENCIDA:      { label:"Vencida",        cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
-    PRE_PAGO:     { label:"Pré-pago",       cls:"bg-violet-100 text-violet-800 border-violet-200",    icon:<BadgeCheck size={11}/> },
-    PAGO_ANULADO: { label:"Anulado",        cls:"bg-orange-100 text-orange-800 border-orange-200",    icon:<XCircle size={11}/> },
+    PAGO:         { label:"Pago",              cls:"bg-emerald-100 text-emerald-800 border-emerald-200", icon:<CheckCircle size={11}/> },
+    PENDENTE:     { label:"Pendente",          cls:"bg-amber-100 text-amber-800 border-amber-200",       icon:<Clock size={11}/> },
+    VENCIDO:      { label:"Vencido",           cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
+    ACTIVA:       { label:"Referência activa", cls:"bg-blue-100 text-blue-800 border-blue-200",          icon:<CreditCard size={11}/> },
+    FUTURA:       { label:"Mês futuro",        cls:"bg-gray-100 text-gray-600 border-gray-200",          icon:<Clock size={11}/> },
+    VENCIDA:      { label:"Vencida",           cls:"bg-red-100 text-red-800 border-red-200",             icon:<AlertTriangle size={11}/> },
+    CONTINGENCIA: { label:"Contingência",      cls:"bg-amber-100 text-amber-800 border-amber-200",       icon:<AlertTriangle size={11}/> },
+    PRE_PAGO:     { label:"Pré-pago",          cls:"bg-violet-100 text-violet-800 border-violet-200",    icon:<BadgeCheck size={11}/> },
+    PAGO_ANULADO: { label:"Anulado",           cls:"bg-orange-100 text-orange-800 border-orange-200",    icon:<XCircle size={11}/> },
+    ISENTO:       { label:"Isento",            cls:"bg-teal-100 text-teal-800 border-teal-200",          icon:<CheckCircle size={11}/> },
   };
   const s = c[estado] ?? c["PENDENTE"];
   return (
@@ -361,6 +364,73 @@ function CombinedRefModal({ ref: generated, onClose, schoolName }: { ref: Genera
   );
 }
 
+/* ─── Modal recibo de pagamento (PAGO) ─── */
+function ModalRecibo({ propina, onClose }: { propina: Propina; onClose: () => void }) {
+  return (
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+      className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={onClose}>
+      <motion.div initial={{y:40,opacity:0}} animate={{y:0,opacity:1}} exit={{y:40,opacity:0}}
+        className="relative w-full sm:max-w-sm bg-white sm:rounded-2xl rounded-t-2xl overflow-hidden shadow-2xl"
+        onClick={e=>e.stopPropagation()}>
+        <div className="px-5 py-4 text-white bg-gradient-to-r from-emerald-700 to-emerald-600">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2"><CheckCircle size={18}/><span className="font-semibold">Recibo — {propina.mes} {propina.ano}</span></div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors"><X size={16}/></button>
+          </div>
+          <p className="text-emerald-100 text-xs mt-1">Propina liquidada</p>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="bg-emerald-50 rounded-xl p-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Valor base</span>
+              <span className="font-medium text-gray-800">{fmtCurrency(propina.valor_base, "Kz")}</span>
+            </div>
+            {Number(propina.multa) > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-red-500">Multa por atraso</span>
+                <span className="font-medium text-red-600">{fmtCurrency(propina.multa, "Kz")}</span>
+              </div>
+            )}
+            {Number(propina.desconto) > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-emerald-600 flex items-center gap-1"><GraduationCap size={11}/>Bolsa</span>
+                <span className="font-medium text-emerald-600">-{fmtCurrency(propina.desconto, "Kz")}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t pt-2">
+              <span className="font-semibold text-gray-900">Total pago</span>
+              <span className="font-bold text-emerald-700 text-lg">{fmtCurrency(propina.total, "Kz")}</span>
+            </div>
+          </div>
+          {propina.pago_em && (
+            <div className="flex items-center justify-between text-sm text-gray-600">
+              <span className="flex items-center gap-1.5"><Calendar size={13} className="text-gray-400"/>Data de pagamento</span>
+              <span className="font-medium">{new Date(propina.pago_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}</span>
+            </div>
+          )}
+          {propina.metodo_pagamento && (
+            <div className="flex items-center justify-between text-sm text-gray-600">
+              <span className="flex items-center gap-1.5"><CreditCard size={13} className="text-gray-400"/>Método</span>
+              <span className="font-medium capitalize">{propina.metodo_pagamento.replace(/_/g," ")}</span>
+            </div>
+          )}
+          {propina.comprovante_url && (
+            <a href={propina.comprovante_url} target="_blank" rel="noopener noreferrer"
+              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2 text-sm mt-2">
+              <FileText size={14}/>Ver comprovante
+            </a>
+          )}
+          <button onClick={onClose}
+            className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 transition-colors">
+            Fechar
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 /* ─── Modal pagamento isolado (ACTIVA ou VENCIDA via GPO) ─── */
 function ModalPagamentoIsolado({
   propina, token, onClose, onSuccess,
@@ -369,7 +439,7 @@ function ModalPagamentoIsolado({
   const [error, setError]     = useState("");
   const [gpoResult, setGpoResult] = useState<{ transaction_id:string; redirect_url:string; valor:number } | null>(null);
   const [copiedRef, setCopiedRef] = useState(false);
-  const isVencida = propina.estado === "VENCIDA" || propina.estado === "VENCIDO";
+  const isVencida = propina.estado === "VENCIDA" || propina.estado === "VENCIDO" || propina.estado === "CONTINGENCIA";
 
   const handleGPO = async () => {
     setError(""); setLoading(true);
@@ -2041,6 +2111,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const [generatedRef, setGeneratedRef] = useState<GeneratedRef|null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [isoladoPropina, setIsoladoPropina] = useState<Propina|null>(null);
+  const [reciboPropina,  setReciboPropina]  = useState<Propina|null>(null);
 
   // Pagamentos antecipados state
   const [antecipadosSelectedIds, setAntecipadosSelectedIds] = useState<Set<number>>(new Set());
@@ -2260,9 +2331,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
   const totalVencidas = students.reduce((s,st)=>s+Number(st.propinas_vencidas),0);
 
   // Filter logic
-  const PAID_STATES    = ["PAGO","PRE_PAGO","PAGO_ANULADO","PAGO_COM_ATRASO"] as const;
+  const PAID_STATES    = ["PAGO","PRE_PAGO","PAGO_ANULADO","PAGO_COM_ATRASO","ISENTO"] as const;
   const PENDING_STATES = ["ACTIVA","FUTURA","PENDENTE"] as const;
-  const OVERDUE_STATES = ["VENCIDA","VENCIDO"] as const;
+  const OVERDUE_STATES = ["VENCIDA","VENCIDO","CONTINGENCIA"] as const;
   const selectablePropinas = propinas.filter(p =>
     !([...PAID_STATES,"FUTURA"] as string[]).includes(p.estado)
   );
@@ -2656,27 +2727,35 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             ) : (
               <div className="space-y-3">
                 {filteredPropinas.map(p => {
-                  const isPaid    = (["PAGO","PRE_PAGO","PAGO_ANULADO"] as string[]).includes(p.estado);
-                  const isVencida = (["VENCIDA","VENCIDO"] as string[]).includes(p.estado);
-                  const isActiva  = p.estado === "ACTIVA";
-                  const isFutura  = p.estado === "FUTURA";
-                  const isSelectable = !isPaid && !isFutura;
+                  const isPaid        = (["PAGO","PRE_PAGO","PAGO_ANULADO","ISENTO"] as string[]).includes(p.estado);
+                  const isVencida     = (["VENCIDA","VENCIDO","CONTINGENCIA"] as string[]).includes(p.estado);
+                  const isContingencia = p.estado === "CONTINGENCIA";
+                  const isActiva      = p.estado === "ACTIVA";
+                  const isFutura      = p.estado === "FUTURA";
+                  const isSelectable  = !isPaid && !isFutura;
                   const isSelected = selectedIds.has(p.id);
                   return (
                     <motion.div key={p.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}}
                       className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${
-                        isSelected    ? "border-blue-500 shadow-blue-100 shadow-md" :
-                        isVencida     ? "border-red-200" :
-                        isActiva      ? "border-blue-200" :
-                        isFutura      ? "border-gray-100 opacity-75" :
+                        isSelected       ? "border-blue-500 shadow-blue-100 shadow-md" :
+                        isContingencia   ? "border-amber-300" :
+                        isVencida        ? "border-red-200" :
+                        isActiva         ? "border-blue-200" :
+                        isFutura         ? "border-gray-100 opacity-75" :
                         p.estado === "PRE_PAGO" ? "border-violet-200" :
                         "border-gray-100"
                       }`}>
 
-                      {isVencida && (
+                      {isVencida && !isContingencia && (
                         <div className="bg-red-50 border-b border-red-100 px-4 py-1.5 flex items-center gap-1.5">
                           <AlertTriangle size={12} className="text-red-500"/>
                           <span className="text-red-700 text-xs font-semibold">Propina vencida — multa por atraso aplicada</span>
+                        </div>
+                      )}
+                      {isContingencia && (
+                        <div className="bg-amber-50 border-b border-amber-100 px-4 py-1.5 flex items-center gap-1.5">
+                          <AlertTriangle size={12} className="text-amber-600"/>
+                          <span className="text-amber-800 text-xs font-semibold">Em contingência — contacte a secretaria para regularizar</span>
                         </div>
                       )}
                       {isActiva && (
@@ -2762,14 +2841,24 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
                         {/* Reference / paid / future indicator + action buttons */}
                         {isPaid ? (
-                          <div className="ml-8 flex items-center gap-2 bg-emerald-50 rounded-xl px-3 py-2">
-                            <CheckCircle size={14} className="text-emerald-600"/>
-                            <span className="text-emerald-700 text-sm font-medium">
-                              {p.estado === "PRE_PAGO" ? "Pré-pago via GPO — aguarda confirmação" :
-                               p.estado === "PAGO_ANULADO" ? "Pré-pagamento anulado" :
-                               "Propina liquidada"}
-                            </span>
-                          </div>
+                          p.estado === "PAGO" ? (
+                            <div className="ml-8">
+                              <button onClick={()=>setReciboPropina(p)}
+                                className="w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+                                <FileText size={13}/>Ver Recibo
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="ml-8 flex items-center gap-2 bg-emerald-50 rounded-xl px-3 py-2">
+                              <CheckCircle size={14} className="text-emerald-600"/>
+                              <span className="text-emerald-700 text-sm font-medium">
+                                {p.estado === "PRE_PAGO"     ? "Pré-pago via GPO — aguarda confirmação" :
+                                 p.estado === "PAGO_ANULADO" ? "Pré-pagamento anulado" :
+                                 p.estado === "ISENTO"       ? "Propina isenta — não há valor a pagar" :
+                                 "Propina liquidada"}
+                              </span>
+                            </div>
+                          )
                         ) : isFutura ? (
                           <div className="ml-8 flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 text-gray-400">
                             <Clock size={13}/>
@@ -3791,6 +3880,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
       <AnimatePresence>
         {viewPropina && <RefModal propina={viewPropina} onClose={()=>setViewPropina(null)} schoolName={selectedStudent?.school_name}/>}
         {generatedRef && <CombinedRefModal ref={generatedRef} onClose={()=>setGeneratedRef(null)} schoolName={selectedStudent?.school_name}/>}
+        {reciboPropina && <ModalRecibo propina={reciboPropina} onClose={()=>setReciboPropina(null)}/>}
         {isoladoPropina && (
           <ModalPagamentoIsolado
             propina={isoladoPropina}
