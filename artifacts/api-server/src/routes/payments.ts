@@ -172,6 +172,37 @@ router.post("/payments/webhook", async (req, res) => {
     }).catch(() => {});
   }
 
+  /* ── 6b. Advance linked splitpay_transacoes to CLEARING / SETTLED ── */
+  try {
+    const splitTx = await pool.query(
+      `SELECT id, canal_pagamento, estado FROM splitpay_transacoes
+       WHERE propina_id=$1 AND estado IN ('PENDING','CLEARING')
+       LIMIT 1`,
+      [p.id]
+    );
+    if (splitTx.rows.length) {
+      const stx = splitTx.rows[0];
+      /* GPO / MCX_EXPRESS: captura imediata → PENDING→SETTLED; outros: PENDING→CLEARING */
+      const nextSplitState =
+        stx.estado === "CLEARING" ||
+        stx.canal_pagamento === "GPO" ||
+        stx.canal_pagamento === "MCX_EXPRESS"
+          ? "SETTLED"
+          : "CLEARING";
+      await pool.query(
+        `UPDATE splitpay_transacoes
+         SET estado=$1, atualizado_em=NOW(),
+             liquidado_em = CASE WHEN $1='SETTLED' THEN NOW() ELSE liquidado_em END,
+             tentativas = tentativas + 1
+         WHERE id=$2`,
+        [nextSplitState, stx.id]
+      );
+    }
+  } catch (ledgerErr) {
+    /* Ledger transition failure must NOT block the main webhook response */
+    console.error("[webhook:ledger]", ledgerErr);
+  }
+
   /* ── 7. Split payment ── */
   const commissionRate    = Number(p.commission_rate ?? 0);
   const comissaoPlataforma = paid * (commissionRate / 100);

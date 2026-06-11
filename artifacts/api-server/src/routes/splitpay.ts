@@ -9,7 +9,7 @@ import { validateSchema, splitpayTransacaoSchema } from "../middlewares/validate
 const router = Router();
 
 /* ─── Canal EMIS Types ─── */
-type CanalEMIS = "GPO" | "REFERENCIA" | "SDD";
+type CanalEMIS = "GPO" | "REFERENCIA" | "SDD" | "MCX_EXPRESS";
 
 /* ─── DB Migration ─── */
 export async function runSplitPayMigration(): Promise<void> {
@@ -54,19 +54,22 @@ export async function runSplitPayMigration(): Promise<void> {
       -- SDD fields
       mandato_id                INTEGER,
       nib_devedor               TEXT,
+      -- MCX Express fields
+      mcx_transaction_id        TEXT,
+      telefone_devedor          TEXT,
+      mcx_notif_type            TEXT,
       -- legacy (kept for compat)
       referencia_emis           TEXT,
       criado_em                 TIMESTAMP NOT NULL DEFAULT NOW(),
       atualizado_em             TIMESTAMP NOT NULL DEFAULT NOW(),
       liquidado_em              TIMESTAMP,
-      CONSTRAINT chk_canal    CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD')),
+      CONSTRAINT chk_canal    CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD','MCX_EXPRESS')),
       CONSTRAINT chk_estado   CHECK (estado IN ('PENDING','CLEARING','SETTLED','FAILED')),
       CONSTRAINT chk_integridade CHECK (comissao_plataforma + retencao_irt + valor_liquido_comerciante = valor_total)
     );
 
     CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_school  ON splitpay_transacoes(school_id);
     CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_estado  ON splitpay_transacoes(estado);
-    CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_canal   ON splitpay_transacoes(canal_pagamento);
   `);
 
   /* ── Idempotent ALTER for existing installs ── */
@@ -79,15 +82,24 @@ export async function runSplitPayMigration(): Promise<void> {
     `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS cartao_tipo TEXT`,
     `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS mandato_id INTEGER`,
     `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS nib_devedor TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS mcx_transaction_id TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS telefone_devedor TEXT`,
+    `ALTER TABLE splitpay_transacoes ADD COLUMN IF NOT EXISTS mcx_notif_type TEXT`,
   ];
   for (const sql of alters) {
     try { await pool.query(sql); } catch { /* column may already exist */ }
   }
 
-  /* Add canal CHECK constraint if missing */
+  /* Update canal CHECK constraint to include MCX_EXPRESS (idempotent via DROP+ADD) */
   try {
-    await pool.query(`ALTER TABLE splitpay_transacoes ADD CONSTRAINT chk_canal CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD'))`);
-  } catch { /* already exists */ }
+    await pool.query(`ALTER TABLE splitpay_transacoes DROP CONSTRAINT IF EXISTS chk_canal`);
+    await pool.query(`ALTER TABLE splitpay_transacoes ADD CONSTRAINT chk_canal CHECK (canal_pagamento IN ('GPO','REFERENCIA','SDD','MCX_EXPRESS'))`);
+  } catch { /* ignore */ }
+
+  /* Canal index must run AFTER ALTER adds the column (for existing installs) */
+  try {
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_splitpay_transacoes_canal ON splitpay_transacoes(canal_pagamento)`);
+  } catch { /* ignore */ }
 
   /* ── splitpay_comerciante_config — per-merchant overrides ── */
   await pool.query(`
@@ -136,14 +148,23 @@ function validarCamposCanal(canal: CanalEMIS, body: any): string | null {
     if (!body.mandato_id && !body.nib_devedor?.trim())
       return "Canal SDD requer mandato_id ou nib_devedor.";
   }
+  if (canal === "MCX_EXPRESS") {
+    /* mcx_transaction_id e telefone_devedor são opcionais na criação (gerados pelo driver),
+       mas mcx_notif_type deve ser QR ou PUSH quando fornecido */
+    if (body.mcx_notif_type && !["QR","PUSH"].includes(body.mcx_notif_type))
+      return "mcx_notif_type deve ser 'QR' ou 'PUSH'.";
+    if (body.mcx_notif_type === "PUSH" && !body.telefone_devedor?.trim())
+      return "Canal MCX_EXPRESS em modo PUSH requer telefone_devedor.";
+  }
   return null;
 }
 
 /* ─── Canal metadata (for display) ─── */
 const CANAL_INFO: Record<CanalEMIS, { label: string; descricao: string }> = {
-  GPO:       { label: "GPO",                descricao: "Gateway de Pagamentos Online (EMIS) — cartão VISA/Mastercard" },
-  REFERENCIA:{ label: "Ref. Multicaixa",    descricao: "Pagamento por Referência EMIS — ATM / Internet Banking / App" },
-  SDD:       { label: "Débito Direto (SDD)",descricao: "Sistema de Débito Directo BNA — mandato pré-autorizado" },
+  GPO:        { label: "GPO",                 descricao: "Gateway de Pagamentos Online (EMIS) — cartão VISA/Mastercard" },
+  REFERENCIA: { label: "Ref. Multicaixa",     descricao: "Pagamento por Referência EMIS — ATM / Internet Banking / App" },
+  MCX_EXPRESS:{ label: "MCX Express",         descricao: "Multicaixa Express — QR Code dinâmico ou notificação Push no telemóvel" },
+  SDD:        { label: "Débito Direto (SDD)", descricao: "Sistema de Débito Directo BNA — mandato pré-autorizado" },
 };
 
 /* ─── Helpers ─── */
@@ -216,8 +237,8 @@ router.post("/school/splitpay/simular", schoolAuth, async (req: any, res) => {
       return res.status(400).json({ error: "valor_total inválido." });
 
     const canal = canal_pagamento as CanalEMIS;
-    if (!["GPO","REFERENCIA","SDD"].includes(canal))
-      return res.status(400).json({ error: "canal_pagamento inválido. Use: GPO, REFERENCIA, SDD." });
+    if (!["GPO","REFERENCIA","SDD","MCX_EXPRESS"].includes(canal))
+      return res.status(400).json({ error: "canal_pagamento inválido. Use: GPO, REFERENCIA, SDD, MCX_EXPRESS." });
 
     const cfg = await getOrCreateConfig(school.school_id);
     const comissaoPct = Number(taxa_comissao_pct ?? cfg.taxa_comissao_pct);
@@ -238,6 +259,8 @@ router.post("/school/splitpay/simular", schoolAuth, async (req: any, res) => {
       integridade_ok: integridadeOk,
       fluxo: canal === "GPO"
         ? ["Cliente paga online via GPO/EMIS","D+0: crédito conta trânsito","Split automático","TBI → plataforma + comerciante"]
+        : canal === "MCX_EXPRESS"
+        ? ["Cliente recebe QR Code ou notificação Push","Cliente autentica via App Multicaixa Express","D+0: captura imediata → PENDING→SETTLED","Split automático pós-captura","TBI → plataforma + comerciante"]
         : canal === "SDD"
         ? ["Mandato SDD pré-autorizado pelo devedor","D-1: pré-notificação BNA","D+0: débito automático na conta","Split automático pós-captura","TBI → plataforma + comerciante"]
         : ["Cliente paga via ATM/App referência","D+0: crédito conta trânsito","Split automático","TBI → plataforma + comerciante"],
@@ -271,14 +294,16 @@ router.post(
       referencia_gpo, cartao_tipo,
       /* SDD */
       mandato_id, nib_devedor,
+      /* MCX Express */
+      mcx_transaction_id, telefone_devedor, mcx_notif_type,
     } = req.body;
 
     if (!valor_total || valor_total <= 0) return res.status(400).json({ error: "valor_total inválido." });
     if (!conta_destino?.trim()) return res.status(400).json({ error: "conta_destino (IBAN comerciante) é obrigatório." });
 
     const canal = canal_pagamento as CanalEMIS;
-    if (!["GPO","REFERENCIA","SDD"].includes(canal))
-      return res.status(400).json({ error: "canal_pagamento inválido. Use: GPO, REFERENCIA, SDD." });
+    if (!["GPO","REFERENCIA","SDD","MCX_EXPRESS"].includes(canal))
+      return res.status(400).json({ error: "canal_pagamento inválido. Use: GPO, REFERENCIA, SDD, MCX_EXPRESS." });
 
     const canalErr = validarCamposCanal(canal, req.body);
     if (canalErr) return res.status(400).json({ error: canalErr });
@@ -307,8 +332,9 @@ router.post(
           conta_destino, descricao, aluno_nome, propina_id,
           entidade, referencia_multicaixa, data_limite_pagamento,
           referencia_gpo, cartao_tipo,
-          mandato_id, nib_devedor)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+          mandato_id, nib_devedor,
+          mcx_transaction_id, telefone_devedor, mcx_notif_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [
         school.school_id, ikey, canal,
@@ -318,6 +344,7 @@ router.post(
         entidade ?? null, referencia_multicaixa ?? null, data_limite_pagamento ?? null,
         referencia_gpo ?? null, cartao_tipo ?? null,
         mandato_id ?? null, nib_devedor ?? null,
+        mcx_transaction_id ?? null, telefone_devedor ?? null, mcx_notif_type ?? null,
       ]
     );
 

@@ -561,6 +561,141 @@ router.post("/guardian/pagamentos/gpo-checkout", authMiddleware, async (req: any
   });
 });
 
+// POST /guardian/pagamentos/mcx-express — iniciar pagamento MCX Express (QR Code ou Push)
+router.post("/guardian/pagamentos/mcx-express", authMiddleware, async (req: any, res) => {
+  const guardian = await getGuardianFromToken(req.guardianToken);
+  if (!guardian) return res.status(401).json({ error: "Sessão inválida." });
+
+  const { propina_ids, notif_type = "QR", telefone } = req.body as {
+    propina_ids: number[];
+    notif_type?: "QR" | "PUSH";
+    telefone?: string;
+  };
+
+  if (!Array.isArray(propina_ids) || propina_ids.length === 0)
+    return res.status(400).json({ error: "Selecione pelo menos uma propina." });
+
+  if (notif_type === "PUSH" && !telefone?.trim())
+    return res.status(400).json({ error: "Modo PUSH requer o campo telefone." });
+
+  /* Resolver escola */
+  const schoolLookup = await pool.query(
+    `SELECT DISTINCT s.school_id FROM students s
+     JOIN encarregado_aluno ea ON ea.aluno_id = s.id
+     WHERE ea.encarregado_id = $1 LIMIT 1`,
+    [guardian.id]
+  );
+  if (!schoolLookup.rows.length)
+    return res.status(400).json({ error: "Sem educandos associados." });
+
+  const school_id = schoolLookup.rows[0].school_id;
+
+  /* Verificar se MCX Express está habilitado nesta escola */
+  const settingsRow = await pool.query("SELECT settings FROM school_settings WHERE school_id=$1", [school_id]);
+  const m = settingsRow.rows[0]?.settings?.pagamento?.metodos_pagamento ?? {};
+  if (!m.allow_gpo_mcx)
+    return res.status(403).json({ error: "Multicaixa Express não está disponível nesta escola." });
+
+  /* Verificar que as propinas pertencem ao encarregado e estão por pagar */
+  const placeholders = propina_ids.map((_, i) => `$${i + 2}`).join(",");
+  const checkRes = await pool.query(`
+    SELECT p.id, p.student_id, p.mes, p.ano, p.montante, p.multa, p.internal_reference,
+           st.nome AS nome_aluno
+    FROM propinas p
+    JOIN encarregado_aluno ea ON ea.aluno_id = p.student_id
+    LEFT JOIN students st ON st.id = p.student_id
+    WHERE ea.encarregado_id = $1 AND p.id IN (${placeholders}) AND p.status != 'pago'
+  `, [guardian.id, ...propina_ids]);
+
+  if (checkRes.rows.length !== propina_ids.length)
+    return res.status(403).json({ error: "Propinas inválidas ou já pagas." });
+
+  const totalValor = checkRes.rows.reduce((s: number, r: any) => s + Number(r.montante) + Number(r.multa), 0);
+
+  /* Buscar config MCX Express da escola (guardada em emis_config) */
+  const emisRow = await pool.query("SELECT config FROM emis_config WHERE school_id=$1", [school_id]);
+  const emisCfg = emisRow.rows[0]?.config ?? {};
+  const mcxCfg = emisCfg.mcx ?? {};
+
+  const merchant_id = mcxCfg.merchant_id ?? `MCX-SCHOOL-${school_id}`;
+  const api_key     = mcxCfg.api_key ?? "";
+  const api_url     = mcxCfg.api_url ?? "";
+
+  /* Gerar transactionId */
+  const transactionId = `MCXE-${school_id}-${Date.now()}-${randomBytes(4).toString("hex").toUpperCase()}`;
+  const timestamp     = new Date().toISOString();
+  const currency      = "AOA";
+  const amount_str    = totalValor.toFixed(2);
+
+  /* HMAC-SHA256 igual ao GPO (merchant_id + transactionId + amount + currency) */
+  const { createHmac } = await import("crypto");
+  const raw       = `${merchant_id}${transactionId}${amount_str}${currency}`;
+  const signature = api_key
+    ? createHmac("sha256", api_key).update(raw).digest("hex").toUpperCase()
+    : "NO_KEY_CONFIGURED";
+
+  /* Guardar tentativa para auditoria */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mcx_express_attempts (
+      id              SERIAL PRIMARY KEY,
+      encarregado_id  INTEGER NOT NULL,
+      school_id       INTEGER NOT NULL,
+      propina_ids     JSONB NOT NULL,
+      valor           NUMERIC(14,2) NOT NULL,
+      transaction_id  TEXT NOT NULL,
+      notif_type      TEXT NOT NULL DEFAULT 'QR',
+      telefone        TEXT,
+      status          TEXT NOT NULL DEFAULT 'INITIATED',
+      signature       TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {});
+
+  await pool.query(
+    `INSERT INTO mcx_express_attempts
+       (encarregado_id, school_id, propina_ids, valor, transaction_id, notif_type, telefone, status, signature)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'INITIATED',$8)`,
+    [guardian.id, school_id, JSON.stringify(propina_ids), totalValor,
+     transactionId, notif_type, telefone ?? null, signature]
+  );
+
+  console.log(`[MCX Express] Iniciado — txn=${transactionId} type=${notif_type} escola=${school_id} valor=${totalValor}`);
+
+  const propinas_detail = checkRes.rows.map((r: any) => ({
+    id: r.id, mes: r.mes, ano: r.ano,
+    nome_aluno: r.nome_aluno,
+    valor_base: Number(r.montante),
+    multa: Number(r.multa),
+    total: Number(r.montante) + Number(r.multa),
+    internal_reference: r.internal_reference,
+  }));
+
+  const response: Record<string, unknown> = {
+    ok: true,
+    transaction_id: transactionId,
+    notif_type,
+    valor: totalValor,
+    currency,
+    merchant_id,
+    signature,
+    propinas: propinas_detail,
+  };
+
+  if (notif_type === "PUSH") {
+    response.telefone      = telefone;
+    response.push_url      = `${api_url}/push-notification`.replace("//push", "/push");
+    response.pending_timeout = 120;
+    response.mensagem      = `Pedido de autorização enviado para ${telefone}. Aceite na App Multicaixa Express em ${response.pending_timeout}s.`;
+  } else {
+    /* QR payload codificado conforme standard Multicaixa Express */
+    response.qr_payload = `MCX:${transactionId}:${amount_str}:${currency}:${merchant_id}:${signature}`;
+    response.qr_url     = `${api_url}/qrcode/${transactionId}`.replace("//qrcode", "/qrcode");
+    response.mensagem   = "Mostre o QR Code ao cliente para pagamento via App Multicaixa Express.";
+  }
+
+  return res.status(201).json(response);
+});
+
 // GET /guardian/alunos/:id/ocorrencias
 router.get("/guardian/alunos/:id/ocorrencias", authMiddleware, async (req: any, res) => {
   const guardian = await getGuardianFromToken(req.guardianToken);

@@ -271,10 +271,80 @@ export class DebitoDiretoDriver implements PaymentDriver {
   }
 }
 
+/* ── MCX Express (QR Code / Push) Driver ─────────────────────── */
+export class McxExpressDriver implements PaymentDriver {
+  readonly name = "MCX_EXPRESS";
+
+  async initiate(order: PaymentOrder, cfg: Record<string, unknown>): Promise<PaymentResult> {
+    const {
+      merchant_id, api_key, api_url,
+      notif_type = "QR",   // "QR" | "PUSH"
+      telefone,
+    } = cfg as Record<string, string>;
+
+    if (!merchant_id || !api_key) {
+      return {
+        ok: false, driver: this.name,
+        error: "Configuração MCX Express incompleta — merchant_id e api_key são obrigatórios.",
+      };
+    }
+
+    if ((notif_type as string) === "PUSH" && !telefone) {
+      return {
+        ok: false, driver: this.name,
+        error: "Modo PUSH requer o campo telefone (número Multicaixa Express do devedor).",
+      };
+    }
+
+    /* Identificador único da transacção — usado para correlação no callback */
+    const transactionId = `MCX-${order.school_id}-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+    const timestamp     = new Date().toISOString();
+    const currency      = "AOA";
+    const amount_str    = Number(order.amount).toFixed(2);
+
+    /* Assinatura HMAC-SHA256 do payload (mesmo padrão GPO) */
+    const raw       = `${merchant_id}${transactionId}${amount_str}${currency}`;
+    const signature = crypto.createHmac("sha256", api_key).update(raw).digest("hex").toUpperCase();
+
+    const payload: Record<string, unknown> = {
+      merchantId:    merchant_id,
+      transactionId,
+      timestamp,
+      amount:        amount_str,
+      currency,
+      description:   order.description ?? `Propina — ${order.student_name ?? "Aluno"}`,
+      notifType:     notif_type,
+      signature,
+      /* Endpoint API MCX Express */
+      api_url: api_url ?? "",
+    };
+
+    if ((notif_type as string) === "PUSH") {
+      /* Push: enviar notificação ao telemóvel do cliente */
+      payload.telefone        = telefone;
+      payload.push_url        = `${api_url ?? ""}/push-notification`.replace("//push", "/push");
+      payload.pending_timeout = 120; /* segundos que o cliente tem para aceitar */
+    } else {
+      /* QR: gerar código QR dinâmico para exibição no ecrã */
+      payload.qr_payload = `MCX:${transactionId}:${amount_str}:${currency}:${merchant_id}:${signature}`;
+      payload.qr_url     = `${api_url ?? ""}/qrcode/${transactionId}`.replace("//qrcode", "/qrcode");
+    }
+
+    return { ok: true, driver: this.name, payload };
+  }
+
+  async testConnectivity(cfg: Record<string, unknown>): Promise<ConnectivityResult> {
+    const url = cfg?.api_url as string;
+    if (!url) return { ok: false, message: "URL da API MCX Express não configurada." };
+    return pingUrl(url);
+  }
+}
+
 /* ── Driver registry ──────────────────────────────────────────── */
 const REGISTRY: Record<string, PaymentDriver> = {
   GPO_EMIS:      new GpoDriver(),
   MCX_REFERENCE: new MultiCaixaDriver(),
+  MCX_EXPRESS:   new McxExpressDriver(),
   DIRECT_DEBIT:  new DebitoDiretoDriver(),
 };
 
