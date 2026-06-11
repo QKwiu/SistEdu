@@ -627,7 +627,7 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
   }, [token]);
 
   const pending = useMemo(
-    () => propinas.filter(p => p.status === "pendente" || p.status === "vencido"),
+    () => propinas.filter(p => p.status === "pendente" || p.status === "vencido" || p.status === "vencida"),
     [propinas]
   );
 

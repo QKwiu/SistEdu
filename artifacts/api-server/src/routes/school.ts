@@ -2773,10 +2773,13 @@ export function scheduleSchoolJobs() {
   /* Verificar propinas vencidas a cada hora */
   setInterval(async () => {
     try {
-      /* Marcar como 'vencida' propinas pendentes cuja data_vencimento já passou */
+      /* Migrar quaisquer registos 'vencida' (feminino) para 'vencido' (valor canónico) */
+      await pool.query(`UPDATE propinas SET status='vencido' WHERE status='vencida'`);
+
+      /* Marcar como 'vencido' propinas pendentes cuja data_vencimento já passou */
       const r = await pool.query(`
         UPDATE propinas
-        SET status = 'vencida'
+        SET status = 'vencido'
         WHERE status = 'pendente'
           AND data_vencimento < NOW()
         RETURNING id
@@ -2789,7 +2792,7 @@ export function scheduleSchoolJobs() {
            WHERE propina_id = ANY($1) AND estado='PENDENTE'`,
           [ids]
         );
-        console.log(`[school:jobs] ${r.rows.length} propinas marcadas como VENCIDA`);
+        console.log(`[school:jobs] ${r.rows.length} propinas marcadas como VENCIDO`);
       }
     } catch (e) { console.error("[school:jobs] VENCIDA check error:", e); }
   }, 60 * 60 * 1000); /* cada hora */
