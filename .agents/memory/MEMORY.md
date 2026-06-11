@@ -12,4 +12,5 @@
 - [SDD ISO 20022 Admin Panel](sdd-iso20022.md) — ssh2 não tem @types; usar require("ssh2") as { Client: new () => any }; sdd_emissor_configs table; 7 endpoints admin; SddIso20022Panel com 3 sub-tabs.
 - [Propinas estado model](propinas-estados.md) — DB statuses map to computed display states; ACTIVA/FUTURA computed via pagamentos join, not stored directly.
 - [GPO checkout tipos](gpo-checkout-tipos.md) — gpo_checkout_attempts.tipo: ISOLADO (single ACTIVA/VENCIDA) vs ANTECIPADO (batch FUTURA); webhook routes by tipo before reference lookup.
+- [Type safety guidelines](type-safety-guidelines.md) — types-only corrections; preserve DB/API contracts; financial types (Kwanza, IBAN, ReferenciaEMIS, Periodo) max priority; import from src/types/index.ts.
 - [EMIS Contingência Plan](emis-contingencia.md) — 6-layer plan: health check 15min (Camada 6), PROV-* provisional refs (Camada 2), IBAN channel (Camada 3), comprovativo upload (Camada 4), school reconciliation (Camada 5). New statuses: pago_manual_pendente, pago_manual.
