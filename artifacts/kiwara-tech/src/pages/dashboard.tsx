@@ -716,60 +716,77 @@ function ModalGerarReferencia({ token, propinas, alunos, onClose, onDone }: {
 
   /* ── Result screen ── */
   if (result) {
-    const hasBreakdown = (result.total_multa ?? 0) > 0 || (result.total_emolumentos ?? 0) > 0;
+    const refs: any[] = result.referencias ?? [];
+    const totalGeradas    = result.total_geradas    ?? 0;
+    const totalJaExistia  = result.total_ja_existia ?? 0;
+    const totalErro       = result.total_erro       ?? 0;
     return (
-      <div className="p-6 space-y-5">
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 text-center">
-          <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3"/>
-          <p className="font-bold text-emerald-900 text-lg mb-1">Referência Gerada</p>
-          <p className="text-emerald-700 text-sm">Multicaixa válida até {fmtDate(result.validade)}</p>
-        </div>
-
-        {hasBreakdown && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm space-y-1.5">
-            {(result.total_base ?? 0) > 0 && (
-              <div className="flex justify-between text-slate-600">
-                <span>Propinas (base)</span>
-                <span className="font-semibold">{fmt(result.total_base ?? 0)} Kz</span>
-              </div>
-            )}
-            {(result.total_multa ?? 0) > 0 && (
-              <div className="flex justify-between text-red-600">
-                <span className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5"/>Multa por atraso</span>
-                <span className="font-semibold">+ {fmt(result.total_multa ?? 0)} Kz</span>
-              </div>
-            )}
-            {(result.total_emolumentos ?? 0) > 0 && (
-              <div className="flex justify-between text-indigo-600">
-                <span className="flex items-center gap-1"><Receipt className="w-3.5 h-3.5"/>Emolumentos</span>
-                <span className="font-semibold">+ {fmt(result.total_emolumentos ?? 0)} Kz</span>
-              </div>
-            )}
-            <div className="flex justify-between text-slate-900 font-bold border-t border-slate-200 pt-1.5 mt-1">
-              <span>Total da Referência</span>
-              <span>{fmt(result.valor)} Kz</span>
-            </div>
+      <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+        {/* Summary banner */}
+        <div className={`border rounded-2xl p-4 text-center ${totalErro > 0 && totalGeradas === 0 ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
+          <CheckCircle2 className={`w-9 h-9 mx-auto mb-2 ${totalErro > 0 && totalGeradas === 0 ? "text-red-400" : "text-emerald-500"}`}/>
+          <p className={`font-bold text-lg mb-1 ${totalErro > 0 && totalGeradas === 0 ? "text-red-900" : "text-emerald-900"}`}>
+            {refs.length === 1 ? "Referência Gerada" : `${refs.length} Referências Processadas`}
+          </p>
+          <div className="flex items-center justify-center gap-3 flex-wrap text-xs font-semibold mt-1">
+            {totalGeradas > 0    && <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full">{totalGeradas} gerada{totalGeradas > 1 ? "s" : ""}</span>}
+            {totalJaExistia > 0  && <span className="bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full">{totalJaExistia} já existia{totalJaExistia > 1 ? "m" : ""}</span>}
+            {totalErro > 0       && <span className="bg-red-100 text-red-800 px-2.5 py-1 rounded-full">{totalErro} erro{totalErro > 1 ? "s" : ""}</span>}
           </div>
-        )}
-
-        <div className="space-y-3">
-          {[
-            { label: "Entidade",    value: result.entidade },
-            { label: "Referência",  value: result.referencia },
-            { label: "Valor Total", value: fmt(result.valor) + " Kz" },
-            { label: "Válida até",  value: fmtDate(result.validade) },
-          ].map(row => (
-            <div key={row.label} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3">
-              <span className="text-sm text-slate-500">{row.label}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-900 font-mono">{row.value}</span>
-                <button onClick={() => copy(row.value, row.label)} className="text-slate-300 hover:text-primary transition-colors">
-                  {copied === row.label ? <CheckCircle2 className="w-4 h-4 text-emerald-500"/> : <Copy className="w-4 h-4"/>}
-                </button>
-              </div>
-            </div>
-          ))}
         </div>
+
+        {/* Individual reference cards */}
+        <div className="space-y-3">
+          {refs.map((r: any, i: number) => {
+            const cardKey = `ref-${i}`;
+            const isErro      = r.estado === "erro";
+            const isExistia   = r.estado === "ja_existia";
+            return (
+              <div key={cardKey} className={`rounded-2xl border p-4 space-y-2.5 ${isErro ? "border-red-200 bg-red-50" : isExistia ? "border-blue-200 bg-blue-50" : "border-emerald-200 bg-emerald-50/40"}`}>
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-slate-900 text-sm">{r.aluno_nome}</p>
+                    <p className="text-xs text-slate-500">{r.mes} {r.ano} — {fmt(r.valor)} Kz</p>
+                  </div>
+                  <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${isErro ? "bg-red-100 text-red-700" : isExistia ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>
+                    {isErro ? "Erro" : isExistia ? "Já existia" : "Gerada"}
+                  </span>
+                </div>
+
+                {isErro ? (
+                  <p className="text-xs text-red-600 bg-red-100 rounded-lg px-3 py-1.5">{r.erro ?? "Erro ao contactar EMIS"}</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Entidade",    value: r.entidade, key: `${cardKey}-ent` },
+                      { label: "Referência",  value: r.referencia, key: `${cardKey}-ref` },
+                    ].map(row => (
+                      <div key={row.key} className="bg-white rounded-xl px-3 py-2 border border-slate-100">
+                        <p className="text-[10px] text-slate-400 uppercase font-semibold mb-0.5">{row.label}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-900 font-mono text-sm">{row.value}</span>
+                          <button onClick={() => copy(String(row.value), row.key)} className="text-slate-300 hover:text-primary transition-colors shrink-0">
+                            {copied === row.key ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500"/> : <Copy className="w-3.5 h-3.5"/>}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="bg-white rounded-xl px-3 py-2 border border-slate-100">
+                      <p className="text-[10px] text-slate-400 uppercase font-semibold mb-0.5">Valor</p>
+                      <p className="font-bold text-slate-900 text-sm">{fmt(r.valor)} Kz</p>
+                    </div>
+                    <div className="bg-white rounded-xl px-3 py-2 border border-slate-100">
+                      <p className="text-[10px] text-slate-400 uppercase font-semibold mb-0.5">Válida até</p>
+                      <p className="font-bold text-slate-900 text-sm">{r.validade ? fmtDate(r.validade) : "—"}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
         <Button onClick={onClose} className="w-full">Fechar</Button>
       </div>
     );

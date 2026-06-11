@@ -1293,11 +1293,13 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
   if (!propina_ids?.length && !emolumento_items?.length)
     return res.status(400).json({ error: "Selecione pelo menos uma propina ou emolumento." });
 
-  let freshPropinas: any[] = [];
+  const diaVencRef = await getDiaVencimento(school.school_id);
 
+  /* ─── Fetch + validate propinas (include aluno_nome) ─── */
+  let freshPropinas: any[] = [];
   if (propina_ids.length) {
     const pRes = await pool.query(
-      `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
+      `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status, s.nome AS aluno_nome
        FROM propinas p
        JOIN students s ON s.id = p.student_id
        WHERE p.id = ANY($1) AND s.school_id = $2`,
@@ -1310,7 +1312,7 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
     await applyFinesForSchool(school.school_id);
 
     const freshRes = await pool.query(
-      `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status
+      `SELECT p.id, p.mes, p.ano, p.montante, p.multa, p.student_id, p.status, s.nome AS aluno_nome
        FROM propinas p
        JOIN students s ON s.id = p.student_id
        WHERE p.id = ANY($1) AND s.school_id = $2`,
@@ -1319,12 +1321,11 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
     freshPropinas = freshRes.rows;
   }
 
-  // Validate emolumento_items
+  /* ─── Validate emolumento items ─── */
   const validItems: any[] = [];
   for (const item of emolumento_items) {
     const { emolumento_id, student_id, descricao, montante, quantidade = 1 } = item;
     if (!descricao || !montante) continue;
-    // Verify emolumento belongs to this school (or is global)
     if (emolumento_id) {
       const emCheck = await pool.query(
         `SELECT id FROM emolumentos WHERE id=$1 AND (school_id=$2 OR school_id IS NULL)`,
@@ -1335,75 +1336,108 @@ router.post("/school/propinas/referencia", schoolAuth, async (req: any, res) => 
     validItems.push({ emolumento_id: emolumento_id ?? null, student_id: student_id ?? null, descricao, montante: Number(montante), quantidade: Number(quantidade) || 1 });
   }
 
-  const totalPropinas = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante) + Number(p.multa), 0);
-  const totalEmolumentos = validItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
-  const total = totalPropinas + totalEmolumentos;
+  /* ─── Gerar uma referência EMIS INDIVIDUAL por propina ─── */
+  const referencias: any[] = [];
+  let lastEntidade = "00112";
+  let lastReferencia = "";
 
-  /* Calcular validade: dia N do M+1 da propina mais recente; ou +30 dias se só emolumentos */
-  let validade: Date;
-  const diaVencRef = await getDiaVencimento(school.school_id);
-  if (freshPropinas.length) {
-    const latestMes = freshPropinas[freshPropinas.length - 1];
-    validade = await calcularDataVencimentoEMIS(latestMes.mes, latestMes.ano, diaVencRef);
-  } else {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    validade = d;
-  }
-
-  /* Solicitar referência à EMIS (ou simular) para cada propina individualmente */
-  let entidade = "00112";
-  let referencia = "";
   for (const p of freshPropinas) {
+    const valor = Number(p.montante) + Number(p.multa);
+
+    /* Verificação de duplicado: reutilizar referência PENDENTE existente */
+    const existing = await pool.query(
+      `SELECT entidade, referencia, valor, validade FROM pagamentos WHERE propina_id=$1 AND estado='PENDENTE'`,
+      [p.id]
+    );
+    if (existing.rows.length) {
+      const ex = existing.rows[0];
+      lastEntidade   = ex.entidade;
+      lastReferencia = ex.referencia;
+      referencias.push({
+        propina_id: p.id,
+        student_id: p.student_id,
+        aluno_nome: p.aluno_nome,
+        mes:        p.mes,
+        ano:        p.ano,
+        entidade:   ex.entidade,
+        referencia: ex.referencia,
+        valor:      Number(ex.valor),
+        validade:   ex.validade,
+        estado:     "ja_existia",
+      });
+      continue;
+    }
+
+    /* Solicitar nova referência individual à EMIS */
     try {
       const emisResp = await requestEMISReference({
         school_id:     school.school_id,
         propina_id:    p.id,
-        montante:      Number(p.montante) + Number(p.multa),
-        aluno_nome:    "",
+        montante:      valor,
+        aluno_nome:    p.aluno_nome ?? "",
         mes:           p.mes,
         ano:           p.ano,
         diaVencimento: diaVencRef,
       });
-      entidade   = emisResp.entidade;
-      referencia = emisResp.referencia;
+      lastEntidade   = emisResp.entidade;
+      lastReferencia = emisResp.referencia;
+
       await pool.query(
         `INSERT INTO pagamentos (propina_id, entidade, referencia, valor, estado, validade)
          VALUES ($1,$2,$3,$4,'PENDENTE',$5)
          ON CONFLICT (propina_id) DO UPDATE SET referencia=$3, valor=$4, validade=$5, estado='PENDENTE'`,
-        [p.id, entidade, referencia, Number(p.montante) + Number(p.multa), emisResp.validade]
+        [p.id, emisResp.entidade, emisResp.referencia, valor, emisResp.validade]
       );
-      await pool.query("UPDATE propinas SET internal_reference=$1, data_vencimento=$2 WHERE id=$3",
-        [referencia, emisResp.validade, p.id]);
-    } catch {
-      /* Manter referência existente se já houver */
+      await pool.query(
+        "UPDATE propinas SET internal_reference=$1, data_vencimento=$2 WHERE id=$3",
+        [emisResp.referencia, emisResp.validade, p.id]
+      );
+      referencias.push({
+        propina_id: p.id,
+        student_id: p.student_id,
+        aluno_nome: p.aluno_nome,
+        mes:        p.mes,
+        ano:        p.ano,
+        entidade:   emisResp.entidade,
+        referencia: emisResp.referencia,
+        valor,
+        validade:   emisResp.validade,
+        estado:     "gerado",
+      });
+    } catch (err: any) {
+      referencias.push({
+        propina_id: p.id,
+        student_id: p.student_id,
+        aluno_nome: p.aluno_nome,
+        mes:        p.mes,
+        ano:        p.ano,
+        entidade:   null,
+        referencia: null,
+        valor,
+        validade:   null,
+        estado:     "erro",
+        erro:       String(err?.message ?? "Erro desconhecido"),
+      });
     }
   }
 
-  // Insert cobrancas for each emolumento item
+  /* ─── Inserir cobranças para emolumentos ─── */
   const cobrancasCreated: any[] = [];
   for (const item of validItems) {
     const r = await pool.query(
       `INSERT INTO cobrancas (school_id, student_id, emolumento_id, descricao, montante, quantidade, status, referencia, entidade, validade)
-       VALUES ($1,$2,$3,$4,$5,$6,'pendente',$7,$8,$9) RETURNING *`,
-      [school.school_id, item.student_id, item.emolumento_id, item.descricao, item.montante, item.quantidade, referencia, entidade, validade]
+       VALUES ($1,$2,$3,$4,$5,$6,'pendente',$7,$8,NULL) RETURNING *`,
+      [school.school_id, item.student_id, item.emolumento_id, item.descricao, item.montante, item.quantidade, lastReferencia, lastEntidade]
     );
     cobrancasCreated.push(r.rows[0]);
   }
 
-  const totalMulta = freshPropinas.reduce((s: number, p: any) => s + Number(p.multa), 0);
-  const totalBase  = freshPropinas.reduce((s: number, p: any) => s + Number(p.montante), 0);
-
   res.json({
-    entidade,
-    referencia,
-    valor: total,
-    total_base: totalBase,
-    total_multa: totalMulta,
-    total_emolumentos: totalEmolumentos,
-    validade: validade.toISOString(),
-    propinas: freshPropinas,
-    cobrancas: cobrancasCreated,
+    referencias,
+    cobrancas:        cobrancasCreated,
+    total_geradas:    referencias.filter(r => r.estado === "gerado").length,
+    total_ja_existia: referencias.filter(r => r.estado === "ja_existia").length,
+    total_erro:       referencias.filter(r => r.estado === "erro").length,
   });
 });
 

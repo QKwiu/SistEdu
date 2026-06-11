@@ -1,0 +1,981 @@
+Você disse: és um desenvolvedor especialista em integraçoes com a emis, pelos diversos metodos de pagamentos existentes em angolaés um desenvolvedor especialista em integraçoes com a emis, pelos diversos metodos de pagamentos existentes em angolaJun 4Claude respondeu: Sim, tenho conhecimento sólido sobre integrações com a EMIS (Empresa Interbancária de Serviços) em Angola, incluindo os principais métodos de pagamento disponí…Sim, tenho conhecimento sólido sobre integrações com a EMIS (Empresa Interbancária de Serviços) em Angola, incluindo os principais métodos de pagamento disponíveis no ecossistema financeiro angolano.
+O que posso ajudar
+Métodos de Pagamento EMIS
+Multicaixa Express
+
+Pagamentos via referência (Entidade + Referência)
+Pagamentos por QR Code
+API REST para geração de referências
+Webhooks para confirmação de pagamentos
+
+Multicaixa (ATM/POS)
+
+Geração de referências para pagamento em caixas automáticos
+Integração com terminais POS
+Reconciliação de transações
+
+Gateway de Pagamento EMIS
+
+Integração e-commerce
+Pagamentos online com cartão
+3DS (autenticação segura)
+
+Pay by Link
+
+Links de pagamento dinâmicos
+Expiração configurável
+
+
+Stack de Integração
+REST APIs · JSON/XML · HTTPS/TLS
+Webhooks · Certificados digitais
+Sandbox/Homologação · Produção
+
+O que posso desenvolver contigo
+
+Integração completa em Node.js, Python, PHP, Java
+Geração e validação de referências Multicaixa
+Tratamento de callbacks/webhooks
+Reconciliação de pagamentos
+Ambientes de sandbox e produção
+Tratamento de erros e reprocessamento
+
+
+Com que tipo de integração precisas de ajuda? Qual é a tua stack tecnológica?Você disse: tens muita experiEncia em implementar o SDDtens muita experiEncia em implementar o SDDJun 4Claude respondeu: Sim, tenho experiência sólida com o SDD (Sistema de Débito Direto) da EMIS em Angola.Sim, tenho experiência sólida com o SDD (Sistema de Débito Direto) da EMIS em Angola.
+O que é o SDD
+O SDD permite que empresas (Credores) cobrem automaticamente os seus clientes (Devedores) através de débito direto nas contas bancárias, sem necessidade de o cliente iniciar cada pagamento manualmente.
+
+Fluxo Principal do SDD
+Credor                    EMIS                    Banco Devedor
+  │                         │                          │
+  │── Registo Mandato ──────►│                          │
+  │                         │── Validação Mandato ────►│
+  │                         │◄─ Confirmação ───────────│
+  │◄─ Mandato Ativo ────────│                          │
+  │                         │                          │
+  │── Ficheiro PAIN.008 ───►│                          │
+  │   (Instrução Débito)    │── Débito na Conta ──────►│
+  │                         │◄─ Resultado ─────────────│
+  │◄─ PAIN.002 (Status) ────│                          │
+
+Componentes que domino
+1. Gestão de Mandatos
+
+Criação e registo de mandatos
+Alteração e cancelamento
+Validação de assinaturas
+Controlo de estado (ACTV, CANC, SUSP)
+
+2. Ficheiros ISO 20022
+
+PAIN.008 — Instrução de débito direto
+PAIN.002 — Relatório de estado de pagamento
+PAIN.007 — Reversão de débito
+
+3. Ciclos de Processamento
+
+Pré-notificação ao devedor
+Janelas de submissão (D-1, D-2)
+Tratamento de rejeições e devoluções
+Reapresentação de cobranças
+
+4. Reconciliação
+
+Matching de instruções vs resultados
+Tratamento de R-transactions (RJCT, RTRN, REFD)
+Relatórios de liquidação
+
+
+Com que precisas de ajuda?
+
+Implementar o fluxo completo do SDD?
+Gerar/parsear ficheiros PAIN.008?
+Gestão de mandatos via API?
+Tratamento de rejeições?
+Integração numa stack específica?
+
+Qual é a tua linguagem/framework preferida?Você disse: Analisando o estado de cada funcionalidade, observo que a funcionalidade  Subscrição de Débito Directo automático, tem o fluxo incompleto, porém a bd esta pron…Analisando o estado de cada funcionalidade, observo que a funcionalidade  Subscrição de Débito Directo automático, tem o fluxo incompleto, porém a bd esta pronta. indica o que deve ser melhorado na lógica sendo que ainda n foi feita a integraçao com a emis, porém deve ter todas regrs definidas e todos elementos técnicos. 2. lista todos campos necessários para serem criados nos parametros de forma a testar a ligaçao do SDD via soap /rest apartir dos parametros da aplicao, perfil técnico da administraçao.Jun 4Claude respondeu: Preciso entender melhor o contexto do teu sistema antes de dar recomendações precisas.Preciso entender melhor o contexto do teu sistema antes de dar recomendações precisas. Algumas perguntas rápidas:Você disse: Continuar sem responderContinuar sem responderJun 4Claude respondeu: Sem problema.Sem problema. Vou dar uma análise completa baseada nas melhores práticas do SDD EMIS Angola.
+
+1. MELHORIAS NA LÓGICA — Subscrição de Débito Direto Automático
+Fluxo Completo que deve existir
+┌─────────────────────────────────────────────────────────────────┐
+│                    FASE 1 — MANDATO                             │
+├─────────────────────────────────────────────────────────────────┤
+│  [1] Cliente solicita subscrição                                │
+│  [2] Sistema gera referência de mandato (MandateID único)       │
+│  [3] Recolha de dados do devedor (IBAN, NIF, nome, morada)      │
+│  [4] Cliente assina mandato (físico ou digital)                 │
+│  [5] Credor regista mandato na EMIS → estado: PENDING           │
+│  [6] EMIS valida junto ao banco do devedor                      │
+│  [7] Mandato activado → estado: ACTV                            │
+│  [8] Pré-notificação enviada ao devedor (mínimo 14 dias antes)  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    FASE 2 — COBRANÇA                            │
+├─────────────────────────────────────────────────────────────────┤
+│  [1] Sistema calcula data de vencimento                         │
+│  [2] Valida janela de submissão (D-2 para FRST, D-1 para RCUR)  │
+│  [3] Gera instrução PAIN.008                                    │
+│  [4] Submete ficheiro à EMIS                                    │
+│  [5] EMIS devolve PAIN.002 (ACK/RJCT por instrução)             │
+│  [6] No dia D → débito executado na conta do devedor            │
+│  [7] Sistema recebe resultado final (ACSC / RJCT / RTRN)        │
+│  [8] Atualiza estado da subscrição e fatura                     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    FASE 3 — PÓS-COBRANÇA                        │
+├─────────────────────────────────────────────────────────────────┤
+│  [1] Reconciliação diária de transações                         │
+│  [2] Tratamento de R-Transactions (rejeições/devoluções)        │
+│  [3] Lógica de reapresentação (máximo 2x por mandato)           │
+│  [4] Suspensão/cancelamento de mandato se rejeições repetidas   │
+│  [5] Notificação ao cliente do resultado                        │
+└─────────────────────────────────────────────────────────────────┘
+
+Regras de Negócio que devem estar implementadas
+Mandatos
+RegraDetalheMandateID únicoGerado pelo credor, formato alfanumérico 35 chars maxTipos de sequênciaFRST (primeira), RCUR (recorrente), FNAL (última), OOFF (única)Estados possíveisPENDING → ACTV → SUSP → CANCValidadeMandato sem uso por 36 meses → cancelamento automáticoAlteraçãoQualquer alteração gera novo MandateID ou versãoPré-notificaçãoObrigatória, mínimo 14 dias antes do primeiro débito
+Cobranças
+RegraDetalheJanela FRSTSubmissão D-2 dias úteis antes da data de débitoJanela RCURSubmissão D-1 dias úteis antes da data de débitoValor mínimoDefinido pelo banco, normalmente > 0 AOAMoedaApenas AOACut-off timeRespeitar horário de fecho da EMIS (geralmente 17h)ReapresentaçãoMáximo 2 tentativas após rejeição, com intervalo mínimo
+R-Transactions (crítico — frequentemente ignorado)
+CódigoSignificadoAção no sistemaAC01IBAN inválidoSuspender mandato, notificar clienteAC04Conta encerradaCancelar mandatoAC06Conta bloqueadaSuspender, tentar depoisAG01Débito não permitidoCancelar mandatoAM04Fundos insuficientesReagendar reapresentaçãoMD01Sem mandato válidoCancelar imediatamenteMD02Dados do mandato incompletosSuspender, corrigir dadosMS02Recusa do devedorCancelar mandatoSL01Serviço suspenso pelo bancoSuspender temporariamente
+
+Gaps mais comuns na lógica (o que provavelmente falta)
+❌ Máquina de estados do mandato não implementada
+❌ Cálculo automático da janela de submissão (dias úteis)
+❌ Scheduler para geração automática de PAIN.008
+❌ Listener/Webhook para receber PAIN.002 da EMIS
+❌ Tratamento diferenciado por código de rejeição
+❌ Contador de reapresentações por instrução
+❌ Log de auditoria de cada transição de estado
+❌ Pré-notificação automática por email/SMS
+❌ Reconciliação diária automatizada
+❌ Bloqueio de cobranças em mandatos não ACTV
+
+2. PARÂMETROS DE CONFIGURAÇÃO — Perfil Técnico (Administração)
+Todos os campos abaixo devem existir na tabela de parâmetros do sistema, configuráveis pelo administrador técnico.
+
+2.1 Credenciais de Acesso EMIS
+ParâmetroTipoDescriçãoExemplosdd_emis_environmentENUMAmbiente ativoSANDBOX / PRODUCTIONsdd_emis_endpoint_soapSTRINGURL do WSDL SOAPhttps://sdd.emis.co.ao/ws/sdd?wsdlsdd_emis_endpoint_restSTRINGURL base RESThttps://api.emis.co.ao/sdd/v1sdd_emis_usernameSTRINGUtilizador de acessocredor_001sdd_emis_passwordSTRING (encrypted)Password de acesso********sdd_emis_client_idSTRINGClient ID OAuth2 (REST)abc123sdd_emis_client_secretSTRING (encrypted)Client Secret OAuth2********sdd_emis_token_urlSTRINGURL para obter tokenhttps://auth.emis.co.ao/token
+
+2.2 Certificados e Segurança
+ParâmetroTipoDescriçãosdd_cert_pathSTRINGCaminho do certificado digital (.pem/.pfx)sdd_cert_passwordSTRING (encrypted)Password do certificadosdd_cert_expiry_dateDATEData de expiração do certificadosdd_ssl_verifyBOOLEANVerificar SSL (false em sandbox)sdd_signing_key_pathSTRINGChave privada para assinar mensagens
+
+2.3 Identificação do Credor
+ParâmetroTipoDescriçãoExemplosdd_creditor_idSTRINGID do credor EMIS (AT-assigned)AO98XXXX00001sdd_creditor_nameSTRINGNome legal do credorEmpresa XYZ, Ldasdd_creditor_ibanSTRINGIBAN da conta de liquidaçãoAO06000400014569sdd_creditor_bicSTRINGBIC/SWIFT do banco credorBCAOANLAsdd_creditor_nifSTRINGNIF fiscal do credor5000123456sdd_creditor_addressSTRINGMorada legalRua X, Luandasdd_creditor_scheme_idSTRINGIdentificador do esquema SDDCORE / B2B
+
+2.4 Regras Operacionais
+ParâmetroTipoDescriçãoDefaultsdd_submission_days_frstINTEGERDias úteis antes para FRST2sdd_submission_days_rcurINTEGERDias úteis antes para RCUR1sdd_prenotification_daysINTEGERDias de pré-notificação14sdd_max_resubmissionINTEGERNº máximo de reapresentações2sdd_resubmission_intervalINTEGERDias entre reapresentações5sdd_mandate_expiry_monthsINTEGERMeses sem uso para expirar mandato36sdd_cutoff_timeTIMEHora limite de submissão diária17:00sdd_batch_sizeINTEGERRegistos por ficheiro PAIN.008500sdd_currencySTRINGMoeda (fixo)AOA
+
+2.5 Scheduler / Automação
+ParâmetroTipoDescriçãoDefaultsdd_scheduler_enabledBOOLEANAtivar processamento automáticotruesdd_scheduler_timeTIMEHora de execução do batch diário08:00sdd_reconciliation_timeTIMEHora da reconciliação automática18:00sdd_notification_emailSTRINGEmail para alertas técnicosti@empresa.aosdd_retry_on_failureBOOLEANRetentar em caso de falha técnicatruesdd_retry_max_attemptsINTEGERTentativas máx. em falha técnica3sdd_retry_interval_minutesINTEGERIntervalo entre tentativas15
+
+2.6 Teste de Conectividade (Ping/Health Check)
+ParâmetroTipoDescriçãosdd_test_iban_devedorSTRINGIBAN de teste para sandboxsdd_test_mandate_idSTRINGMandateID de testesdd_test_amountDECIMALValor de teste (ex: 1.00 AOA)sdd_test_creditor_refSTRINGReferência de teste do credorsdd_last_connection_testDATETIMEÚltima vez que foi testada a ligaçãosdd_last_connection_statusENUMResultado: SUCCESS / FAILEDsdd_last_connection_logTEXTLog de resposta do último teste
+
+2.7 Logs e Auditoria
+ParâmetroTipoDescriçãoDefaultsdd_log_levelENUMNível de logINFO / DEBUGsdd_log_requestsBOOLEANGuardar payload enviadotruesdd_log_responsesBOOLEANGuardar resposta recebidatruesdd_log_retention_daysINTEGERDias de retenção de logs90
+
+Com estes parâmetros implementados, o administrador técnico consegue:
+
+Testar a ligação SOAP/REST sem tocar no código
+Alternar entre sandbox e produção instantaneamente
+Configurar todas as regras operacionais sem deploy
+Monitorizar o estado da integração em tempo real
+Auditar toda a comunicação com a EMIS
+
+Queres que desenvolva o schema SQL completo destes parâmetros, ou o formulário de administração com os campos organizados por secção?Você disse: por agora, com base a resposta cima, vamos separar o prompt  claro e objectivo por duas partes: 1.por agora, com base a resposta cima, vamos separar o prompt  claro e objectivo por duas partes: 1. regras de negócio a serem adicionadas no back end se necessário e no motor de pagamentos 2. regras, campos e configuraçoes a serem criadas no perfil técnicos de amin, Testar a ligação SOAP/REST sem tocar no códigoJun 4Claude respondeu: PARTE 1 — REGRAS DE NEGÓCIOPARTE 1 — REGRAS DE NEGÓCIO
+Backend + Motor de Pagamentos
+
+1.1 Máquina de Estados do Mandato
+PENDING → ACTV → SUSP → CANC
+                ↓
+              EXPRD (36 meses sem uso)
+Regras a implementar no backend:
+
+Nenhuma cobrança pode ser gerada com mandato fora do estado ACTV
+Transição ACTV → SUSP automática após rejeição com códigos: AC06, SL01, MS02
+Transição ACTV → CANC automática após rejeição com códigos: AC04, AG01, MD01
+Transição SUSP → CANC automática se mandato suspenso há mais de 90 dias sem resolução
+Transição para EXPRD via job noturno: mandatos ACTV sem cobrança nos últimos 36 meses
+Toda transição de estado deve gerar registo de auditoria com: estado_anterior, estado_novo, motivo, timestamp, origem (sistema/utilizador/EMIS)
+
+
+1.2 Sequência de Cobrança
+Regra obrigatória no motor de pagamentos:
+CondiçãoSequência a usarPrimeira cobrança do mandatoFRSTCobranças seguintesRCURÚltima cobrança programadaFNALCobrança única sem recorrênciaOOFF
+
+O sistema deve controlar automaticamente a sequência por mandato
+Após FNAL ou OOFF, o mandato transita para CANC automaticamente
+Nunca enviar FRST mais de uma vez para o mesmo mandato
+
+
+1.3 Janela de Submissão
+Motor de pagamentos deve calcular automaticamente:
+
+FRST → submeter 2 dias úteis antes da data de débito
+RCUR / FNAL → submeter 1 dia útil antes da data de débito
+Dias úteis excluem: fins de semana + feriados nacionais angolanos
+Se a data calculada já passou, adiar a cobrança para o próximo ciclo
+Bloquear submissão após o cutoff_time configurado (ex: 17h00)
+Job de verificação diária que identifica cobranças a submeter no próprio dia
+
+
+1.4 Pré-Notificação
+
+Obrigatória antes do FRST
+Enviar com mínimo 14 dias de antecedência (configurável via parâmetro)
+Conteúdo obrigatório: nome do credor, valor, data de débito, referência do mandato
+Guardar registo de envio: data_envio, canal (email/SMS), estado_envio
+Bloquear geração do FRST se pré-notificação não foi enviada ou confirmada
+
+
+1.5 Reapresentação Automática
+
+Permitida apenas para rejeição com código AM04 (fundos insuficientes)
+Máximo 2 reapresentações por instrução original
+Intervalo mínimo entre reapresentações: 5 dias úteis (configurável)
+A reapresentação mantém o mesmo MandateID mas gera novo InstructionID
+Após esgotar tentativas → suspender mandato e notificar administrador
+
+
+1.6 Tratamento de R-Transactions
+Motor deve processar cada código de forma diferente:
+CódigoAção AutomáticaNotificarAC01Suspender mandatoCliente + AdminAC04Cancelar mandatoCliente + AdminAC06Suspender mandatoAdminAG01Cancelar mandatoAdminAM04Agendar reapresentaçãoClienteMD01Cancelar mandato imediatamenteAdminMD02Suspender, flag para correcçãoAdminMS02Cancelar mandatoCliente + AdminSL01Suspender temporariamenteAdmin
+
+1.7 Reconciliação Diária
+
+Job automático após recepção do ficheiro de resultado da EMIS
+Para cada instrução enviada, verificar se existe resposta no PAIN.002
+Instruções sem resposta após D+1 → alertar administrador
+Estados finais possíveis por instrução: ACSC (sucesso), RJCT (rejeitado), RTRN (devolvido)
+Actualizar saldo/fatura do cliente apenas com estado ACSC
+Gerar relatório diário de reconciliação com totais: enviado / aceite / rejeitado / pendente
+
+
+1.8 Geração do PAIN.008
+Regras de validação antes de gerar o ficheiro:
+
+MandateID deve existir e estar ACTV
+IBAN do devedor válido (formato angolano: AO06 + 21 dígitos)
+BIC do banco devedor válido
+Valor > 0 e em AOA
+Data de débito não pode ser fim de semana ou feriado
+InstructionID único por ficheiro e por credor
+EndToEndID único e rastreável internamente
+Tamanho máximo do batch configurável (default: 500 registos por ficheiro)
+
+
+
+PARTE 2 — PERFIL TÉCNICO DE ADMIN
+Campos, Configurações e Teste de Ligação SOAP/REST
+
+SECÇÃO A — Ambiente e Protocolo
+CampoTipoValoresObrigatórioAmbienteSelectSandbox / Produção✅Protocolo de integraçãoSelectSOAP / REST / Ambos✅Versão do protocoloStringex: v1, v2✅
+
+SECÇÃO B — Endpoints
+CampoTipoPlaceholderObrigatórioURL Endpoint SOAPString (URL)https://sdd.emis.co.ao/ws/sdd?wsdlSe SOAPURL Endpoint RESTString (URL)https://api.emis.co.ao/sdd/v1Se RESTURL Token OAuth2String (URL)https://auth.emis.co.ao/oauth/tokenSe RESTTimeout (segundos)Integer30✅
+
+SECÇÃO C — Credenciais
+CampoTipoNotasUsernameStringFornecido pela EMISPasswordPassword (encrypted)Armazenado com hashClient IDStringApenas REST/OAuth2Client SecretPassword (encrypted)Apenas REST/OAuth2Tipo de autenticaçãoSelectBasic Auth / OAuth2 / Certificado
+
+SECÇÃO D — Certificados Digitais
+CampoTipoNotasCertificado (.pem / .pfx)File UploadObrigatório em produçãoPassword do certificadoPassword (encrypted)Se o certificado for protegidoChave privada (.key)File UploadPara assinatura de mensagensData de expiraçãoDate (auto-lido)Alerta 30 dias antesVerificar SSLToggleDesactivado em sandbox
+
+SECÇÃO E — Identificação do Credor
+CampoTipoValidaçãoID do Credor (EMIS)StringFornecido pela EMISNome LegalString—NIFString10 dígitosIBAN de LiquidaçãoStringFormato AO06...BIC / SWIFTString8 ou 11 caracteresMoradaString—Esquema SDDSelectCORE / B2B
+
+SECÇÃO F — Dados de Teste para Conectividade
+
+Usados exclusivamente no botão "Testar Ligação", sem gerar registos reais
+
+CampoTipoNotasIBAN Devedor (teste)StringIBAN fictício para sandboxNome Devedor (teste)Stringex: Cliente Teste SDDBIC Banco Devedor (teste)StringBIC do banco de testeMandateID de TesteStringGerado automaticamente ou manualValor de TesteDecimalex: 1.00 AOAReferência Credor (teste)Stringex: TEST-REF-001Data de Débito (teste)DateCalculada automaticamente (D+2)
+
+SECÇÃO G — Botão "Testar Ligação"
+O que o botão deve executar internamente:
+1. Validar se todos os campos obrigatórios estão preenchidos
+2. Carregar certificado e credenciais configuradas
+3. Consoante o protocolo:
+   │
+   ├── SOAP → Enviar envelope de autenticação/ping ao WSDL
+   │          Verificar resposta do serviço (HTTP 200 + envelope válido)
+   │
+   └── REST → POST para URL do token com Client ID + Secret
+              Verificar se retorna access_token válido
+              GET para endpoint de health/status da API
+4. Registar resultado em: sdd_last_connection_test
+                          sdd_last_connection_status
+                          sdd_last_connection_log
+5. Mostrar resultado na interface
+O que mostrar na interface após o teste:
+✅ LIGAÇÃO ESTABELECIDA
+──────────────────────────────────────────
+Protocolo   : SOAP / REST
+Ambiente    : Sandbox
+Endpoint    : https://...
+Latência    : 342ms
+Testado em  : 04/06/2026 às 14:35:22
+Token válido: Sim (expira em 3600s)
+
+──────────────────────────────────────────
+❌ FALHA NA LIGAÇÃO
+Código HTTP : 401
+Erro        : Invalid credentials
+Log técnico : [ver detalhes ▼]
+
+SECÇÃO H — Monitorização e Logs
+CampoTipoDefaultNível de logSelectINFO / DEBUG / ERRORGuardar payload enviadoToggleActivadoGuardar resposta recebidaToggleActivadoRetenção de logs (dias)Integer90Email para alertas técnicosString (email)ti@empresa.aoÚltimo teste de ligaçãoDateTime (read-only)Auto-preenchidoEstado do último testeBadge (read-only)SUCESSO / FALHALog do último testeTextarea (read-only)Resposta raw da EMIS
+
+Próximo passo sugerido: Quer que desenvolva o schema SQL das tabelas de parâmetros e de auditoria, ou preferes o wireframe do formulário de administração com todas as secções organizadas?Você disse: perfeito.perfeito. com base a arqutectura da plataforma, essas regras devem ser desenvolvidas no backand ou no motor de pagamentosJun 4Claude respondeu: Para responder com precisão, preciso entender a arquitectura actual da tua plataforma.Para responder com precisão, preciso entender a arquitectura actual da tua plataforma.Você disse: P: Como está arquitectada a tua plataforma?P: Como está arquitectada a tua plataforma?
+R: Backend monolítico + motor de pagamentos separadoP: O motor de pagamentos é:
+R: Um serviço externo/third-partyJun 4Claude respondeu: Perfeito.Perfeito. Com essa arquitectura, a separação de responsabilidades é clara.
+
+DISTRIBUIÇÃO DAS REGRAS
+Arquitectura em causa
+┌─────────────────────┐         ┌─────────────────────────┐
+│                     │         │                         │
+│  BACKEND MONOLÍTICO │◄───────►│  MOTOR DE PAGAMENTOS    │
+│  (teu código)       │  API    │  (serviço externo/EMIS) │
+│                     │         │                         │
+└─────────────────────┘         └─────────────────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│    BASE DE DADOS    │
+└─────────────────────┘
+
+REGRAS DO BACKEND MONOLÍTICO
+
+Tudo o que é lógica de negócio, estado, orquestração e decisão fica no backend.
+
+
+✅ 1.1 — Máquina de Estados do Mandato
+→ Backend
+O backend é o único dono do estado do mandato. O motor de pagamentos não decide estados — apenas executa e reporta resultados.
+Backend controla:
+- Criação do mandato (PENDING)
+- Activação após confirmação do motor (ACTV)
+- Suspensão/Cancelamento com base nos códigos de retorno
+- Expiração por job noturno (36 meses sem uso)
+- Registo de auditoria de cada transição
+
+✅ 1.2 — Sequência de Cobrança (FRST/RCUR/FNAL/OOFF)
+→ Backend
+O backend determina qual sequência usar com base no histórico do mandato. Envia essa informação ao motor como parâmetro da instrução.
+Backend decide → Motor executa com a sequência recebida
+
+✅ 1.3 — Cálculo da Janela de Submissão
+→ Backend
+O backend calcula a data correcta de submissão (D-2 / D-1 em dias úteis) e agenda o envio ao motor. O motor não conhece regras de calendário angolano.
+Backend calcula:
+- Dias úteis (excluindo feriados angolanos)
+- Data limite de submissão por tipo de sequência
+- Bloqueio se passou o cutoff_time
+- Reагendamento automático para próximo ciclo
+
+✅ 1.4 — Pré-Notificação
+→ Backend
+Responsabilidade exclusiva do backend. O motor de pagamentos não notifica clientes.
+Backend gera e envia:
+- Email/SMS ao devedor (14 dias antes)
+- Registo de envio e confirmação
+- Bloqueio do FRST se pré-notificação não enviada
+
+✅ 1.5 — Reapresentação Automática
+→ Backend
+O backend decide SE deve reapresentar, com base nos códigos de retorno recebidos do motor. O motor apenas executa a nova instrução quando recebida.
+Backend controla:
+- Contador de reapresentações por instrução
+- Verificação do código (apenas AM04 permite reapresentação)
+- Cálculo do intervalo mínimo (5 dias úteis)
+- Geração de novo InstructionID para reapresentação
+
+✅ 1.6 — Tratamento de R-Transactions
+→ Backend
+O motor devolve o código de rejeição. O backend interpreta e age.
+Motor devolve → { codigo: "AC04", instrucao: "XYZ" }
+Backend decide → Cancelar mandato + notificar cliente + registar
+
+✅ 1.7 — Reconciliação Diária
+→ Backend
+O backend faz o matching entre o que enviou ao motor e o que foi confirmado. O motor apenas fornece o ficheiro de resultados (PAIN.002).
+Backend executa:
+- Job diário após recepção do PAIN.002
+- Matching instrução enviada vs resultado recebido
+- Actualização de faturas/saldos (apenas ACSC)
+- Alerta para instruções sem resposta em D+1
+- Geração do relatório de reconciliação
+
+✅ 1.8 — Validações antes de gerar PAIN.008
+→ Backend
+Toda a validação de negócio ocorre no backend antes de qualquer envio ao motor.
+Backend valida:
+- Mandato ACTV
+- IBAN válido (formato angolano)
+- Data de débito não é fim de semana/feriado
+- InstructionID único
+- EndToEndID rastreável
+- Valor > 0 em AOA
+
+✅ Parâmetros Técnicos de Admin (Secções A a H)
+→ Backend
+Toda a configuração, credenciais, certificados, dados de teste e logs ficam no backend. O motor recebe apenas as credenciais necessárias por chamada.
+
+
+REGRAS DO MOTOR DE PAGAMENTOS (Serviço Externo)
+
+O motor é responsável apenas pela comunicação com a EMIS e devolução de resultados ao backend.
+
+
+⚙️ O que o motor faz
+ResponsabilidadeDetalheAutenticação com a EMISGerir tokens OAuth2 ou sessão SOAPConstrução do PAIN.008Montar o XML ISO 20022 com os dados recebidos do backendSubmissão do ficheiroEnviar o batch à EMIS via SOAP ou RESTRecepção do PAIN.002Receber e parsear a resposta de estadoDevolução ao backendRetornar resultado estruturado por instruçãoGestão de certificadosAssinar mensagens com o certificado digital
+
+⚙️ O que o motor NÃO deve fazer
+❌ Não decide se deve reapresentar
+❌ Não muda estados de mandatos
+❌ Não envia notificações a clientes
+❌ Não calcula janelas de submissão
+❌ Não guarda histórico de cobranças
+❌ Não interpreta códigos de rejeição com lógica de negócio
+❌ Não acede directamente à base de dados do backend
+
+RESUMO VISUAL
+┌──────────────────────────────────────────────────────────────┐
+│                    BACKEND MONOLÍTICO                        │
+│                                                              │
+│  • Máquina de estados do mandato                             │
+│  • Sequência FRST/RCUR/FNAL/OOFF                             │
+│  • Cálculo janela de submissão (dias úteis + feriados)       │
+│  • Pré-notificação ao devedor                                │
+│  • Decisão de reapresentação                                 │
+│  • Interpretação de R-Transactions                           │
+│  • Reconciliação diária                                      │
+│  • Validações de negócio (IBAN, valor, data)                 │
+│  • Parâmetros técnicos e configuração                        │
+│  • Logs e auditoria                                          │
+│  • Scheduler / Jobs automáticos                              │
+│                                                              │
+│              │  instrução validada + parâmetros              │
+│              ▼                                               │
+│  ┌─────────────────────────────────────────────────┐         │
+│  │           MOTOR DE PAGAMENTOS (externo)         │         │
+│  │                                                 │         │
+│  │  • Autenticação EMIS (SOAP/REST)                │         │
+│  │  • Construção do PAIN.008 (XML ISO 20022)       │         │
+│  │  • Submissão à EMIS                             │         │
+│  │  • Recepção e parse do PAIN.002                 │         │
+│  │  • Devolução de resultado ao backend            │         │
+│  └─────────────────────────────────────────────────┘         │
+└──────────────────────────────────────────────────────────────┘
+
+Próximo passo: Queres que detalhe o contrato de API entre o backend e o motor de pagamentos (o que o backend envia, o que o motor devolve), ou avançamos para o schema SQL das tabelas de suporte a estas regras?Você disse: OODAOODA10:51 AMClaude respondeu: Entendido.Entendido. Segue em frente.Você disse: Com abse na imagem em anexo, o meu app esta gerar referencia internas.Com abse na imagem em anexo, o meu app esta gerar referencia internas. no seguimento da integraçao com a emis, a referencia deverá ser gerada pela emis e o backend deverá captare processar a referencia. preciso rever essa lo´gica. No entanto, seundo a regra do negócio, o colegio, poderá gerar referencias de propinas onde apenas ficará vencida no dia 10 do mès seguintes. Ex: propina de junho, deverá vencer no dia 10 de Julho.  isto para evitar o colegio a todos meses gerar referªencias. Inalise essa regra e identifique melhorias e torne esse prompt mais cçaro e objectivo10:58 AMClaude respondeu: ANÁLISE DA LÓGICA DE REFERÊNCIAS + REGRA DE VENCIMENTOANÁLISE DA LÓGICA DE REFERÊNCIAS + REGRA DE VENCIMENTO
+Problema Actual
+ACTUAL (errado)
+Backend gera referência interna → SCH-RCCVP7-13-2027-01-11-5-52
+                                   ↑ referência própria do sistema
+
+CORRECTO
+EMIS gera referência oficial → Entidade + Referência Multicaixa
+Backend captura e associa   → ao aluno + propina + período
+
+Regra de Negócio — Vencimento de Propinas
+Lógica clara e objectiva
+Propina do mês M  →  vence no dia 10 do mês M+1
+
+Exemplos:
+├── Propina Janeiro  → vence 10 de Fevereiro
+├── Propina Junho    → vence 10 de Julho
+└── Propina Dezembro → vence 10 de Janeiro do ano seguinte
+Implicações desta regra
+SituaçãoComportamento esperadoReferência gerada em JaneiroVálida até 10 de FevereiroPagamento antes do dia 10Estado: PAGOPagamento após o dia 10Estado: PAGO COM ATRASO + multa se configuradaSem pagamento após dia 10Estado: VENCIDAGeração em massaUma referência por aluno por mês, gerada antecipadamente
+
+Melhorias Identificadas
+1. Geração de Referências
+❌ Actual   → Backend gera referência interna arbitrária
+✅ Correcto → Backend solicita referência à EMIS
+              EMIS devolve Entidade + Referência oficial
+              Backend associa: referência ↔ aluno ↔ propina ↔ período
+2. Ciclo de Vida da Referência
+❌ Actual   → Sem data de expiração clara
+✅ Correcto → Referência criada no mês M
+              Expira automaticamente no dia 10 de M+1
+              Após expiração → estado VENCIDA, referência inactiva na EMIS
+3. Geração em Massa
+✅ Manter botão "Gerar em Massa"
+   → Gera referências para todos os alunos activos de uma só vez
+   → Pode ser agendado automaticamente (ex: dia 25 de cada mês)
+   → Evita trabalho manual mensal
+4. Callback da EMIS
+❌ Actual   → Sem listener para confirmação de pagamento
+✅ Correcto → Webhook recebe notificação da EMIS quando referência é paga
+              Backend actualiza estado: PENDENTE → PAGO
+              Regista: data/hora do pagamento, canal, valor
+
+Prompt Final — Claro e Objectivo
+
+
+Contexto:
+O sistema gera propinas mensais para alunos de um colégio. Cada propina corresponde a um mês lectivo e tem uma data de vencimento fixa: dia 10 do mês seguinte ao mês da propina (ex: propina de Junho vence a 10 de Julho).
+Regras de negócio:
+
+A referência de pagamento é gerada pela EMIS (Multicaixa) — não pelo backend. O backend solicita a referência à EMIS, recebe Entidade + Referência, e associa ao registo da propina do aluno.
+A data de vencimento é sempre o dia 10 do mês seguinte ao mês da propina. Se o dia 10 for fim de semana ou feriado, o vencimento passa para o próximo dia útil.
+A referência gerada pela EMIS tem validade até à data de vencimento. Após essa data, a referência expira automaticamente na EMIS e o estado da propina passa para VENCIDA.
+O pagamento pode ser feito em qualquer canal Multicaixa (ATM, Express, Internet Banking). Quando pago, a EMIS notifica o backend via webhook/callback, e o backend actualiza o estado da propina para PAGO ou PAGO COM ATRASO conforme a data do pagamento.
+O colégio pode gerar referências em massa para todos os alunos activos de uma vez, idealmente agendado automaticamente no dia 25 de cada mês para o mês seguinte.
+Cada aluno tem uma única referência activa por mês. Não é permitido gerar duplicados para o mesmo aluno/período.
+
+Estados possíveis da propina:
+EstadoCondiçãoPENDENTEReferência gerada, dentro do prazoPAGOPagamento confirmado pela EMIS antes do dia 10PAGO COM ATRASOPagamento confirmado após o dia 10VENCIDADia 10 passou sem pagamento confirmadoCANCELADAAnulada manualmente pelo colégio
+O que deve ser revisto/implementado:
+
+Substituir geração de referência interna por chamada à API EMIS
+Implementar cálculo automático da data de vencimento (dia 10 de M+1)
+Implementar webhook para receber confirmação de pagamento da EMIS
+Implementar job nocturno para marcar propinas como VENCIDA após o dia 10
+Garantir unicidade de referência por aluno/período
+Implementar geração em massa com agendamento automático (dia 25)
+
+
+
+Queres avançar para o schema SQL desta lógica, ou para o contrato da API com a EMIS (request de geração de referência + estrutura do webhook)?Você disse: Perfeito, caso exista algum problema de comunicaçPerfeito, caso exista algum problema de comunicaç11:33 AMClaude respondeu: Parece que a mensagem ficou incompleta.Parece que a mensagem ficou incompleta. Continua — "caso exista algum problema de comunicação..." com a EMIS, o que queres tratar?Você disse: Caso exista algum problema de comunicaçao com a emis, como o colegio pode contornar essa situaçao?Caso exista algum problema de comunicaçao com a emis, como o colegio pode contornar essa situaçao?11:33 AMClaude respondeu: Boa questão.Boa questão. Esta é uma preocupação crítica para um colégio que depende do recebimento de propinas para operar.
+
+CONTINGÊNCIA — Falha de Comunicação com a EMIS
+Cenários de Falha
+1. EMIS fora do ar (manutenção / incidente)
+2. Timeout na geração de referência
+3. Webhook de confirmação não recebido
+4. Falha na rede do colégio
+5. Certificado expirado
+6. Credenciais inválidas / token expirado
+
+Estratégias de Contingência
+ESTRATÉGIA 1 — Retry Automático
+Para: Falha temporária na geração de referência
+Backend tenta gerar referência na EMIS
+         │
+         ▼ falha
+Aguarda 2 minutos → nova tentativa
+         │
+         ▼ falha
+Aguarda 5 minutos → nova tentativa
+         │
+         ▼ falha
+Aguarda 15 minutos → nova tentativa
+         │
+         ▼ falha após 3 tentativas
+Alerta administrador + entra em modo contingência
+Regra: Máximo 3 tentativas com backoff exponencial antes de escalar.
+
+ESTRATÉGIA 2 — Referência Provisória Interna
+Para: EMIS indisponível por período prolongado
+Sistema detecta falha de comunicação com EMIS
+         │
+         ▼
+Gera referência provisória interna (formato diferenciado)
+ex: PROV-2026-06-ALU001
+         │
+         ▼
+Colégio aceita pagamento por:
+  - Transferência bancária directa
+  - Depósito na conta do colégio
+  - Pagamento presencial (recibo manual)
+         │
+         ▼
+Quando EMIS restaurar:
+  - Sistema substitui referência provisória por referência oficial EMIS
+  - Reconcilia pagamentos já recebidos manualmente
+  - Marca propinas pagas durante contingência como PAGO
+Regra: Referência provisória deve ser claramente identificada no sistema e nunca enviada ao Multicaixa.
+
+ESTRATÉGIA 3 — Cache de Referências Pré-geradas
+Para: Prevenir falha antes que aconteça
+Dia 25 de cada mês → geração em massa antecipada
+         │
+         ▼
+Todas as referências do mês seguinte já estão geradas
+e armazenadas na BD com estado ACTIVA
+         │
+         ▼
+Mesmo que EMIS fique indisponível no dia 1 do mês,
+o colégio já tem todas as referências prontas
+Esta é a melhor estratégia preventiva.
+Elimina 90% dos problemas porque as referências já existem antes de serem necessárias.
+
+ESTRATÉGIA 4 — Webhook Perdido (Pagamento não confirmado)
+Para: Aluno pagou mas o sistema não actualizou
+Aluno paga via Multicaixa
+         │
+         ▼
+Webhook da EMIS não chega ao backend (falha de rede)
+         │
+         ▼
+Sistema fica com propina em estado PENDENTE
+(aluno pagou mas sistema não sabe)
+         │
+Solução:
+  ├── Job de reconciliação automática (consulta activa à EMIS a cada hora)
+  ├── Endpoint manual: "Consultar estado da referência na EMIS"
+  └── Aluno apresenta comprovativo → secretaria confirma manualmente
+
+ESTRATÉGIA 5 — Painel de Estado da Integração
+Para: Visibilidade em tempo real sobre a saúde da ligação
+Dashboard do administrador mostra:
+
+┌─────────────────────────────────────────────┐
+│  ESTADO DA INTEGRAÇÃO EMIS                  │
+│                                             │
+│  Ligação EMIS:     🟢 Activa                │
+│  Último webhook:   há 3 minutos             │
+│  Refs pendentes:   0                        │
+│  Refs em erro:     0                        │
+│                                             │
+│  [Testar Ligação]  [Reconciliar Agora]      │
+└─────────────────────────────────────────────┘
+
+Regras a Implementar no Backend
+RegraDetalheRetry automático3 tentativas com backoff exponencialModo contingênciaActivado automaticamente após 3 falhas consecutivasReferência provisóriaGerada apenas em modo contingência, formato distintoReconciliação activaJob a cada hora consultando estado de refs pendentes na EMISAlerta ao adminEmail/notificação imediata ao detectar falhaLog de falhasTodos os erros de comunicação registados com timestamp e payloadGeração antecipadaReferências geradas no dia 25 para o mês seguinteConfirmação manualSecretaria pode confirmar pagamento manual com número de comprovativo
+
+Resumo por Prioridade
+PRIORIDADE 1 — Preventiva
+└── Gerar todas as referências no dia 25 (antes de precisar)
+
+PRIORIDADE 2 — Reactiva automática
+└── Retry com backoff + reconciliação horária
+
+PRIORIDADE 3 — Reactiva manual
+└── Confirmação manual pela secretaria + referência provisória
+
+PRIORIDADE 4 — Visibilidade
+└── Painel de estado da integração no admin
+
+Queres que desenvolva o fluxo do modo contingência em detalhe, ou avançamos para o contrato completo da API com a EMIS incluindo estas regras de fallback?Você disse: interpreto que a estrátegia 3 pode ser complementar da 4.interpreto que a estrátegia 3 pode ser complementar da 4. gera um plano mais detalhado de ambas onde explica os steps, quando for restabelecidoa a comunicao com a emis11:46 AMClaude respondeu: PLANO DETALHADO — ESTRATÉGIA 3 + 4 COMBINADASPLANO DETALHADO — ESTRATÉGIA 3 + 4 COMBINADAS
+Visão Geral da Combinação
+ESTRATÉGIA 3 (Preventiva)          ESTRATÉGIA 4 (Reactiva)
+Geração antecipada no dia 25   +   Reconciliação quando EMIS restaurar
+         │                                      │
+         └──────────────┬─────────────────────--┘
+                        │
+                        ▼
+          Sistema resiliente e auto-recuperável
+
+FASE 1 — PREVENÇÃO (Estratégia 3)
+Step 1 — Job Automático dia 25
+Todo dia 25 do mês às 08h00
+         │
+         ▼
+Backend lista todos os alunos com matrícula ACTIVA
+         │
+         ▼
+Para cada aluno → verifica se já existe referência
+para o mês seguinte
+         │
+         ├── Já existe → ignora (evita duplicado)
+         │
+         └── Não existe → solicita referência à EMIS
+                  │
+                  ├── EMIS responde OK
+                  │     └── Guarda na BD:
+                  │           - entidade EMIS
+                  │           - referência oficial
+                  │           - valor da propina
+                  │           - data vencimento (dia 10 de M+1)
+                  │           - estado: ACTIVA
+                  │
+                  └── EMIS não responde
+                        └── Ver Fase 2 (contingência)
+Step 2 — O que fica guardado na BD por referência
+CampoValor exemploaluno_idALU-001periodo2026-06entidade_emis00987referencia_emis123 456 789referencia_provisorianull (só em contingência)valor25000 AOAdata_geracao2026-05-25 08:00:00data_vencimento2026-07-10estadoACTIVAorigemEMIS / PROVISORIAwebhook_recebidofalsedata_pagamentonullcomprovativonull
+Step 3 — Resultado esperado
+Dia 25 de Maio → todas as referências de Junho já estão na BD
+Dia 1 de Junho → secretaria e alunos já têm referências prontas
+Mesmo que EMIS fique offline em Junho → colégio opera normalmente
+porque as referências já foram geradas com antecedência
+
+FASE 2 — CONTINGÊNCIA (quando EMIS falha no dia 25)
+Step 1 — Detecção da falha
+Job do dia 25 tenta gerar referência
+         │
+         ▼
+Timeout ou erro da EMIS
+         │
+         ▼
+Backend regista falha:
+  - timestamp
+  - código de erro
+  - payload enviado (para reenvio posterior)
+  - estado: PENDENTE_EMIS
+Step 2 — Geração de Referência Provisória
+Após 3 tentativas falhadas (backoff exponencial)
+         │
+         ▼
+Backend gera referência provisória interna:
+
+  Formato: PROV-[ANO]-[MES]-[ID_ALUNO]
+  Exemplo: PROV-2026-06-ALU001
+
+         │
+         ▼
+BD actualizada:
+  - referencia_emis    → null
+  - referencia_provisoria → PROV-2026-06-ALU001
+  - origem             → PROVISORIA
+  - estado             → CONTINGENCIA
+Step 3 — O que o colégio faz durante a contingência
+Secretaria informa o encarregado:
+"Referência temporária: PROV-2026-06-ALU001
+ Pagamento aceite por transferência bancária
+ ou presencialmente. Guarde o comprovativo."
+
+Pagamento recebido presencialmente ou por transferência:
+         │
+         ▼
+Secretaria regista manualmente no sistema:
+  - número do comprovativo
+  - data do pagamento
+  - valor pago
+  - quem registou
+         │
+         ▼
+Estado da propina → PAGO_MANUAL_PENDENTE_RECONCILIACAO
+
+FASE 3 — RESTAURO DA COMUNICAÇÃO COM A EMIS
+Step 1 — Detecção do restauro
+Job de health check corre a cada 15 minutos
+         │
+         ▼
+Testa ligação à EMIS (ping ao endpoint)
+         │
+         ├── Falha → regista e aguarda próxima verificação
+         │
+         └── Sucesso → dispara processo de reconciliação automática
+                  │
+                  ▼
+             Alerta admin: "Ligação EMIS restaurada.
+             Reconciliação iniciada automaticamente."
+Step 2 — Reconciliação de Referências Provisórias
+Sistema lista todas as propinas com:
+  origem = PROVISORIA  OU  estado = CONTINGENCIA
+
+         │
+         ▼
+Para cada propina pendente de reconciliação:
+
+  ┌─────────────────────────────────────────┐
+  │  Propina sem pagamento registado        │
+  │  (estado: CONTINGENCIA)                 │
+  │         │                               │
+  │         ▼                               │
+  │  Solicita nova referência oficial EMIS  │
+  │  com os mesmos dados originais          │
+  │         │                               │
+  │         ▼                               │
+  │  EMIS devolve referência oficial        │
+  │         │                               │
+  │         ▼                               │
+  │  BD actualizada:                        │
+  │  - referencia_emis → nova ref oficial   │
+  │  - referencia_provisoria → arquivada    │
+  │  - origem → EMIS                        │
+  │  - estado → ACTIVA                      │
+  └─────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────┐
+  │  Propina com pagamento manual registado │
+  │  (estado: PAGO_MANUAL_PENDENTE_         │
+  │   RECONCILIACAO)                        │
+  │         │                               │
+  │         ▼                               │
+  │  Consulta EMIS se referência provisória │
+  │  foi paga (via comprovativo/referência) │
+  │         │                               │
+  │         ├── EMIS confirma pagamento     │
+  │         │     └── estado → PAGO         │
+  │         │         origem → EMIS         │
+  │         │         webhook_recebido → true│
+  │         │                               │
+  │         └── EMIS não confirma           │
+  │               └── estado → PAGO_MANUAL  │
+  │                   flag → REQUER_REVISAO │
+  │                   alerta ao admin       │
+  └─────────────────────────────────────────┘
+Step 3 — Reconciliação de Webhooks Perdidos (Estratégia 4)
+Sistema lista todas as propinas com:
+  estado = ACTIVA  E  webhook_recebido = false
+  E data_vencimento já passou
+
+         │
+         ▼
+Para cada propina → consulta activa à EMIS:
+  "Esta referência foi paga?"
+
+         │
+         ├── EMIS: SIM, foi paga
+         │     │
+         │     ▼
+         │   Actualiza BD:
+         │   - estado → PAGO ou PAGO_COM_ATRASO
+         │   - data_pagamento → data real do pagamento
+         │   - webhook_recebido → true (via consulta activa)
+         │   - origem_confirmacao → RECONCILIACAO_ACTIVA
+         │
+         └── EMIS: NÃO foi paga
+               │
+               ▼
+             Verifica data actual vs data_vencimento
+               │
+               ├── Dentro do prazo → mantém ACTIVA
+               └── Fora do prazo   → estado → VENCIDA
+Step 4 — Relatório de Reconciliação
+Após concluir todo o processo:
+
+┌──────────────────────────────────────────────────┐
+│         RELATÓRIO DE RECONCILIAÇÃO               │
+│         Gerado em: 2026-06-11 às 09:42           │
+├──────────────────────────────────────────────────┤
+│  Refs provisórias substituídas:        45        │
+│  Pagamentos manuais confirmados EMIS:  12        │
+│  Pagamentos manuais NÃO confirmados:    2 ⚠️     │
+│  Webhooks recuperados por consulta:     8        │
+│  Propinas marcadas VENCIDA:             3        │
+│  Erros durante reconciliação:           0        │
+├──────────────────────────────────────────────────┤
+│  [Ver detalhes]  [Exportar PDF]                  │
+└──────────────────────────────────────────────────┘
+
+Admin recebe relatório por email automaticamente
+
+FLUXO COMPLETO RESUMIDO
+DIA 25 ──► Job gera refs EMIS ──► OK? ──► Refs oficiais na BD
+                                   │
+                                  NÃO
+                                   │
+                              Refs provisórias
+                              Pagamento manual aceite
+                                   │
+                              EMIS restaura
+                                   │
+                    ┌──────────────┴──────────────┐
+                    │                             │
+             Sem pagamento                 Com pagamento manual
+                    │                             │
+             Nova ref EMIS                 Confirmar na EMIS
+             gerada e activa               │
+                                     Confirmado → PAGO
+                                     Não confirm. → REQUER_REVISAO
+                                           +
+                                     Webhooks perdidos recuperados
+                                           +
+                                     Relatório automático ao admin
+
+Estados Adicionais necessários na BD
+EstadoQuandoACTIVAReferência EMIS gerada, aguarda pagamentoCONTINGENCIAReferência provisória, EMIS indisponívelPAGO_MANUALPago presencialmente, EMIS confirmouPAGO_MANUAL_PENDENTE_RECONCILIACAOPago manualmente, aguarda confirmação EMISREQUER_REVISAOPagamento manual não confirmado pela EMIS após restauroPAGOConfirmado pela EMIS (webhook ou reconciliação)PAGO_COM_ATRASOConfirmado após dia 10VENCIDAPrazo esgotado sem pagamento
+
+Queres avançar para o schema SQL completo com todos estes estados e campos, ou para o wireframe do painel de reconciliação no admin?Você disse: sim e gera um documento word com da PLANO DETALHADO — ESTRATÉGIA 3 + 4 COMBINADASsim e gera um documento word com da PLANO DETALHADO — ESTRATÉGIA 3 + 4 COMBINADAS11:53 AMClaude respondeu: Documento gerado e validado com sucesso.Executou 6 comandos, editou 4 arquivos, visualizou 2 arquivosExecutou 6 comandos, editou 4 arquivos, visualizou 2 arquivosDocumento gerado e validado com sucesso. Inclui:
+
+Capa com identidade PropinaPlus / Kiwua Digital Services
+Estratégia 3 completa — job do dia 25, dados da BD, resultado esperado
+Fase de Contingência — detecção de falha, retry com backoff, referência provisória, procedimento da secretaria
+Estratégia 4 — health check, reconciliação de refs provisórias, reconciliação de webhooks perdidos, relatório automático
+Fluxo completo combinado em diagrama de texto
+Tabela de estados completa com 9 estados
+Tabela de regras de implementação com localização no backend
+Plano contingencia sdd estrategia3 4Documento · DOCX BaixarVocê disse: Ao executar o teste da geraçao da refencia em massa,a aplicacao esta retornar a imagem em anexo, esta devolver a imagem em anexo.Ao executar o teste da geraçao da refencia em massa,a aplicacao esta retornar a imagem em anexo, esta devolver a imagem em anexo. no entanto obervo que para toso alunos a refrencia é unica isto nao esta correcto. analisa a situiaçao e indica o que deve ser corrigido12:14 PMClaude respondeu: ANÁLISE DO PROBLEMA — Referência Única para Todos os AlunosANÁLISE DO PROBLEMA — Referência Única para Todos os Alunos
+O que a imagem mostra
+Entidade:    00112
+Referência:  754739915
+Valor Total: 4 592 000 AOA Kz  ← soma de TODOS os alunos
+Válida até:  11/06/2026
+
+Diagnóstico do Problema
+O sistema está a gerar uma única referência agregada com o valor total de todas as propinas em vez de uma referência individual por aluno. Isto significa que o backend está a:
+❌ ACTUAL (errado)
+Todos os alunos → 1 chamada à EMIS → 1 referência → valor somado
+                                      754739915 = 4 592 000 AOA
+
+✅ CORRECTO
+Aluno A → 1 chamada à EMIS → referência A → 25 000 AOA
+Aluno B → 1 chamada à EMIS → referência B → 25 000 AOA
+Aluno C → 1 chamada à EMIS → referência C → 25 000 AOA
+...
+
+Causas Prováveis no Código
+Causa 1 — Soma de valores antes de chamar a EMIS
+javascript// ❌ ERRADO — está a somar todos os valores
+const totalGeral = alunos.reduce((acc, a) => acc + a.valor, 0);
+await gerarReferenciaEMIS({ valor: totalGeral });
+
+// ✅ CORRECTO — chamar individualmente
+for (const aluno of alunos) {
+  await gerarReferenciaEMIS({ 
+    aluno_id: aluno.id,
+    valor: aluno.valor_propina 
+  });
+}
+Causa 2 — Loop não está a iterar correctamente
+javascript// ❌ ERRADO — chama a EMIS fora do loop
+const alunos = await listarAlunos();
+let valorTotal = 0;
+alunos.forEach(a => valorTotal += a.valor);
+const ref = await emis.gerar({ valor: valorTotal }); // ← fora do loop
+
+// ✅ CORRECTO — chama a EMIS dentro do loop
+const alunos = await listarAlunos();
+for (const aluno of alunos) {
+  const ref = await emis.gerar({  // ← dentro do loop
+    valor: aluno.valor_propina,
+    descricao: `Propina ${aluno.nome} - ${aluno.periodo}`
+  });
+  await guardarReferencia(aluno.id, ref);
+}
+Causa 3 — Referência gerada uma vez e reutilizada
+javascript// ❌ ERRADO — mesma referência atribuída a todos
+const ref = await gerarUmaReferencia();
+alunos.forEach(aluno => {
+  aluno.referencia = ref; // ← todos ficam com a mesma
+});
+
+// ✅ CORRECTO — referência nova por aluno
+for (const aluno of alunos) {
+  aluno.referencia = await gerarReferenciaEMIS(aluno);
+}
+
+O que deve ser corrigido
+1. Lógica de Geração em Massa
+PontoErradoCorrectoChamadas à EMIS1 chamada para todos1 chamada por alunoValor enviadoSoma totalValor individual do alunoReferências geradas1 referênciaN referências (1 por aluno)Registos na BD1 registoN registos (1 por aluno)
+
+2. Validação de Unicidade antes de Gerar
+javascript// Antes de gerar, verificar se já existe referência activa
+// para aquele aluno naquele período
+
+const jaExiste = await db.propinas.findOne({
+  aluno_id: aluno.id,
+  periodo: periodoActual,
+  estado: ['ACTIVA', 'CONTINGENCIA', 'PAGO']
+});
+
+if (jaExiste) {
+  continue; // ← pula, não gera duplicado
+}
+
+3. Estrutura correcta do payload para a EMIS por aluno
+javascript{
+  // Identificação
+  aluno_id:    "ALU-001",
+  nome_devedor: "Carlos Manuel Teixeira",
+  
+  // Valor individual
+  valor:       25000,       // ← valor DESTE aluno, não total
+  moeda:       "AOA",
+  
+  // Período e vencimento
+  descricao:   "Propina Junho 2026 - Carlos Teixeira",
+  data_limite: "2026-07-10", // ← dia 10 do mês seguinte
+  
+  // Referência interna para reconciliação
+  referencia_interna: "SCH-ALU001-2026-06"
+}
+
+4. Controlo do processo em massa

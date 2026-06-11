@@ -1,0 +1,104 @@
+Aluno A → 1 chamada à EMIS → referência A → 25 000 AOA
+Aluno B → 1 chamada à EMIS → referência B → 25 000 AOA
+Aluno C → 1 chamada à EMIS → referência C → 25 000 AOA
+...
+
+Causas Prováveis no Código
+Causa 1 — Soma de valores antes de chamar a EMIS
+javascript// ❌ ERRADO — está a somar todos os valores
+const totalGeral = alunos.reduce((acc, a) => acc + a.valor, 0);
+await gerarReferenciaEMIS({ valor: totalGeral });
+
+// ✅ CORRECTO — chamar individualmente
+for (const aluno of alunos) {
+  await gerarReferenciaEMIS({ 
+    aluno_id: aluno.id,
+    valor: aluno.valor_propina 
+  });
+}
+Causa 2 — Loop não está a iterar correctamente
+javascript// ❌ ERRADO — chama a EMIS fora do loop
+const alunos = await listarAlunos();
+let valorTotal = 0;
+alunos.forEach(a => valorTotal += a.valor);
+const ref = await emis.gerar({ valor: valorTotal }); // ← fora do loop
+
+// ✅ CORRECTO — chama a EMIS dentro do loop
+const alunos = await listarAlunos();
+for (const aluno of alunos) {
+  const ref = await emis.gerar({  // ← dentro do loop
+    valor: aluno.valor_propina,
+    descricao: `Propina ${aluno.nome} - ${aluno.periodo}`
+  });
+  await guardarReferencia(aluno.id, ref);
+}
+Causa 3 — Referência gerada uma vez e reutilizada
+javascript// ❌ ERRADO — mesma referência atribuída a todos
+const ref = await gerarUmaReferencia();
+alunos.forEach(aluno => {
+  aluno.referencia = ref; // ← todos ficam com a mesma
+});
+
+// ✅ CORRECTO — referência nova por aluno
+for (const aluno of alunos) {
+  aluno.referencia = await gerarReferenciaEMIS(aluno);
+}
+
+O que deve ser corrigido
+1. Lógica de Geração em Massa
+PontoErradoCorrectoChamadas à EMIS1 chamada para todos1 chamada por alunoValor enviadoSoma totalValor individual do alunoReferências geradas1 referênciaN referências (1 por aluno)Registos na BD1 registoN registos (1 por aluno)
+
+2. Validação de Unicidade antes de Gerar
+javascript// Antes de gerar, verificar se já existe referência activa
+// para aquele aluno naquele período
+
+const jaExiste = await db.propinas.findOne({
+  aluno_id: aluno.id,
+  periodo: periodoActual,
+  estado: ['ACTIVA', 'CONTINGENCIA', 'PAGO']
+});
+
+if (jaExiste) {
+  continue; // ← pula, não gera duplicado
+}
+
+3. Estrutura correcta do payload para a EMIS por aluno
+javascript{
+  // Identificação
+  aluno_id:    "ALU-001",
+  nome_devedor: "Carlos Manuel Teixeira",
+  
+  // Valor individual
+  valor:       25000,       // ← valor DESTE aluno, não total
+  moeda:       "AOA",
+  
+  // Período e vencimento
+  descricao:   "Propina Junho 2026 - Carlos Teixeira",
+  data_limite: "2026-07-10", // ← dia 10 do mês seguinte
+  
+  // Referência interna para reconciliação
+  referencia_interna: "SCH-ALU001-2026-06"
+}
+
+4. Controlo do processo em massa
+javascript// Resultado esperado após correcção:
+{
+  total_alunos:      180,
+  referencias_geradas: 178,
+  ja_existiam:           2,
+  erros:                 0,
+  referencias: [
+    { aluno: "Carlos Teixeira",  ref: "754739915", valor: 25000 },
+    { aluno: "Maria José Santos", ref: "754739916", valor: 25000 },
+    // ...
+  ]
+}
+
+Resumo do que corrigir no backend
+1. Mover a chamada à EMIS para DENTRO do loop de alunos
+2. Passar o valor individual de cada aluno (não o total)
+3. Guardar cada referência associada ao respectivo aluno_id
+4. Adicionar verificação de duplicado antes de cada geração
+5. Adicionar log de resultado por aluno (gerado / já existia / erro)
+6. Remover qualquer lógica de agregação/soma de valores
+Queres que reveja o código actual do endpoint de geração em massa para identificar exactamente onde está o erro?Sonnet 4.6 Baixo
