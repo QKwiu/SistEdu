@@ -12,7 +12,7 @@ import {
   Zap, BarChart3, CheckSquare, ToggleLeft, Send, ChevronLeft, ToggleRight, ListFilter,
   Megaphone, CheckCheck, Tag, KeyRound, ShieldOff, UserCheck, UserX,
   Wifi, Server, Terminal, Network, Settings2, FlaskConical, Play, Copy,
-  Layers,
+  Layers, Percent,
 } from "lucide-react";
 import { StudentRegistrationForm } from "@/components/student-form";
 import { fmtNumber as fmt, fmtCurrency as fmtCur } from "@/lib/format";
