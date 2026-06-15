@@ -3619,7 +3619,6 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [ajuste, setAjuste] = useState<Propina | null>(null);
   const [ajusteInitialTipo, setAjusteInitialTipo] = useState<"perdao"|"ajuste_valor"|"reagendamento"|"justificacao">("perdao");
   const [openMenu, setOpenMenu] = useState<number | null>(null);
-  /* Baixa Manual state */
   const [bmPropina, setBmPropina] = useState<Propina | null>(null);
   const [bmValor, setBmValor] = useState("");
   const [bmMetodo, setBmMetodo] = useState("Numerário");
@@ -3631,6 +3630,11 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const [bmError, setBmError] = useState("");
   const [bmPrintMode, setBmPrintMode] = useState<"thermal" | "a4">("thermal");
   const [activeTab, setActiveTab] = useState<"listagem"|"consulta">("listagem");
+  const [drawerPropina, setDrawerPropina] = useState<Propina | null>(null);
+  const [drawerValidade, setDrawerValidade] = useState("");
+  const [drawerDesc, setDrawerDesc] = useState("");
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  const [drawerError, setDrawerError] = useState("");
 
   const openBaixa = (p: Propina) => {
     setBmPropina(p);
@@ -3694,6 +3698,13 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
     }
   };
 
+  const openDrawer = (p: Propina) => {
+    setDrawerPropina(p);
+    setDrawerValidade("");
+    setDrawerDesc("");
+    setDrawerError("");
+  };
+
   const filtered = propinas
     .filter(p => filterStatus === "todos" || p.status === filterStatus)
     .filter(p => !filterAluno || String(p.student_id) === filterAluno)
@@ -3710,431 +3721,509 @@ function PropinasView({ token, propinas: initialPropinas, alunos, turmas, onOpen
   const hasActiveFilters = !!(filterAluno || filterTurma || filterMes || filterAno || filterMetodo);
   const clearFilters = () => { setFilterAluno(""); setFilterTurma(""); setFilterMes(""); setFilterAno(""); setFilterMetodo(""); };
 
+  const sumVal = (arr: Propina[]) => arr.reduce((s, p) => s + Number(p.montante) + Number(p.multa), 0);
+  const kpiTotal = sumVal(propinas);
+  const kpiPago = sumVal(propinas.filter(p => p.status === "pago"));
+  const kpiPagoCt = propinas.filter(p => p.status === "pago").length;
+  const kpiPendente = sumVal(propinas.filter(p => p.status === "pendente"));
+  const kpiPendenteCt = propinas.filter(p => p.status === "pendente").length;
+  const kpiVencido = sumVal(propinas.filter(p => p.status === "vencido"));
+  const kpiVencidoCt = propinas.filter(p => p.status === "vencido").length;
+
   return (
-    <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-        <div><h2 className="text-2xl font-bold text-slate-900">Propinas & Faturas</h2></div>
-        {activeTab === "listagem" && (
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarPropina}><FileText className="w-4 h-4"/> Nova Propina</Button>
-            <Button variant="outline" className="bg-white gap-2" onClick={onOpenGerarLote}><Users className="w-4 h-4"/> Gerar em Massa</Button>
-            <Button className="gap-2" onClick={onOpenGerarRef}><CreditCard className="w-4 h-4"/> Gerar Referência</Button>
+    <div className="flex-1 flex flex-col min-h-0 relative">
+
+      {/* ── Intent Banner ── */}
+      <div className="bg-gradient-to-br from-primary via-blue-600 to-blue-700 px-6 pt-6 pb-10 text-white relative overflow-hidden shrink-0">
+        <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "radial-gradient(circle at 75% 40%, white 0%, transparent 55%)" }}/>
+        <div className="relative flex flex-col sm:flex-row sm:items-start justify-between gap-5">
+          <div className="max-w-md">
+            <h2 className="text-xl font-bold leading-snug mb-1.5">Criar e gerir cobranças de propinas</h2>
+            <p className="text-blue-100 text-sm leading-relaxed">Gere referências EMIS para pagamento via portal, ou registe baixas manuais para pagamentos presenciais.</p>
           </div>
-        )}
-      </div>
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-5">
-        <button onClick={() => setActiveTab("listagem")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${activeTab === "listagem" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-          <Banknote className="w-3.5 h-3.5"/> Listagem
-        </button>
-        <button onClick={() => setActiveTab("consulta")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${activeTab === "consulta" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-          <Search className="w-3.5 h-3.5"/> Consulta Financeira
-        </button>
-      </div>
-      {activeTab === "consulta" && (
-        <ConsultaFinanceiraView token={token} alunos={alunos} turmas={turmas} />
-      )}
-      {activeTab === "listagem" && (<><div className="space-y-3 mb-5">
-        {/* Status tabs */}
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-            {[{k:"todos",l:"Todas"},{k:"pendente",l:"Pendentes"},{k:"vencido",l:"Vencidas"},{k:"pago",l:"Pagas"}].map(({k,l}) => (
-              <button key={k} onClick={() => setFilterStatus(k as any)}
-                className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${filterStatus===k?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>{l}</button>
-            ))}
-          </div>
-          {hasActiveFilters && (
-            <button onClick={clearFilters}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
-              <X className="w-3 h-3"/> Limpar filtros
+          <div className="flex gap-2 shrink-0 flex-wrap">
+            <button onClick={onOpenGerarLote}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-white/30 text-white text-sm font-semibold hover:bg-white/10 transition-all">
+              <List className="w-4 h-4"/> Gerar em Massa
             </button>
-          )}
+            <button onClick={onOpenGerarPropina}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-primary text-sm font-semibold hover:bg-blue-50 transition-all shadow-md">
+              <Plus className="w-4 h-4"/> Nova Propina / Referência
+            </button>
+          </div>
         </div>
-        {/* Detail filters */}
-        <div className="flex flex-wrap gap-2">
-          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[160px]"
-            value={filterAluno} onChange={e => setFilterAluno(e.target.value)}>
-            <option value="">Todos os alunos</option>
-            {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
-          </select>
-          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[140px]"
-            value={filterTurma} onChange={e => setFilterTurma(e.target.value)}>
-            <option value="">Todas as turmas</option>
-            {turmas.map(t => <option key={t.id} value={t.nome}>{t.nome}</option>)}
-          </select>
-          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[130px]"
-            value={filterMes} onChange={e => setFilterMes(e.target.value)}>
-            <option value="">Todos os meses</option>
-            {MESES.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <input type="number" placeholder="Ano (ex: 2026)" min="2020" max="2099"
-            value={filterAno} onChange={e => setFilterAno(e.target.value)}
-            className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-36"/>
-          <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[170px]"
-            value={filterMetodo} onChange={e => setFilterMetodo(e.target.value)}>
-            <option value="">Todos os métodos</option>
-            <option value="manual">Manual</option>
-            <option value="online">Online (todos)</option>
-            <option value="MCX_EXPRESS">MCX Express</option>
-            <option value="MULTICAIXA">Multicaixa</option>
-            <option value="TPA">TPA</option>
-          </select>
-        </div>
-        {/* Active filter summary */}
-        {hasActiveFilters && (
-          <p className="text-xs text-slate-500">
-            A mostrar <span className="font-semibold text-slate-700">{filtered.length}</span> de <span className="font-semibold text-slate-700">{propinas.length}</span> propinas
-          </p>
-        )}
       </div>
-      {filtered.length === 0 ? (
-        <Card className="p-12 text-center"><Banknote className="w-12 h-12 text-slate-200 mx-auto mb-3"/><p className="font-semibold text-slate-500">Sem propinas nesta categoria</p><Button className="mt-4" onClick={onOpenGerarPropina}><Plus className="w-4 h-4 mr-2"/> Gerar Propina</Button></Card>
-      ) : (
-        <Card className="p-0 overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase border-b border-slate-100">
-              <tr>
-                <th className="px-3 py-2.5">Aluno</th>
-                <th className="px-3 py-2.5 hidden lg:table-cell">Turma</th>
-                <th className="px-3 py-2.5">Período</th>
-                <th className="px-3 py-2.5">Total</th>
-                <th className="px-3 py-2.5">Estado</th>
-                <th className="px-3 py-2.5 hidden xl:table-cell">Referência</th>
-                <th className="px-3 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {filtered.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50/50">
-                  <td className="px-3 py-2.5 font-medium text-slate-900 max-w-[160px]">
-                    <div className="truncate">{p.aluno_nome}</div>
-                    <div className="text-[10px] text-slate-400 lg:hidden">{p.turma}</div>
-                  </td>
-                  <td className="px-3 py-2.5 text-xs text-slate-500 whitespace-nowrap hidden lg:table-cell">{p.turma}</td>
-                  <td className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">{p.mes} {p.ano}</td>
-                  <td className="px-3 py-2.5">
-                    <div className="font-bold text-slate-900 text-xs whitespace-nowrap">{fmt(Number(p.montante)+Number(p.multa))} Kz</div>
-                    {Number(p.multa) > 0 && <div className="text-[10px] text-red-500">+{fmt(p.multa)} multa</div>}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex flex-col gap-0.5">
-                      {p.status === "pago"
-                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap"><CheckCircle2 className="w-2.5 h-2.5"/> Pago</span>
-                        : p.status === "vencido"
-                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-700 border border-red-200 whitespace-nowrap"><AlertCircle className="w-2.5 h-2.5"/> Vencido</span>
-                        : <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap"><Clock className="w-2.5 h-2.5"/> Pendente</span>
-                      }
-                      {p.pagamento_origem === "online"
-                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300 whitespace-nowrap">
-                            <Zap className="w-2.5 h-2.5"/> GPO/EMIS
-                          </span>
-                        : p.status === "pago"
-                        ? <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-500 border border-slate-200 whitespace-nowrap">
-                            <ShieldCheck className="w-2.5 h-2.5"/> Manual
-                          </span>
-                        : null
-                      }
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-xs hidden xl:table-cell">
-                    {p.ref_numero
-                      ? <span className="font-mono text-slate-700">{p.entidade}/{p.ref_numero}</span>
-                      : <span className="text-slate-300">—</span>}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-0.5 justify-end">
-                      <button
-                        title="Ver fatura"
-                        onClick={() => setFaturaPropinaId(p.id)}
-                        className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition-colors">
-                        <Receipt className="w-3.5 h-3.5"/>
-                      </button>
-                      <button
-                        title="Ver detalhe do pagamento"
-                        onClick={() => setDetalhePropina(p)}
-                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors">
-                        <Eye className="w-3.5 h-3.5"/>
-                      </button>
-                      {p.status !== "pago" && p.pagamento_origem !== "online" && (
-                        <>
-                          {p.status === "vencido" && (
-                            <button
-                              onClick={() => handleGerarReferencia(p)}
-                              disabled={gerarRefLoading === p.id}
-                              title="Gerar nova referência EMIS"
-                              className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-50">
-                              <RefreshCw className={`w-3.5 h-3.5 ${gerarRefLoading === p.id ? "animate-spin" : ""}`}/>
-                            </button>
-                          )}
-                          <button onClick={() => { openBaixa(p); setOpenMenu(null); }}
-                            title="Dar baixa manual"
-                            className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors">
-                            <FileCheck className="w-3.5 h-3.5"/>
-                          </button>
-                          {/* More actions menu */}
-                          <div className="relative">
-                            <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
-                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                              <MoreHorizontal className="w-4 h-4"/>
-                            </button>
-                            <AnimatePresence>
-                              {openMenu === p.id && (
-                                <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                                  className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-56">
-                                  {(["perdao","ajuste_valor","reagendamento","justificacao"] as const).map(t => (
-                                    <button key={t} onClick={() => openAjuste(p, t)}
-                                      className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
-                                      {AJUSTE_TIPO_LABELS[t]}
-                                    </button>
-                                  ))}
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      )}
 
-      {ajuste && (
-        <ModalAjusteSchool
-          propina={ajuste} token={token}
-          initialTipo={ajusteInitialTipo}
-          onClose={() => setAjuste(null)}
-          onDone={updated => {
-            setPropinas(prev => prev.map(pp => pp.id === updated.id ? updated : pp));
-            setAjuste(null);
-          }}
-        />
-      )}
+      {/* ── KPI Strip ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-6 -mt-5 mb-1 relative z-10 shrink-0">
+        {([
+          { label: "TOTAL EMITIDO", value: kpiTotal,    count: `${propinas.length} faturas`,             dot: "bg-slate-400",    val: "text-slate-900" },
+          { label: "PAGAS",         value: kpiPago,     count: `${kpiPagoCt} propinas liquidadas`,       dot: "bg-emerald-500",  val: "text-emerald-600" },
+          { label: "PENDENTES",     value: kpiPendente, count: `${kpiPendenteCt} aguardam pagamento`,    dot: "bg-amber-500",    val: "text-amber-600" },
+          { label: "VENCIDAS",      value: kpiVencido,  count: `${kpiVencidoCt} propina(s) em atraso`,  dot: "bg-red-500",      val: "text-red-600" },
+        ] as const).map(({ label, value, count, dot, val }) => (
+          <div key={label} className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+            <p className={`text-2xl font-bold leading-tight ${val}`}>{fmt(value)} <span className="text-sm font-semibold">Kz</span></p>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`}/>
+              {count}
+            </p>
+          </div>
+        ))}
+      </div>
 
-      {/* ── Modal Fatura Individual ── */}
-      <AnimatePresence>
-        {faturaPropinaId !== null && token && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setFaturaPropinaId(null)}>
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              onClick={e => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
-                <h3 className="font-bold text-slate-900 flex items-center gap-2"><Receipt className="w-4 h-4 text-primary"/> Fatura Proforma</h3>
-                <button onClick={() => setFaturaPropinaId(null)} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
+      {/* ── Sub-tabs + content ── */}
+      <div className="flex-1 overflow-y-auto px-6 pt-4 pb-8">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-5">
+          <button onClick={() => setActiveTab("listagem")}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${activeTab === "listagem" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            <Banknote className="w-3.5 h-3.5"/> Listagem
+          </button>
+          <button onClick={() => setActiveTab("consulta")}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${activeTab === "consulta" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            <Search className="w-3.5 h-3.5"/> Consulta Financeira
+          </button>
+        </div>
+
+        {activeTab === "consulta" && <ConsultaFinanceiraView token={token} alunos={alunos} turmas={turmas} />}
+
+        {activeTab === "listagem" && (<>
+          {/* ── Toolbar ── */}
+          <div className="space-y-3 mb-4">
+            <div className="flex flex-wrap gap-3 items-center justify-between">
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                {[{k:"todos",l:"Todas"},{k:"pendente",l:"Pendentes"},{k:"vencido",l:"Vencidas"},{k:"pago",l:"Pagas"}].map(({k,l}) => (
+                  <button key={k} onClick={() => setFilterStatus(k as any)}
+                    className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${filterStatus===k?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-700"}`}>{l}</button>
+                ))}
               </div>
-              <div className="overflow-y-auto flex-1">
-                <ModalFatura token={token} propinaId={faturaPropinaId} onClose={() => setFaturaPropinaId(null)}/>
+              <div className="flex items-center gap-2">
+                {hasActiveFilters && (
+                  <button onClick={clearFilters}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+                    <X className="w-3 h-3"/> Limpar filtros
+                  </button>
+                )}
+                <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+                  <Download className="w-3.5 h-3.5"/> Exportar
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[160px]"
+                value={filterAluno} onChange={e => setFilterAluno(e.target.value)}>
+                <option value="">Todos os alunos</option>
+                {alunos.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+              </select>
+              <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[140px]"
+                value={filterTurma} onChange={e => setFilterTurma(e.target.value)}>
+                <option value="">Todas as turmas</option>
+                {turmas.map(t => <option key={t.id} value={t.nome}>{t.nome}</option>)}
+              </select>
+              <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[130px]"
+                value={filterMes} onChange={e => setFilterMes(e.target.value)}>
+                <option value="">Todos os meses</option>
+                {MESES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <input type="number" placeholder="Ano (ex: 2026)" min="2020" max="2099"
+                value={filterAno} onChange={e => setFilterAno(e.target.value)}
+                className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-36"/>
+              <select className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[170px]"
+                value={filterMetodo} onChange={e => setFilterMetodo(e.target.value)}>
+                <option value="">Todos os métodos</option>
+                <option value="manual">Manual</option>
+                <option value="online">Online (todos)</option>
+                <option value="MCX_EXPRESS">MCX Express</option>
+                <option value="MULTICAIXA">Multicaixa</option>
+                <option value="TPA">TPA</option>
+              </select>
+            </div>
+            {hasActiveFilters && (
+              <p className="text-xs text-slate-500">
+                A mostrar <span className="font-semibold text-slate-700">{filtered.length}</span> de <span className="font-semibold text-slate-700">{propinas.length}</span> propinas
+              </p>
+            )}
+          </div>
+
+          {/* ── Table ── */}
+          {filtered.length === 0 ? (
+            <Card className="p-12 text-center">
+              <Banknote className="w-12 h-12 text-slate-200 mx-auto mb-3"/>
+              <p className="font-semibold text-slate-500">Sem propinas nesta categoria</p>
+              <Button className="mt-4" onClick={onOpenGerarPropina}><Plus className="w-4 h-4 mr-2"/> Gerar Propina</Button>
+            </Card>
+          ) : (
+            <Card className="p-0 overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-100">
+                  <tr>
+                    <th className="px-4 py-3">Aluno</th>
+                    <th className="px-4 py-3 hidden lg:table-cell">Turma</th>
+                    <th className="px-4 py-3">Período</th>
+                    <th className="px-4 py-3">Total</th>
+                    <th className="px-4 py-3">Estado & Método</th>
+                    <th className="px-4 py-3 hidden xl:table-cell">Referência EMIS</th>
+                    <th className="px-4 py-3 text-right">Acções</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 bg-white">
+                  {filtered.map(p => {
+                    const total = Number(p.montante) + Number(p.multa);
+                    const hasRef = !!p.ref_numero;
+                    const isPago = p.status === "pago";
+                    const isVencido = p.status === "vencido";
+                    const isOnline = p.pagamento_origem === "online";
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-900 truncate max-w-[150px] text-sm">{p.aluno_nome}</div>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">#{String(p.student_id).padStart(4,"0")}</div>
+                        </td>
+                        <td className="px-4 py-3 hidden lg:table-cell">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">{p.turma || "—"}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{p.mes} {p.ano}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-slate-900 font-mono text-sm whitespace-nowrap">{fmt(total)} Kz</div>
+                          {Number(p.multa) > 0 && <div className="text-[10px] text-red-500 mt-0.5">+{fmt(p.multa)} Kz multa</div>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            {isPago
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit whitespace-nowrap"><CheckCircle2 className="w-2.5 h-2.5"/> Pago</span>
+                              : isVencido
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200 w-fit whitespace-nowrap"><AlertCircle className="w-2.5 h-2.5"/> Vencida</span>
+                              : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 w-fit whitespace-nowrap"><Clock className="w-2.5 h-2.5"/> Pendente</span>}
+                            {isOnline
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 w-fit whitespace-nowrap"><Zap className="w-2.5 h-2.5"/> EMIS</span>
+                              : isPago
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-500 border border-slate-200 w-fit whitespace-nowrap"><ShieldCheck className="w-2.5 h-2.5"/> Manual</span>
+                              : hasRef
+                              ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit whitespace-nowrap"><Globe className="w-2.5 h-2.5"/> Portal</span>
+                              : null}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 hidden xl:table-cell">
+                          {hasRef
+                            ? <span className="font-mono text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200 whitespace-nowrap">{p.entidade} / {p.ref_numero}</span>
+                            : <span className="text-xs text-slate-300 italic">— sem referência</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-0.5 justify-end">
+                            <button title="Ver fatura" onClick={() => setFaturaPropinaId(p.id)}
+                              className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition-colors">
+                              <Receipt className="w-3.5 h-3.5"/>
+                            </button>
+                            <button title="Ver detalhes" onClick={() => setDetalhePropina(p)}
+                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-primary transition-colors">
+                              <Eye className="w-3.5 h-3.5"/>
+                            </button>
+                            {!isPago && !isOnline && (<>
+                              {(!hasRef || isVencido) && (
+                                <button title={hasRef ? "Renovar Referência EMIS" : "Gerar Referência EMIS"}
+                                  onClick={() => openDrawer(p)}
+                                  disabled={gerarRefLoading === p.id}
+                                  className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-50">
+                                  {gerarRefLoading === p.id
+                                    ? <RefreshCw className="w-3.5 h-3.5 animate-spin"/>
+                                    : hasRef ? <RefreshCw className="w-3.5 h-3.5"/> : <LinkIcon className="w-3.5 h-3.5"/>}
+                                </button>
+                              )}
+                              <button title="Registar Baixa Manual" onClick={() => { openBaixa(p); setOpenMenu(null); }}
+                                className="p-1.5 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors">
+                                <FileCheck className="w-3.5 h-3.5"/>
+                              </button>
+                              <div className="relative">
+                                <button onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
+                                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                                  <MoreHorizontal className="w-4 h-4"/>
+                                </button>
+                                <AnimatePresence>
+                                  {openMenu === p.id && (
+                                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                                      className="absolute right-0 top-8 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 w-56">
+                                      {(["perdao","ajuste_valor","reagendamento","justificacao"] as const).map(t => (
+                                        <button key={t} onClick={() => openAjuste(p, t)}
+                                          className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 text-slate-700">
+                                          {AJUSTE_TIPO_LABELS[t]}
+                                        </button>
+                                      ))}
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </>)}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Card>
+          )}
+
+          {ajuste && (
+            <ModalAjusteSchool propina={ajuste} token={token} initialTipo={ajusteInitialTipo}
+              onClose={() => setAjuste(null)}
+              onDone={updated => { setPropinas(prev => prev.map(pp => pp.id === updated.id ? updated : pp)); setAjuste(null); }}/>
+          )}
+
+          {/* ── Fatura Modal ── */}
+          <AnimatePresence>
+            {faturaPropinaId !== null && token && (
+              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setFaturaPropinaId(null)}>
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                  onClick={e => e.stopPropagation()}
+                  className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+                    <h3 className="font-bold text-slate-900 flex items-center gap-2"><Receipt className="w-4 h-4 text-primary"/> Fatura Proforma</h3>
+                    <button onClick={() => setFaturaPropinaId(null)} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
+                  </div>
+                  <div className="overflow-y-auto flex-1">
+                    <ModalFatura token={token} propinaId={faturaPropinaId} onClose={() => setFaturaPropinaId(null)}/>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Detalhe Modal ── */}
+          {detalhePropina && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setDetalhePropina(null)}>
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+                <div className="flex items-start justify-between p-5 border-b border-slate-100">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-lg">Detalhe da Propina</h3>
+                    <p className="text-sm text-slate-500 mt-0.5">{detalhePropina.aluno_nome} · {detalhePropina.turma} · {detalhePropina.mes} {detalhePropina.ano}</p>
+                  </div>
+                  <button onClick={() => setDetalhePropina(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {detalhePropina.status === "pago"
+                      ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-4 h-4"/> Paga</span>
+                      : detalhePropina.status === "vencido"
+                      ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-4 h-4"/> Vencida</span>
+                      : <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-4 h-4"/> Pendente</span>}
+                    {detalhePropina.pagamento_origem === "online"
+                      ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                          <Landmark className="w-3.5 h-3.5"/> {detalhePropina.metodo_pagamento ?? "Online"}
+                        </span>
+                      : detalhePropina.status === "pago"
+                      ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-slate-50 text-slate-600 border border-slate-200">
+                          <ShieldCheck className="w-3.5 h-3.5"/> Baixa Manual
+                        </span>
+                      : null}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-slate-50 rounded-xl p-3"><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide mb-1">Propina</p><p className="font-bold text-slate-900">{fmt(Number(detalhePropina.montante))} Kz</p></div>
+                    <div className="bg-slate-50 rounded-xl p-3"><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide mb-1">Multa</p><p className={`font-bold ${Number(detalhePropina.multa) > 0 ? "text-red-600" : "text-slate-400"}`}>{Number(detalhePropina.multa) > 0 ? `+${fmt(Number(detalhePropina.multa))} Kz` : "—"}</p></div>
+                    <div className="bg-primary/5 rounded-xl p-3 border border-primary/20"><p className="text-xs text-primary/70 uppercase font-semibold tracking-wide mb-1">Total</p><p className="font-bold text-primary">{fmt(Number(detalhePropina.montante) + Number(detalhePropina.multa))} Kz</p></div>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                    <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Referência EMIS (Multicaixa)</p>
+                    {detalhePropina.ref_numero
+                      ? <p className="font-mono text-slate-800 font-semibold">{detalhePropina.entidade} / {detalhePropina.ref_numero}</p>
+                      : <p className="text-slate-400 text-sm italic">Sem referência gerada</p>}
+                    <div className="flex gap-4 mt-2 pt-2 border-t border-slate-200">
+                      <div><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Vencimento</p><p className="text-sm font-medium text-slate-700 mt-0.5">{detalhePropina.data_vencimento ? new Date(detalhePropina.data_vencimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" }) : "—"}</p></div>
+                      {detalhePropina.pago_em && (<div><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Pago em</p><p className="text-sm font-semibold text-emerald-700 mt-0.5">{new Date(detalhePropina.pago_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}</p></div>)}
+                      {detalhePropina.data_recebimento && (<div><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Data Recebimento</p><p className="text-sm font-semibold text-emerald-700 mt-0.5">{new Date(detalhePropina.data_recebimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}</p></div>)}
+                    </div>
+                  </div>
+                  {detalhePropina.pagamento_origem === "online" && (
+                    <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center gap-2"><Landmark className="w-4 h-4 text-blue-600"/><p className="text-sm font-semibold text-blue-800">Pagamento Online Automático</p></div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Método</p><p className="font-medium text-slate-800 mt-0.5">{detalhePropina.metodo_pagamento ?? "—"}</p></div>
+                        {detalhePropina.transaction_id && (<div className="col-span-2"><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Transaction ID</p><p className="font-mono text-xs font-semibold text-blue-800 mt-0.5 break-all bg-blue-100 rounded-lg px-2 py-1">{detalhePropina.transaction_id}</p></div>)}
+                      </div>
+                      <p className="text-xs text-blue-600/70 mt-1">Este pagamento foi processado automaticamente via EMIS. Não pode ser alterado manualmente.</p>
+                    </div>
+                  )}
+                  {detalhePropina.baixa_manual && (
+                    <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center gap-2"><BadgeCheck className="w-4 h-4 text-emerald-600"/><p className="text-sm font-semibold text-emerald-800">Baixa Manual Registada</p></div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        {detalhePropina.baixa_manual_por && (<div><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Registado por</p><p className="font-medium text-slate-800 mt-0.5">{detalhePropina.baixa_manual_por}</p></div>)}
+                        {detalhePropina.baixa_manual_em && (<div><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Registado em</p><p className="font-medium text-slate-800 mt-0.5">{new Date(detalhePropina.baixa_manual_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit" })}</p></div>)}
+                        {detalhePropina.baixa_manual_obs && (<div className="col-span-2"><p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Observações</p><p className="text-slate-700 mt-0.5 italic">{detalhePropina.baixa_manual_obs}</p></div>)}
+                      </div>
+                    </div>
+                  )}
+                  {detalhePropina.comprovante_url && (() => {
+                    const url = detalhePropina.comprovante_url!;
+                    const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(url);
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide flex items-center gap-1.5"><FileImage className="w-3.5 h-3.5"/> Comprovante de Pagamento</p>
+                        {isImage ? (
+                          <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                            <img src={url} alt="Comprovante" loading="lazy" decoding="async" className="w-full max-h-72 object-contain bg-slate-100"/>
+                            <div className="p-2 flex justify-end border-t border-slate-100"><a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"><ExternalLink className="w-3 h-3"/> Abrir em ecrã completo</a></div>
+                          </div>
+                        ) : (
+                          <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-sm text-primary font-medium">
+                            <LinkIcon className="w-4 h-4 shrink-0"/><span className="truncate">Ver comprovante</span><ExternalLink className="w-3.5 h-3.5 ml-auto shrink-0"/>
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {detalhePropina.status !== "pago" && !detalhePropina.baixa_manual && !detalhePropina.comprovante_url && (
+                    <div className="py-4 text-center text-slate-400"><Clock className="w-8 h-8 mx-auto mb-2 opacity-40"/><p className="text-sm">Propina ainda não paga. Não há comprovante disponível.</p></div>
+                  )}
+                </div>
+                <div className="px-5 pb-5"><Button className="w-full" onClick={() => setDetalhePropina(null)}>Fechar</Button></div>
+              </motion.div>
+            </div>
+          )}
+        </>)}
+      </div>
+
+      {/* ── Drawer — Gerar Referência EMIS ── */}
+      <AnimatePresence>
+        {drawerPropina && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
+              onClick={() => setDrawerPropina(null)}/>
+            <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col"
+              onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                    <LinkIcon className="w-4 h-4 text-blue-600"/>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">Gerar Referência EMIS</h3>
+                    <p className="text-xs text-slate-400">Multicaixa Express / ATM</p>
+                  </div>
+                </div>
+                <button onClick={() => setDrawerPropina(null)} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors"><X className="w-5 h-5"/></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                {/* Propina seleccionada */}
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2">Propina seleccionada</p>
+                  <p className="font-bold text-slate-900">{drawerPropina.aluno_nome}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-slate-500 bg-white border border-slate-200 rounded-full px-2 py-0.5">{drawerPropina.turma}</span>
+                    <span className="text-xs text-slate-500">{drawerPropina.mes} {drawerPropina.ano}</span>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-blue-200 flex items-center justify-between">
+                    <span className="text-xs text-blue-500">Valor a cobrar</span>
+                    <span className="text-xl font-bold text-blue-700 font-mono">{fmt(Number(drawerPropina.montante) + Number(drawerPropina.multa))} <span className="text-sm">Kz</span></span>
+                  </div>
+                </div>
+
+                {drawerPropina.ref_numero && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1.5">Referência EMIS actual</p>
+                    <p className="font-mono font-semibold text-slate-700 text-sm">{drawerPropina.entidade} / {drawerPropina.ref_numero}</p>
+                    <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1"><AlertCircle className="w-3 h-3 shrink-0"/> Ao confirmar, a referência actual será substituída por uma nova.</p>
+                  </div>
+                )}
+
+                {/* Canal de pagamento */}
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Canal de pagamento</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700">
+                      <Landmark className="w-4 h-4"/>
+                      <span className="text-[10px] font-bold text-center leading-tight">Referência EMIS</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-slate-200 text-slate-400 cursor-not-allowed opacity-60" title="Canal gerido automaticamente via portal">
+                      <Globe className="w-4 h-4"/>
+                      <span className="text-[10px] font-bold text-center leading-tight">Portal Online</span>
+                    </div>
+                    <button onClick={() => { setDrawerPropina(null); openBaixa(drawerPropina); }}
+                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-slate-200 text-slate-500 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700 transition-all">
+                      <FileCheck className="w-4 h-4"/>
+                      <span className="text-[10px] font-bold text-center leading-tight">Baixa Manual</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Configuração EMIS */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Configurar Referência EMIS</p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Entidade EMIS</label>
+                    <input type="text" readOnly value="Preenchido automaticamente"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50 text-slate-400 cursor-not-allowed"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Data de validade <span className="text-slate-400 font-normal">(opcional)</span></label>
+                    <input type="date" value={drawerValidade} onChange={e => setDrawerValidade(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"/>
+                    <p className="text-xs text-slate-400 mt-1">Por defeito: último dia do mês da propina</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Descrição para o Encarregado de Educação <span className="text-slate-400 font-normal">(opcional)</span></label>
+                    <textarea rows={2} value={drawerDesc} onChange={e => setDrawerDesc(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                      placeholder="ex: Propina do mês de Janeiro 2027…"/>
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-4 text-white">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Preview da Referência</p>
+                  <p className="font-mono text-2xl font-bold tracking-widest text-white/80 mb-3">XXX XXX XXX</p>
+                  <div className="flex gap-5 text-xs">
+                    <div><p className="text-slate-500 mb-0.5">Entidade</p><p className="font-semibold text-slate-300">—</p></div>
+                    <div><p className="text-slate-500 mb-0.5">Valor</p><p className="font-semibold text-emerald-400 font-mono">{fmt(Number(drawerPropina.montante) + Number(drawerPropina.multa))} Kz</p></div>
+                    <div><p className="text-slate-500 mb-0.5">Validade</p><p className="font-semibold text-slate-300">{drawerValidade || "Fim do mês"}</p></div>
+                  </div>
+                </div>
+
+                {drawerError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2.5 text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0"/>{drawerError}</div>}
+              </div>
+
+              <div className="px-5 py-4 border-t border-slate-100 flex gap-3 shrink-0">
+                <button onClick={() => setDrawerPropina(null)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    setDrawerLoading(true); setDrawerError("");
+                    try {
+                      await handleGerarReferencia(drawerPropina);
+                      setDrawerPropina(null);
+                    } catch (e) { setDrawerError(errMsg(e)); }
+                    finally { setDrawerLoading(false); }
+                  }}
+                  disabled={drawerLoading || gerarRefLoading === drawerPropina?.id}
+                  className="flex-1 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                  {drawerLoading || gerarRefLoading === drawerPropina?.id
+                    ? <><RefreshCw className="w-4 h-4 animate-spin"/> A gerar...</>
+                    : <><LinkIcon className="w-4 h-4"/> Confirmar & Enviar ao Encarregado</>}
+                </button>
               </div>
             </motion.div>
-          </div>
+          </>
         )}
       </AnimatePresence>
 
-      {/* ── Detalhe Pagamento Modal ── */}
-      {detalhePropina && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setDetalhePropina(null)}>
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            onClick={e => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-start justify-between p-5 border-b border-slate-100">
-              <div>
-                <h3 className="font-bold text-slate-900 text-lg">Detalhe da Propina</h3>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  {detalhePropina.aluno_nome} · {detalhePropina.turma} · {detalhePropina.mes} {detalhePropina.ano}
-                </p>
-              </div>
-              <button onClick={() => setDetalhePropina(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {/* Status + origin badges */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {detalhePropina.status === "pago"
-                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-4 h-4"/> Paga</span>
-                  : detalhePropina.status === "vencido"
-                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-red-50 text-red-700 border border-red-200"><AlertCircle className="w-4 h-4"/> Vencida</span>
-                  : <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-4 h-4"/> Pendente</span>}
-                {detalhePropina.pagamento_origem === "online"
-                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                      <Landmark className="w-3.5 h-3.5"/> {detalhePropina.metodo_pagamento ?? "Online"}
-                    </span>
-                  : detalhePropina.status === "pago"
-                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-slate-50 text-slate-600 border border-slate-200">
-                      <ShieldCheck className="w-3.5 h-3.5"/> Baixa Manual
-                    </span>
-                  : null
-                }
-              </div>
-
-              {/* Financial grid */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide mb-1">Propina</p>
-                  <p className="font-bold text-slate-900">{fmt(Number(detalhePropina.montante))} Kz</p>
-                </div>
-                <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide mb-1">Multa</p>
-                  <p className={`font-bold ${Number(detalhePropina.multa) > 0 ? "text-red-600" : "text-slate-400"}`}>
-                    {Number(detalhePropina.multa) > 0 ? `+${fmt(Number(detalhePropina.multa))} Kz` : "—"}
-                  </p>
-                </div>
-                <div className="bg-primary/5 rounded-xl p-3 border border-primary/20">
-                  <p className="text-xs text-primary/70 uppercase font-semibold tracking-wide mb-1">Total</p>
-                  <p className="font-bold text-primary">{fmt(Number(detalhePropina.montante) + Number(detalhePropina.multa))} Kz</p>
-                </div>
-              </div>
-
-              {/* Reference */}
-              <div className="bg-slate-50 rounded-xl p-4 space-y-2">
-                <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Referência EMIS (Multicaixa)</p>
-                {detalhePropina.ref_numero
-                  ? <p className="font-mono text-slate-800 font-semibold">{detalhePropina.entidade} / {detalhePropina.ref_numero}</p>
-                  : <p className="text-slate-400 text-sm italic">Sem referência gerada</p>}
-                <div className="flex gap-4 mt-2 pt-2 border-t border-slate-200">
-                  <div>
-                    <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Vencimento</p>
-                    <p className="text-sm font-medium text-slate-700 mt-0.5">
-                      {detalhePropina.data_vencimento
-                        ? new Date(detalhePropina.data_vencimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })
-                        : "—"}
-                    </p>
-                  </div>
-                  {detalhePropina.pago_em && (
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Pago em</p>
-                      <p className="text-sm font-semibold text-emerald-700 mt-0.5">
-                        {new Date(detalhePropina.pago_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}
-                      </p>
-                    </div>
-                  )}
-                  {detalhePropina.data_recebimento && (
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Data Recebimento</p>
-                      <p className="text-sm font-semibold text-emerald-700 mt-0.5">
-                        {new Date(detalhePropina.data_recebimento).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric" })}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Online payment info */}
-              {detalhePropina.pagamento_origem === "online" && (
-                <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Landmark className="w-4 h-4 text-blue-600"/>
-                    <p className="text-sm font-semibold text-blue-800">Pagamento Online Automático</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Método</p>
-                      <p className="font-medium text-slate-800 mt-0.5">{detalhePropina.metodo_pagamento ?? "—"}</p>
-                    </div>
-                    {detalhePropina.transaction_id && (
-                      <div className="col-span-2">
-                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Transaction ID</p>
-                        <p className="font-mono text-xs font-semibold text-blue-800 mt-0.5 break-all bg-blue-100 rounded-lg px-2 py-1">{detalhePropina.transaction_id}</p>
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-xs text-blue-600/70 mt-1">Este pagamento foi processado automaticamente via EMIS. Não pode ser alterado manualmente.</p>
-                </div>
-              )}
-
-              {/* Baixa Manual section */}
-              {detalhePropina.baixa_manual && (
-                <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <BadgeCheck className="w-4 h-4 text-emerald-600"/>
-                    <p className="text-sm font-semibold text-emerald-800">Baixa Manual Registada</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    {detalhePropina.baixa_manual_por && (
-                      <div>
-                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Registado por</p>
-                        <p className="font-medium text-slate-800 mt-0.5">{detalhePropina.baixa_manual_por}</p>
-                      </div>
-                    )}
-                    {detalhePropina.baixa_manual_em && (
-                      <div>
-                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Registado em</p>
-                        <p className="font-medium text-slate-800 mt-0.5">
-                          {new Date(detalhePropina.baixa_manual_em).toLocaleDateString("pt-AO", { day:"2-digit", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit" })}
-                        </p>
-                      </div>
-                    )}
-                    {detalhePropina.baixa_manual_obs && (
-                      <div className="col-span-2">
-                        <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide">Observações</p>
-                        <p className="text-slate-700 mt-0.5 italic">{detalhePropina.baixa_manual_obs}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Comprovante */}
-              {detalhePropina.comprovante_url && (() => {
-                const url = detalhePropina.comprovante_url!;
-                const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(url);
-                return (
-                  <div className="space-y-2">
-                    <p className="text-xs text-slate-400 uppercase font-semibold tracking-wide flex items-center gap-1.5">
-                      <FileImage className="w-3.5 h-3.5"/> Comprovante de Pagamento
-                    </p>
-                    {isImage ? (
-                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-                        <img src={url} alt="Comprovante" loading="lazy" decoding="async" className="w-full max-h-72 object-contain bg-slate-100"/>
-                        <div className="p-2 flex justify-end border-t border-slate-100">
-                          <a href={url} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
-                            <ExternalLink className="w-3 h-3"/> Abrir em ecrã completo
-                          </a>
-                        </div>
-                      </div>
-                    ) : (
-                      <a href={url} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-sm text-primary font-medium">
-                        <LinkIcon className="w-4 h-4 shrink-0"/>
-                        <span className="truncate">Ver comprovante</span>
-                        <ExternalLink className="w-3.5 h-3.5 ml-auto shrink-0"/>
-                      </a>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* No payment info yet */}
-              {detalhePropina.status !== "pago" && !detalhePropina.baixa_manual && !detalhePropina.comprovante_url && (
-                <div className="py-4 text-center text-slate-400">
-                  <Clock className="w-8 h-8 mx-auto mb-2 opacity-40"/>
-                  <p className="text-sm">Propina ainda não paga. Não há comprovante disponível.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="px-5 pb-5">
-              <Button className="w-full" onClick={() => setDetalhePropina(null)}>Fechar</Button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-      </>)}
-
-      {/* Baixa Manual Modal (inline in PropinasView) */}
+      {/* ── Baixa Manual Modal ── */}
       {bmPropina && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-start justify-between p-5 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-slate-900">Baixa Manual de Pagamento</h3>
+                <h3 className="font-bold text-slate-900">Registar Baixa Manual</h3>
                 <p className="text-sm text-slate-500 mt-0.5">{bmPropina.aluno_nome} · {bmPropina.mes} {bmPropina.ano}</p>
               </div>
               <button onClick={() => setBmPropina(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400"><X className="w-5 h-5"/></button>
@@ -12842,7 +12931,7 @@ export default function Dashboard() {
   /* ── Structured NAV ── */
   const NAV: NavEntry[] = [
     { type: "item",  key: "alunos",        icon: <Users className="w-5 h-5"/>,           label: "Alunos & Turmas" },
-    { type: "item",  key: "propinas",      icon: <FileText className="w-5 h-5"/>,         label: "Propinas & Faturas" },
+    { type: "item",  key: "propinas",      icon: <FileText className="w-5 h-5"/>,         label: "Facturas / Referências" },
     {
       type: "group", key: "financeiro",
       icon: <Banknote className="w-5 h-5"/>, label: "Financeiro",
