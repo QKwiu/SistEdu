@@ -3561,21 +3561,6 @@ function GeralView({ school, onUpdated, onTogglePacotes, togglingPacotes, onTogg
             <SettingRow label="Permitir pagamento parcial" desc="Aceitar pagamentos abaixo do total da fatura.">
               <Toggle value={!!F.propinas?.permite_pagamento_parcial} onChange={v => setF(["financeiro","propinas","permite_pagamento_parcial"], v)}/>
             </SettingRow>
-            <SettingRow label="Tipo de multa por atraso">
-              <select className={inp} style={{width:180}} value={F.multas?.tipo ?? "percentagem"} onChange={e => setF(["financeiro","multas","tipo"], e.target.value)}>
-                <option value="percentagem">Percentagem (%)</option>
-                <option value="fixo">Valor fixo (AOA)</option>
-              </select>
-            </SettingRow>
-            <SettingRow label={F.multas?.tipo === "fixo" ? "Valor da multa (AOA)" : "Percentagem da multa (%)"}>
-              <input type="number" min={0} className={num} value={F.multas?.valor ?? 5} onChange={e => setF(["financeiro","multas","valor"], Number(e.target.value))}/>
-            </SettingRow>
-            <SettingRow label="Tolerância antes de multa (dias)" desc="Dias após vencimento antes de aplicar multa.">
-              <input type="number" min={0} max={30} className={num} value={F.multas?.tolerancia_dias ?? 5} onChange={e => setF(["financeiro","multas","tolerancia_dias"], Number(e.target.value))}/>
-            </SettingRow>
-            <SettingRow label="Multa automática" desc="Aplicar multa sem intervenção manual.">
-              <Toggle value={!!F.multas?.aplica_automatico} onChange={v => setF(["financeiro","multas","aplica_automatico"], v)}/>
-            </SettingRow>
             <SettingRow label="Limite de alunos por turma">
               <input type="number" min={1} max={200} className={num} value={A.limite_alunos_por_turma ?? 40} onChange={e => setF(["academico","limite_alunos_por_turma"], Number(e.target.value))}/>
             </SettingRow>
