@@ -4,8 +4,9 @@
  * Hook que gere todo o ciclo de vida das Push Notifications FCM:
  *   1. Registo do Service Worker (firebase-messaging-sw.js)
  *   2. Pedido de permissão de notificação ao utilizador
- *   3. Obtenção do Token FCM do dispositivo (getToken + VAPID key)
- *   4. Envio do token ao backend para persistência na DB
+ *   3. Obtenção da VAPID key via endpoint autenticado (não bundled no JS)
+ *   4. Obtenção do Token FCM do dispositivo (getToken + VAPID key)
+ *   5. Envio do token ao backend para persistência na DB
  *
  * Uso:
  *   const { permission, fcmToken, requestPermission } = usePushNotifications(authToken);
@@ -37,9 +38,8 @@ export interface PushNotificationState {
   requestPermission: () => Promise<void>;
 }
 
-const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined;
-const API_BASE  = "/api";
-const SW_PATH   = "/firebase-messaging-sw.js";
+const API_BASE = "/api";
+const SW_PATH  = "/firebase-messaging-sw.js";
 
 /** Regista o Service Worker e devolve o ServiceWorkerRegistration. */
 async function registerSW(): Promise<ServiceWorkerRegistration> {
@@ -49,6 +49,23 @@ async function registerSW(): Promise<ServiceWorkerRegistration> {
   const existing = await navigator.serviceWorker.getRegistration(SW_PATH);
   if (existing) return existing;
   return navigator.serviceWorker.register(SW_PATH, { scope: "/" });
+}
+
+/**
+ * Obtém a VAPID public key a partir do backend autenticado.
+ * A chave não está no bundle JS — é carregada dinamicamente após login.
+ */
+async function fetchVapidKey(authToken: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/school/fcm/vapid-key`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Não foi possível obter a VAPID key (HTTP ${res.status}).`);
+  }
+  const data = await res.json() as { vapidKey?: string };
+  if (!data.vapidKey) throw new Error("Resposta do servidor inválida: vapidKey ausente.");
+  return data.vapidKey;
 }
 
 /**
@@ -140,11 +157,12 @@ export function usePushNotifications(authToken: string | null): PushNotification
   const obtainAndRegisterToken = useCallback(
     async (token: string) => {
       if (!messagingRef.current) throw new Error("Firebase Messaging não inicializado.");
-      if (!VAPID_KEY) throw new Error("VITE_FIREBASE_VAPID_KEY não está definida.");
       if (!swRegistration.current) throw new Error("Service Worker não registado.");
 
+      const vapidKey = await fetchVapidKey(token);
+
       const fcmTok = await getToken(messagingRef.current, {
-        vapidKey:                VAPID_KEY,
+        vapidKey,
         serviceWorkerRegistration: swRegistration.current,
       });
 

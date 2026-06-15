@@ -472,5 +472,37 @@ router.post("/school/comunicar/push", async (req: any, res) => {
   }
 });
 
+/* ── GET /school/fcm/vapid-key ────────────────────────────────────────────────
+   Devolve a VAPID public key para subscrição de push notifications.
+
+   A chave é uma chave PÚBLICA (Web Push padrão), mas servi-la via endpoint
+   autenticado evita que seja indexada em bundles JS públicos.
+
+   Autenticação : Bearer token de sessão escolar OU de encarregado.
+   Resposta     : 200 { vapidKey: string }
+                  401 Unauthorized — sessão inválida ou ausente
+                  503 Service Unavailable — VAPID key não configurada
+──────────────────────────────────────────────────────────────────────────── */
+router.get("/school/fcm/vapid-key", async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Autorização em falta." });
+  }
+  const token = auth.slice(7);
+
+  const school   = await getSchoolFromToken(token);
+  const guardian = school ? null : await getGuardianFromBearerToken(token);
+  if (!school && !guardian) {
+    return res.status(401).json({ error: "Sessão inválida ou expirada." });
+  }
+
+  const vapidKey = process.env["VITE_FIREBASE_VAPID_KEY"];
+  if (!vapidKey) {
+    return res.status(503).json({ error: "Push notifications não configuradas neste servidor." });
+  }
+
+  return res.json({ vapidKey });
+});
+
 export default router;
 export { getFcmAccessToken, sendFcmBatch, getFcmConfig };
