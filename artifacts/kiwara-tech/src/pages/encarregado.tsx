@@ -39,6 +39,7 @@ interface Student {
   id: number; nome: string; bilhete: string;
   school_id: number; school_name: string; school_logo_url: string | null;
   institution_type?: string; portal_nomenclatura?: string;
+  commission_model?: string; commission_value?: number; commission_value_type?: string;
   turma: string | null; turno: string | null;
   divida_total: number; total_multas: number;
   propinas_vencidas: number; propinas_pendentes: number;
@@ -561,9 +562,11 @@ function ModalPagamentoIsolado({
 /* ─── Checkout Wizard (3-step payment flow) ─── */
 function CheckoutWizard({
   propinas, total, availableMethods, token, schoolName, alunos, onClose, onSuccess,
+  commissionModel, commissionValue, commissionValueType,
 }: {
   propinas: Propina[]; total: number; availableMethods: AvailableMethods;
   token: string; schoolName?: string; alunos?: Student[];
+  commissionModel?: string; commissionValue?: number; commissionValueType?: string;
   onClose: () => void; onSuccess: (ref?: GeneratedRef) => void;
 }) {
   const hasBoth = availableMethods.allow_reference && availableMethods.allow_gpo_mcx;
@@ -589,6 +592,13 @@ function CheckoutWizard({
 
   const emolTotal = emolItems.reduce((s, i) => s + i.montante * i.quantidade, 0);
   const grandTotal = total + emolTotal;
+  const isDiscriminated = commissionModel === "DISCRIMINATED" && commissionValue && Number(commissionValue) > 0;
+  const taxaConveniencia = isDiscriminated
+    ? (commissionValueType === "FIXED"
+        ? Number(commissionValue)
+        : Math.round(grandTotal * Number(commissionValue) / 100))
+    : 0;
+  const grandTotalComTaxa = grandTotal + taxaConveniencia;
 
   const addEmol = () => {
     if (!selEmolId) return;
@@ -710,11 +720,28 @@ function CheckoutWizard({
                     </div>
                   ))}
                   <div className="flex justify-between items-center border-t-2 border-gray-200 pt-2 px-3">
-                    <span className={`font-bold text-gray-900 ${emolItems.length > 0 ? "text-sm" : ""}`}>
-                      {emolItems.length > 0 ? "Subtotal Propinas" : "Total"}
+                    <span className={`font-bold text-gray-900 ${(emolItems.length > 0 || isDiscriminated) ? "text-sm" : ""}`}>
+                      {emolItems.length > 0 ? "Subtotal Propinas" : isDiscriminated ? "Subtotal" : "Total"}
                     </span>
-                    <span className={`font-bold text-blue-700 ${emolItems.length > 0 ? "" : "text-lg"}`}>{fmt(total)}</span>
+                    <span className={`font-bold text-blue-700 ${(emolItems.length > 0 || isDiscriminated) ? "" : "text-lg"}`}>{fmt(total)}</span>
                   </div>
+                  {isDiscriminated && emolItems.length === 0 && (
+                    <div className="flex justify-between items-center bg-violet-50 rounded-lg px-3 py-2 text-sm">
+                      <div>
+                        <span className="text-gray-700 font-medium">Taxa de Conveniência Digital</span>
+                        <span className="ml-1.5 text-xs text-violet-500">
+                          {commissionValueType === "FIXED" ? `fixo` : `${commissionValue}%`}
+                        </span>
+                      </div>
+                      <span className="font-semibold text-gray-900">{fmt(taxaConveniencia)}</span>
+                    </div>
+                  )}
+                  {isDiscriminated && emolItems.length === 0 && (
+                    <div className="flex justify-between items-center border-t-2 border-violet-200 pt-2 px-3">
+                      <span className="font-bold text-gray-900">Total</span>
+                      <span className="font-bold text-blue-700 text-lg">{fmt(grandTotalComTaxa)}</span>
+                    </div>
+                  )}
                   {emolItems.map((item, i) => (
                     <div key={i} className="flex justify-between items-center bg-blue-50 rounded-lg px-3 py-2 text-sm">
                       <div className="flex-1 min-w-0">
@@ -730,8 +757,27 @@ function CheckoutWizard({
                   ))}
                   {emolItems.length > 0 && (
                     <div className="flex justify-between items-center border-t-2 border-blue-200 pt-2 px-3">
+                      <span className={`font-bold text-gray-900 ${isDiscriminated ? "text-sm" : ""}`}>
+                        {isDiscriminated ? "Subtotal" : "Total"}
+                      </span>
+                      <span className={`font-bold text-blue-700 ${isDiscriminated ? "" : "text-lg"}`}>{fmt(grandTotal)}</span>
+                    </div>
+                  )}
+                  {isDiscriminated && (
+                    <div className="flex justify-between items-center bg-violet-50 rounded-lg px-3 py-2 text-sm">
+                      <div>
+                        <span className="text-gray-700 font-medium">Taxa de Conveniência Digital</span>
+                        <span className="ml-1.5 text-xs text-violet-500">
+                          {commissionValueType === "FIXED" ? `${fmt(taxaConveniencia)} fixo` : `${commissionValue}%`}
+                        </span>
+                      </div>
+                      <span className="font-semibold text-gray-900">{fmt(taxaConveniencia)}</span>
+                    </div>
+                  )}
+                  {isDiscriminated && (
+                    <div className="flex justify-between items-center border-t-2 border-violet-200 pt-2 px-3">
                       <span className="font-bold text-gray-900">Total</span>
-                      <span className="font-bold text-blue-700 text-lg">{fmt(grandTotal)}</span>
+                      <span className="font-bold text-blue-700 text-lg">{fmt(grandTotalComTaxa)}</span>
                     </div>
                   )}
                 </div>
@@ -765,7 +811,7 @@ function CheckoutWizard({
               <div>
                 <p className="font-semibold text-gray-900 mb-1">Método de pagamento</p>
                 <p className="text-xs text-gray-500 mb-3">
-                  Selecione como pretende pagar <span className="font-semibold text-gray-800">{fmt(grandTotal)}</span>.
+                  Selecione como pretende pagar <span className="font-semibold text-gray-800">{fmt(grandTotalComTaxa)}</span>.
                 </p>
                 <div className="space-y-3">
                   <button onClick={() => setMethod("reference")}
@@ -4019,6 +4065,9 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
             token={token}
             schoolName={selectedStudent?.school_name}
             alunos={students}
+            commissionModel={selectedStudent?.commission_model}
+            commissionValue={selectedStudent?.commission_value}
+            commissionValueType={selectedStudent?.commission_value_type}
             onClose={() => setShowCheckout(false)}
             onSuccess={handleCheckoutSuccess}
           />

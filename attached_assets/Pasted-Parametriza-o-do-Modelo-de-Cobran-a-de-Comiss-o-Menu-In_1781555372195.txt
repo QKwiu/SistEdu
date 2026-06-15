@@ -1,0 +1,37 @@
+Parametrização do Modelo de Cobrança de Comissão (Menu Instituições — SuperAdmin)
+Objetivo: Implementar um novo separador dentro da gestão de instituições no perfil de Administração Geral (SuperAdmin) que permita configurar, de forma flexível e por escola, se a taxa/comissão da plataforma será embutida na propina ou cobrada separadamente ao encarregado.
+
+User Story (História de Utilizador)
+Como Administrador Geral da Plataforma (SuperAdmin),
+Quero configurar a regra de cobrança de comissão especificamente para cada instituição de ensino através de um novo separador no menu "Instituições",
+Para que a Kiwara Tech tenha total flexibilidade comercial durante as negociações com os diferentes colégios.
+
+Critérios de Aceitação (O que deve ser desenvolvido)
+1. Interface do Utilizador (UI/UX no Perfil Geral / SuperAdmin)
+Localização: No menu lateral Instituições, ao clicar para editar ou ver o detalhe de uma instituição específica, deve ser criado um novo separador (Tab) chamado [ Regras de Faturação ] ou [ Configurações de Taxas ].
+
+Componentes do Novo Separador: Dentro deste separador, deve ser apresentado um seletor visual único (como Radio Buttons ou um Dropdown) com duas opções claras:
+
+[ Taxa Embutida ] (Recomendado): A comissão da plataforma já está diluída no valor base da propina.
+
+[ Taxa Discriminada ]: A comissão é calculada e somada como um valor adicional à parte.
+
+Inputs Condicionais: Se a opção "Taxa Discriminada" for selecionada, a UI deve exibir um campo numérico para definir o valor ou percentagem da taxa (ex: Valor Fixo em Kz ou % por transação).
+
+2. Regras de Negócio e Backend (Impacto nos Portais)
+O motor de faturamento deve ler a flag configurada neste separador para renderizar o ecrã do encarregado de duas formas:
+
+Se definido como Taxa Embutida:
+
+O Portal do Encarregado mantém o layout atual. O valor final (ex: 53.000,00 Kz) já contempla tudo, sem linhas adicionais de custos administrativos.
+
+Se definido como Taxa Discriminada:
+
+O sistema deve calcular dinamicamente a taxa configurada e injetar uma nova linha na quebra de valores do Portal do Encarregado antes do botão de pagamento, exibida obrigatoriamente sob o nome neutro de: Taxa de Conveniência Digital ou Custos Administrativos de Secretaria.
+
+3. Engenharia de Dados (DB)
+Criar ou atualizar os campos na tabela institutions:
+
+commission_model: Enum [EMBEDDED, DISCRIMINATED] (padrão: EMBEDDED).
+
+commission_value: Decimal/Float para armazenar o valor ou percentagem caso o modelo seja discriminado.

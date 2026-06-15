@@ -48,6 +48,9 @@ interface Colegio {
   email: string; iban?: string; created_at: string;
   total_alunos: number; total_turmas: number; usa_pacotes: boolean;
   commission_rate?: number;
+  commission_model?: string;
+  commission_value?: number;
+  commission_value_type?: string;
   institution_type?: string;
   portal_nomenclatura?: string;
 }
@@ -6481,8 +6484,125 @@ function BolsasAdminPanel({ schoolId }: { schoolId: number }) {
   );
 }
 
+/* ─── Regras de Faturação ─── */
+function RegrasDeFiltracao({ school, onUpdated }: { school: ColegioDetail; onUpdated: (patch: Partial<ColegioDetail>) => void }) {
+  const [model, setModel] = useState<"EMBEDDED" | "DISCRIMINATED">((school.commission_model as "EMBEDDED" | "DISCRIMINATED") ?? "EMBEDDED");
+  const [valueType, setValueType] = useState<"PERCENTAGE" | "FIXED">(
+    (school.commission_value_type as "PERCENTAGE" | "FIXED") ?? "PERCENTAGE"
+  );
+  const [value, setValue] = useState(String(school.commission_value ?? 0));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await api(`/admin/colegios/${school.id}/commission`, {
+        method: "PUT",
+        body: JSON.stringify({ commission_model: model, commission_value: Number(value) || 0, commission_value_type: valueType }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        onUpdated({ commission_model: d.commission_model, commission_value: d.commission_value, commission_value_type: d.commission_value_type });
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      }
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl p-6 max-w-2xl">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="w-9 h-9 rounded-xl bg-violet-50 flex items-center justify-center">
+          <Percent className="w-4 h-4 text-violet-600" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-slate-900">Regras de Faturação</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Como a taxa de serviço da plataforma é apresentada ao encarregado.</p>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        <p className="text-sm font-medium text-slate-700">Modelo de cobrança de comissão</p>
+
+        <button onClick={() => setModel("EMBEDDED")}
+          className={`w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all ${
+            model === "EMBEDDED" ? "border-primary bg-primary/5" : "border-slate-200 hover:border-slate-300"
+          }`}>
+          <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+            model === "EMBEDDED" ? "border-primary" : "border-slate-300"
+          }`}>
+            {model === "EMBEDDED" && <div className="w-2.5 h-2.5 rounded-full bg-primary"/>}
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900 text-sm">Taxa Embutida <span className="ml-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">Recomendado</span></p>
+            <p className="text-xs text-slate-500 mt-0.5">A comissão da plataforma já está diluída no valor base da propina. O encarregado vê apenas o valor total sem discriminação adicional.</p>
+          </div>
+        </button>
+
+        <button onClick={() => setModel("DISCRIMINATED")}
+          className={`w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all ${
+            model === "DISCRIMINATED" ? "border-amber-500 bg-amber-50/50" : "border-slate-200 hover:border-slate-300"
+          }`}>
+          <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+            model === "DISCRIMINATED" ? "border-amber-500" : "border-slate-300"
+          }`}>
+            {model === "DISCRIMINATED" && <div className="w-2.5 h-2.5 rounded-full bg-amber-500"/>}
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900 text-sm">Taxa Discriminada</p>
+            <p className="text-xs text-slate-500 mt-0.5">A comissão é calculada e somada como valor adicional. No portal do encarregado aparece uma linha separada como "Taxa de Conveniência Digital".</p>
+          </div>
+        </button>
+
+        {model === "DISCRIMINATED" && (
+          <div className="ml-9 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+            <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Configuração da taxa</p>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-slate-600 mb-1">Tipo</label>
+                <select value={valueType} onChange={e => setValueType(e.target.value as "PERCENTAGE" | "FIXED")}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                  <option value="PERCENTAGE">Percentagem (%)</option>
+                  <option value="FIXED">Valor fixo (Kz)</option>
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-slate-600 mb-1">{valueType === "PERCENTAGE" ? "Percentagem (%)" : "Valor (Kz)"}</label>
+                <input type="number" min={0} step={valueType === "PERCENTAGE" ? "0.01" : "1"} value={value}
+                  onChange={e => setValue(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder={valueType === "PERCENTAGE" ? "ex: 2.5" : "ex: 500"} />
+              </div>
+            </div>
+            <p className="text-xs text-amber-700">
+              {valueType === "PERCENTAGE"
+                ? `Exemplo: propina de 50.000 Kz → taxa de ${(50000 * (Number(value) || 0) / 100).toLocaleString("pt-AO")} Kz`
+                : `Taxa fixa de ${Number(value || 0).toLocaleString("pt-AO")} Kz adicionada a cada transação.`
+              }
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex items-center gap-3">
+        <button onClick={save} disabled={saving}
+          className="flex items-center gap-2 bg-primary text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-all">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
+          Guardar
+        </button>
+        {saved && (
+          <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+            <CheckCircle2 className="w-4 h-4"/>Guardado
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () => void }) {
-  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "pacotes" | "bolsas" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar">("geral");
+  const [tab, setTab] = useState<"geral" | "alunos" | "emolumentos" | "pacotes" | "bolsas" | "reconciliacao" | "configuracoes" | "debito_direto" | "comunicar" | "faturacao">("geral");
   const [alunoSubTab, setAlunoSubTab] = useState<"individual" | "massa" | "multas" | "lista">("individual");
   const [currentSchool, setCurrentSchool] = useState(school);
   const [togglingPacotes, setTogglingPacotes] = useState(false);
@@ -6529,6 +6649,7 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
     { id: "reconciliacao" as const, label: "Reconciliação", icon: <ShieldCheck className="w-4 h-4" /> },
     { id: "debito_direto" as const, label: "Débito Direto", icon: <ArrowLeftRight className="w-4 h-4" />, badge: pendingDDCount > 0 ? pendingDDCount : undefined },
     { id: "comunicar" as const, label: "Comunicar", icon: <Megaphone className="w-4 h-4" /> },
+    { id: "faturacao" as const, label: "Regras de Faturação", icon: <Percent className="w-4 h-4" /> },
     { id: "configuracoes" as const, label: "Configurações", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ];
 
@@ -6740,6 +6861,13 @@ function ColegioDetail({ school, onBack }: { school: ColegioDetail; onBack: () =
           </div>
           <ComunicarAdminPanel schoolId={currentSchool.id} turmas={currentSchool.turmas} />
         </div>
+      )}
+
+      {tab === "faturacao" && (
+        <RegrasDeFiltracao
+          school={currentSchool}
+          onUpdated={patch => setCurrentSchool(s => ({ ...s, ...patch }))}
+        />
       )}
 
       {tab === "configuracoes" && (

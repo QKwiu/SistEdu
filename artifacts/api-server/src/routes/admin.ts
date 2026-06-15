@@ -156,6 +156,9 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
     `SELECT s.id, s.school_id, s.name, s.nif, s.phone, s.email, s.iban,
             s.created_at, s.institution_type, s.portal_nomenclatura,
             s.usa_pacotes, s.commission_rate, s.logo_url, s.modulo_infantil,
+            COALESCE(s.commission_model, 'EMBEDDED') AS commission_model,
+            COALESCE(s.commission_value, 0) AS commission_value,
+            COALESCE(s.commission_value_type, 'PERCENTAGE') AS commission_value_type,
             COUNT(DISTINCT st.id)::int AS total_alunos,
             COUNT(DISTINCT t.id)::int  AS total_turmas
      FROM schools s
@@ -164,7 +167,8 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
      WHERE s.id=$1
      GROUP BY s.id, s.school_id, s.name, s.nif, s.phone, s.email, s.iban,
               s.created_at, s.institution_type, s.portal_nomenclatura,
-              s.usa_pacotes, s.commission_rate, s.logo_url, s.modulo_infantil`,
+              s.usa_pacotes, s.commission_rate, s.logo_url, s.modulo_infantil,
+              s.commission_model, s.commission_value, s.commission_value_type`,
     [req.params.id]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
@@ -182,6 +186,39 @@ router.get("/admin/colegios/:id", adminAuth, async (req, res) => {
     multa_regra: mregra.rows[0] ?? null,
     pacotes: pacotes.rows,
   });
+});
+
+/* ─── GET /admin/colegios/:id/commission ─── */
+router.get("/admin/colegios/:id/commission", adminAuth, async (req, res) => {
+  const r = await pool.query(
+    `SELECT COALESCE(commission_model,'EMBEDDED') AS commission_model,
+            COALESCE(commission_value,0) AS commission_value,
+            COALESCE(commission_value_type,'PERCENTAGE') AS commission_value_type
+     FROM schools WHERE id=$1`,
+    [req.params.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
+  res.json(r.rows[0]);
+});
+
+/* ─── PUT /admin/colegios/:id/commission ─── */
+router.put("/admin/colegios/:id/commission", adminAuth, async (req, res) => {
+  const { commission_model, commission_value, commission_value_type } = req.body;
+  if (!["EMBEDDED", "DISCRIMINATED"].includes(commission_model)) {
+    return res.status(400).json({ error: "Modelo inválido. Use EMBEDDED ou DISCRIMINATED." });
+  }
+  if (!["PERCENTAGE", "FIXED"].includes(commission_value_type ?? "PERCENTAGE")) {
+    return res.status(400).json({ error: "Tipo inválido. Use PERCENTAGE ou FIXED." });
+  }
+  const r = await pool.query(
+    `UPDATE schools
+     SET commission_model=$1, commission_value=$2, commission_value_type=$3
+     WHERE id=$4
+     RETURNING commission_model, commission_value, commission_value_type`,
+    [commission_model, Number(commission_value ?? 0), commission_value_type ?? "PERCENTAGE", req.params.id]
+  );
+  if (!r.rows.length) return res.status(404).json({ error: "Colégio não encontrado." });
+  res.json({ ok: true, ...r.rows[0] });
 });
 
 /* ─── PUT /admin/colegios/:id — edit basic school info ─── */
@@ -402,6 +439,13 @@ pool.query(`
     previous_state JSONB NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
   );
+`).catch(() => {});
+
+/* ─── Commission Model migration ─── */
+pool.query(`
+  ALTER TABLE schools ADD COLUMN IF NOT EXISTS commission_model VARCHAR(20) DEFAULT 'EMBEDDED';
+  ALTER TABLE schools ADD COLUMN IF NOT EXISTS commission_value NUMERIC(10,2) DEFAULT 0;
+  ALTER TABLE schools ADD COLUMN IF NOT EXISTS commission_value_type VARCHAR(20) DEFAULT 'PERCENTAGE';
 `).catch(() => {});
 
 /* ─── GET /admin/colegios/:id/payment-methods ─── */
