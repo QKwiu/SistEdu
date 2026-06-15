@@ -16,7 +16,7 @@ const BASE_STYLES = `
  * @param title    Window/document title
  * @param extraCss Additional CSS to inject alongside the base styles
  */
-export function printHtml(html: string, title = "Kiwara Tech", extraCss = ""): void {
+export function printHtml(html: string, title = "PropinaPlus", extraCss = ""): void {
   const w = window.open("", "_blank");
   if (!w) return;
   w.document.write(`<!DOCTYPE html>

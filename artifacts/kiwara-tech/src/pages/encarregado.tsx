@@ -1179,7 +1179,7 @@ O Titular pode solicitar o cancelamento do débito direto através do Portal do 
 O Titular é responsável por manter saldo suficiente na conta indicada. Em caso de recusa do débito por insuficiência de fundos, o Colégio reserva-se o direito de aplicar encargos previstos no Regulamento Interno.
 
 7. DADOS PESSOAIS
-Os dados fornecidos são tratados de acordo com a política de privacidade do Colégio e da plataforma Kiwara Tech, exclusivamente para efeitos de processamento dos pagamentos autorizados.
+Os dados fornecidos são tratados de acordo com a política de privacidade do Colégio e da plataforma PropinaPlus, exclusivamente para efeitos de processamento dos pagamentos autorizados.
 
 Ao confirmar a adesão, o Titular declara ter lido, compreendido e aceite integralmente estes Termos e Condições.`;
 
@@ -1661,8 +1661,8 @@ function LoginScreen({ onSuccess }: { onSuccess: (token: string, g: Guardian) =>
     <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
       <div className="flex items-center p-6">
         <Link href="/" className="flex items-center gap-2.5 text-white/70 hover:text-white transition-colors">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">K</div>
-          <span className="font-medium text-sm">Kiwara Tech</span>
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
+          <span className="font-medium text-sm">PropinaPlus</span>
         </Link>
       </div>
       <div className="flex-1 flex items-center justify-center px-6">
@@ -1761,8 +1761,8 @@ function ChangePasswordScreen({ token, guardian, onSuccess }: {
     <div translate="no" className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col">
       <div className="flex items-center p-6">
         <Link href="/" className="flex items-center gap-2.5 text-white/70 hover:text-white transition-colors">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">K</div>
-          <span className="font-medium text-sm">Kiwara Tech</span>
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-emerald-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">P</div>
+          <span className="font-medium text-sm">PropinaPlus</span>
         </Link>
       </div>
       <div className="flex-1 flex items-center justify-center px-6">
@@ -2442,10 +2442,10 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
 
       <aside className="hidden md:flex w-80 bg-slate-900 text-white flex-col shrink-0">
         <div className="h-16 px-6 border-b border-white/10 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">P</div>
           <div>
             <p className="font-semibold text-sm">{portalLabel}</p>
-            <p className="text-xs text-slate-400">Kiwara Tech</p>
+            <p className="text-xs text-slate-400">PropinaPlus</p>
           </div>
         </div>
         <div className="flex-1 p-4 space-y-1">
@@ -2481,10 +2481,10 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
               className="fixed top-0 left-0 z-50 h-full w-72 bg-slate-900 text-white flex flex-col md:hidden">
               <div className="h-16 px-5 border-b border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">K</div>
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center font-bold">P</div>
                   <div>
                     <p className="font-semibold text-sm">{portalLabel}</p>
-                    <p className="text-xs text-slate-400">Kiwara Tech</p>
+                    <p className="text-xs text-slate-400">PropinaPlus</p>
                   </div>
                 </div>
                 <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg hover:bg-white/10 text-slate-300">
@@ -3964,7 +3964,7 @@ function Dashboard({ token, guardian, onLogout }: { token: string; guardian: Gua
         )}
 
         <div className="text-center pt-2">
-          <p className="text-xs text-gray-300">Kiwara Escolar — {portalLabel}</p>
+          <p className="text-xs text-gray-300">PropinaPlus — {portalLabel}</p>
         </div>
       </div>
       </div>{/* end flex-1 min-w-0 */}

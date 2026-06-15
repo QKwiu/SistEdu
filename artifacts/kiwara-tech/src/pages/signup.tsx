@@ -113,7 +113,7 @@ export default function Signup() {
       }
     } catch {}
     // Fallback: check localStorage
-    const stored = localStorage.getItem("kiwara_school_session");
+    const stored = localStorage.getItem("propinaplus_school_session");
     if (stored) {
       try {
         const session = JSON.parse(stored);
@@ -131,7 +131,7 @@ export default function Signup() {
     <div translate="no" className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 flex items-center justify-center p-4">
       <Link href="/escolar" className="absolute top-8 left-8 text-lg font-display font-bold text-slate-900 flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold">K</div>
-        Kiwara <span className="text-primary">Escolar</span>
+        Propina<span className="text-primary">Plus</span>
       </Link>
 
       <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
@@ -222,7 +222,7 @@ export default function Signup() {
                     <span className="text-white font-extrabold text-xl">K</span>
                   </div>
                   <h1 className="text-2xl font-bold text-slate-900 mb-2">Iniciar Sessão</h1>
-                  <p className="text-slate-500 text-sm">Bem-vindo de volta ao Kiwara Escolar.</p>
+                  <p className="text-slate-500 text-sm">Bem-vindo de volta ao PropinaPlus.</p>
                 </div>
 
                 <form onSubmit={handleLogin} className="space-y-4">

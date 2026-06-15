@@ -550,7 +550,7 @@ router.post("/guardian/pagamentos/gpo-checkout", authMiddleware, async (req: Req
   const transaction_id = `GPO-${Date.now()}-${txnSuffix}`;
 
   // Simulated EMIS GPO redirect URL (production would call real EMIS GPO API)
-  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=kiwara&escola=${school_id}`;
+  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=propinaplus&escola=${school_id}`;
 
   // Persist audit record BEFORE any redirect — ensures traceability
   await pool.query(
@@ -812,7 +812,7 @@ router.post("/guardian/propinas/checkout-isolado", authMiddleware, async (req: R
   const totalValor = Number(p.montante) - Number(p.desconto) + Number(p.multa);
   const txnSuffix = randomBytes(4).toString("hex").toUpperCase();
   const transaction_id = `GPO-ISOL-${Date.now()}-${txnSuffix}`;
-  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=kiwara&escola=${school_id}`;
+  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=propinaplus&escola=${school_id}`;
 
   await pool.query(
     `INSERT INTO gpo_checkout_attempts
@@ -888,7 +888,7 @@ router.post("/guardian/propinas/antecipadas/checkout", authMiddleware, async (re
 
   const txnSuffix = randomBytes(4).toString("hex").toUpperCase();
   const transaction_id = `GPO-ANT-${Date.now()}-${txnSuffix}`;
-  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=kiwara&escola=${school_id}`;
+  const redirect_url = `https://gpo.emis.ao/checkout?txn=${transaction_id}&valor=${totalValor.toFixed(2)}&origem=propinaplus&escola=${school_id}`;
 
   await pool.query(
     `INSERT INTO gpo_checkout_attempts
@@ -1304,7 +1304,7 @@ router.post("/guardian/store/checkout", authMiddleware, async (req: Request, res
   let gpoUrl: string | null = null;
   if (method === "gpo_mcx") {
     const txId = `STORE-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-    gpoUrl = `https://gpo.emis.ao/checkout?txId=${txId}&amount=${total}&currency=AOA&merchantId=KIWARA001`;
+    gpoUrl = `https://gpo.emis.ao/checkout?txId=${txId}&amount=${total}&currency=AOA&merchantId=PROPINAPLUS001`;
   }
 
   // Create order

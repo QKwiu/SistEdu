@@ -1,12 +1,12 @@
 /**
- * Kiwara Tech — In-Process Backup Service
+ * PropinaPlus — In-Process Backup Service
  *
  * Executa pg_dump diariamente dentro do processo Node.js,
  * cifra com AES-256-GCM e envia para AWS S3.
  *
  * Variáveis de ambiente necessárias:
- *   BACKUP_S3_BUCKET          ex: kiwara-backups-prod
- *   BACKUP_S3_PREFIX          ex: kiwara/db
+ *   BACKUP_S3_BUCKET          ex: propinaplus-backups-prod
+ *   BACKUP_S3_PREFIX          ex: propinaplus/db
  *   BACKUP_ENCRYPTION_KEY     passphrase >= 32 chars
  *   AWS_ACCESS_KEY_ID
  *   AWS_SECRET_ACCESS_KEY
@@ -60,7 +60,7 @@ export async function runBackupMigration(): Promise<void> {
 // ── Configuração ──────────────────────────────────────────────────────────────
 function getConfig() {
   const bucket  = process.env["BACKUP_S3_BUCKET"] ?? "";
-  const prefix  = process.env["BACKUP_S3_PREFIX"] ?? "kiwara/db";
+  const prefix  = process.env["BACKUP_S3_PREFIX"] ?? "propinaplus/db";
   const enabled = process.env["BACKUP_ENABLED"] === "true";
 
   // Chave obrigatória quando backup está activo — falha explícita em vez de cifrar com string vazia
@@ -169,7 +169,7 @@ async function uploadToS3(
       Body:         countingStream,
       StorageClass: "STANDARD_IA",
       Metadata: {
-        backup_tool: "kiwara-backup-service",
+        backup_tool: "propinaplus-backup-service",
         created_at:  new Date().toISOString(),
       },
     },

@@ -13,7 +13,7 @@ export default function Servicos() {
       badgeColor: "bg-emerald-400/20 text-emerald-300",
       highlighted: true,
       title: "Pagamentos e Reconciliação Escolar",
-      desc: "O primeiro produto da Kiwara Tech já disponível. Automatize a cobrança de propinas, gere referências Multicaixa e tenha controlo financeiro total do seu colégio numa plataforma simples e segura.",
+      desc: "O primeiro produto da PropinaPlus já disponível. Automatize a cobrança de propinas, gere referências Multicaixa e tenha controlo financeiro total do seu colégio numa plataforma simples e segura.",
       features: ["Geração automática de propinas", "Referências Multicaixa / EMIS", "Confirmação automática de pagamentos", "Relatórios financeiros em tempo real"],
       href: "/solucoes/escolar",
       cta: "Ver o produto",

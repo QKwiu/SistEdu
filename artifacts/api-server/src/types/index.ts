@@ -1,5 +1,5 @@
 /**
- * src/types/index.ts — Tipos partilhados do backend Kiwara Tech
+ * src/types/index.ts — Tipos partilhados do backend PropinaPlus
  *
  * Directrizes de uso:
  *  1. Não alterar lógica de negócio — apenas tipos

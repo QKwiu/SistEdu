@@ -30,7 +30,7 @@ export default function Home() {
                 Soluções tecnológicas que <span className="text-gradient">impulsionam negócios</span>.
               </h1>
               <p className="text-lg text-slate-600 mb-8 leading-relaxed">
-                A Kiwara Tech desenvolve software e sistemas de gestão desenhados para modernizar a sua empresa, automatizar processos e escalar os seus resultados.
+                A PropinaPlus desenvolve software e sistemas de gestão desenhados para modernizar a sua empresa, automatizar processos e escalar os seus resultados.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/servicos">
@@ -121,7 +121,7 @@ export default function Home() {
                 <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center mb-6 border border-white/10">
                   <GraduationCap className="w-8 h-8 text-accent" />
                 </div>
-                <h3 className="text-xl font-display font-bold mb-3">Kiwara Escolar</h3>
+                <h3 className="text-xl font-display font-bold mb-3">PropinaPlus Escolar</h3>
                 <p className="text-slate-300 mb-8 flex-grow">
                   A nossa solução SaaS de referência para a gestão completa de pagamentos e propinas em colégios.
                 </p>
@@ -141,7 +141,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="bg-white rounded-3xl p-8 md:p-12 shadow-sm border border-slate-100 flex flex-col lg:flex-row gap-12 items-center">
             <div className="lg:w-1/2">
-              <h2 className="text-3xl md:text-4xl font-display font-bold mb-6">Porquê escolher a Kiwara Tech?</h2>
+              <h2 className="text-3xl md:text-4xl font-display font-bold mb-6">Porquê escolher a PropinaPlus?</h2>
               <ul className="space-y-4">
                 {[
                   "Equipa local com conhecimento do mercado angolano",

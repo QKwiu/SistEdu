@@ -65,7 +65,7 @@ async function getSchoolSMSConfig(schoolId: number): Promise<SMSConfig> {
     provider: comm.sms_provider || "mock",
     api_url: comm.sms_api_url,
     api_key: comm.sms_api_key,
-    sender_name: comm.sms_sender_name || "KiwaraEsc",
+    sender_name: comm.sms_sender_name || "PropinaPlus",
   };
 }
 
@@ -443,7 +443,7 @@ router.get("/admin/sms/provider", adminAuth, async (_req, res) => {
     provider: "mock",
     api_url: "",
     api_key: "",
-    sender_name: "KiwaraEsc",
+    sender_name: "PropinaPlus",
   });
 });
 

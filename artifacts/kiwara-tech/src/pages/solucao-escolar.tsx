@@ -25,7 +25,7 @@ export default function SolucaoEscolar() {
             >
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20 text-white font-medium mb-8 backdrop-blur-sm">
                 <GraduationCap className="w-5 h-5 text-accent" />
-                Produto Estrela Kiwara
+                Produto Estrela PropinaPlus
               </div>
               <h1 className="text-4xl sm:text-5xl lg:text-7xl font-display font-extrabold text-white leading-tight mb-6">
                 Sistema de Gestão Escolar

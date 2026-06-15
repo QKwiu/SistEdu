@@ -50,9 +50,9 @@ export default function EscolarLanding() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between py-4">
           <Link href="/" className="flex items-center gap-2 group">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-md">
-              <span className="text-white font-extrabold text-base">K</span>
+              <span className="text-white font-extrabold text-base">P</span>
             </div>
-            <span className="font-display font-bold text-lg">Kiwara <span className="text-primary">Escolar</span></span>
+            <span className="font-display font-bold text-lg">Propina<span className="text-primary">Plus</span></span>
           </Link>
           <div className="flex items-center gap-3">
             <Link href="/signup" className="hidden sm:block text-sm font-medium text-slate-600 hover:text-primary transition-colors px-3 py-2">
@@ -247,7 +247,7 @@ export default function EscolarLanding() {
             </div>
             <img
               src={`${import.meta.env.BASE_URL}images/school-hero.png`}
-              alt="Interface do Kiwara Escolar"
+              alt="Interface do PropinaPlus"
               className="rounded-xl w-full shadow-xl"
             />
             <div className="flex gap-3 justify-center mt-6">
@@ -294,9 +294,9 @@ export default function EscolarLanding() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <span className="text-white font-bold text-xs">K</span>
+              <span className="text-white font-bold text-xs">P</span>
             </div>
-            <span className="text-white font-semibold">Kiwara Escolar</span>
+            <span className="text-white font-semibold">PropinaPlus</span>
             <span className="text-slate-600">© {new Date().getFullYear()}</span>
           </div>
           <div className="flex gap-6">

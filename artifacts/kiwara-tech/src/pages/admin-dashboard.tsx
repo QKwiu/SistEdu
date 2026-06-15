@@ -324,7 +324,7 @@ function ModalCriarColegio({ onClose, onCreated }: { onClose: () => void; onCrea
               <Field label="Palavra-passe inicial">
                 <div className="relative">
                   <input type={showPass ? "text" : "password"} className={`${inp} pr-10`}
-                    placeholder="Kiwara@2025 (padrão)" value={form.password} onChange={f("password")} />
+                    placeholder="Propina@2025 (padrão)" value={form.password} onChange={f("password")} />
                   <button type="button" onClick={() => setShowPass(s => !s)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                     {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -2533,7 +2533,7 @@ function ReconciliacaoAdminPanel({ schoolId, commissionRate: initialRate }: { sc
           <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <Receipt className="w-4 h-4 text-violet-600"/>
-              <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide">Comissão Kiwara</p>
+              <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide">Comissão PropinaPlus</p>
             </div>
             <p className="text-2xl font-bold text-violet-800">{fmtCur(stats.comissao_plataforma)}</p>
             <p className="text-xs text-violet-600 mt-0.5">Taxa: {commRate}%</p>
@@ -4362,7 +4362,7 @@ function BancoIntegracaoPanel({ schoolId }: { schoolId: number }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Utilizador</label>
-              <input value={sftpUser} onChange={e => setSftpUser(e.target.value)} className={inp} placeholder="kiwara_user"/>
+              <input value={sftpUser} onChange={e => setSftpUser(e.target.value)} className={inp} placeholder="propinaplus_user"/>
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Password SFTP</label>
@@ -4377,7 +4377,7 @@ function BancoIntegracaoPanel({ schoolId }: { schoolId: number }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Directório Remoto</label>
-              <input value={sftpPath} onChange={e => setSftpPath(e.target.value)} className={inp} placeholder="/extratos/kiwara"/>
+              <input value={sftpPath} onChange={e => setSftpPath(e.target.value)} className={inp} placeholder="/extratos/propinaplus"/>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Formato do Ficheiro</label>
@@ -4461,7 +4461,7 @@ function BancoIntegracaoPanel({ schoolId }: { schoolId: number }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Client ID</label>
-              <input value={clientId} onChange={e => setClientId(e.target.value)} className={inp} placeholder="kiwara-client-id"/>
+              <input value={clientId} onChange={e => setClientId(e.target.value)} className={inp} placeholder="propinaplus-client-id"/>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Client Secret</label>
@@ -4851,7 +4851,7 @@ function SddIso20022Panel({ schoolId }: { schoolId: number }) {
 
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">Utilizador SFTP</label>
-                    <input className={inp} placeholder="kiwara_escola_user" maxLength={100}
+                    <input className={inp} placeholder="propinaplus_escola_user" maxLength={100}
                       value={cfg.sftp_user} onChange={e => setCfg(p => ({ ...p, sftp_user: e.target.value }))}/>
                   </div>
 
@@ -5269,7 +5269,7 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
   const [smsProvider, setSmsProvider] = useState("mock");
   const [smsApiUrl, setSmsApiUrl] = useState("");
   const [smsApiKey, setSmsApiKey] = useState("");
-  const [smsSenderName, setSmsSenderName] = useState("KiwaraEsc");
+  const [smsSenderName, setSmsSenderName] = useState("PropinaPlus");
   const [eventos, setEventos] = useState<Record<string, boolean>>({ nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
   const [templates, setTemplates] = useState<Record<string, string>>({ ...ADMIN_DEFAULT_TEMPLATES });
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
@@ -5330,7 +5330,7 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
       setSmsProvider(c.sms_provider ?? "mock");
       setSmsApiUrl(c.sms_api_url ?? "");
       setSmsApiKey(c.sms_api_key ?? "");
-      setSmsSenderName(c.sms_sender_name ?? "KiwaraEsc");
+      setSmsSenderName(c.sms_sender_name ?? "PropinaPlus");
       setEventos(c.eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
       setTemplates({ ...ADMIN_DEFAULT_TEMPLATES, ...(c.sms_templates ?? {}) });
       setPushActivo(c.push_activo ?? false);
@@ -5740,7 +5740,7 @@ function ComunicarAdminPanel({ schoolId, turmas }: { schoolId: number; turmas: {
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Nome Remetente</label>
                 <input value={smsSenderName} onChange={e => setSmsSenderName(e.target.value)} maxLength={11}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="KiwaraEsc"/>
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="PropinaPlus"/>
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint</label>
@@ -7232,7 +7232,7 @@ function AdminSMSView() {
   const [activeTab, setActiveTab] = useState<"provider" | "templates" | "logs" | "enviar">("provider");
 
   // Provider config
-  const [providerConfig, setProviderConfig] = useState({ provider: "mock", api_url: "", api_key: "", sender_name: "KiwaraEsc" });
+  const [providerConfig, setProviderConfig] = useState({ provider: "mock", api_url: "", api_key: "", sender_name: "PropinaPlus" });
   const [savingProvider, setSavingProvider] = useState(false);
   const [savedProvider, setSavedProvider] = useState(false);
 
@@ -7396,7 +7396,7 @@ function AdminSMSView() {
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Nome do Remetente</label>
               <input value={providerConfig.sender_name} onChange={e => setProviderConfig(prev => ({ ...prev, sender_name: e.target.value }))} maxLength={11}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="KiwaraEsc"/>
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="PropinaPlus"/>
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint do Provedor</label>
@@ -9289,7 +9289,7 @@ function ConfiguracoesTecnicasView() {
                 </label>
                 <input value={String(config.gpo?.url_success ?? "")}
                   onChange={e => update("gpo", "url_success", e.target.value)}
-                  placeholder="https://escola.kiwara.tech/pago"
+                  placeholder="https://escola.propinaplus.tech/pago"
                   className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
                 <p className="text-xs text-slate-400 mt-1">Redireccionado após pagamento confirmado</p>
               </div>
@@ -9299,7 +9299,7 @@ function ConfiguracoesTecnicasView() {
                 </label>
                 <input value={String(config.gpo?.url_fail ?? "")}
                   onChange={e => update("gpo", "url_fail", e.target.value)}
-                  placeholder="https://escola.kiwara.tech/falha"
+                  placeholder="https://escola.propinaplus.tech/falha"
                   className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"/>
                 <p className="text-xs text-slate-400 mt-1">Cobre tanto falha de pagamento como cancelamento pelo utilizador</p>
               </div>
@@ -9864,7 +9864,7 @@ function ConfiguracoesTecnicasView() {
                       className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 pr-8"/>
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">%</span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">Percentagem retida pela Kiwara sobre cada liquidação. Padrão: 5,00%</p>
+                  <p className="text-xs text-slate-400 mt-1">Percentagem retida pela PropinaPlus sobre cada liquidação. Padrão: 5,00%</p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -10000,7 +10000,7 @@ function ConfiguracoesTecnicasView() {
                     onChange={e => upd("conta_plataforma_iban", e.target.value)}
                     placeholder="AO06 0040 0000 0000 0000 0000 0"
                     className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400/30"/>
-                  <p className="text-xs text-slate-400 mt-1">IBAN da Kiwara para recebimento das comissões após split. Exigido pelo BNA para registos contabilísticos.</p>
+                  <p className="text-xs text-slate-400 mt-1">IBAN da PropinaPlus para recebimento das comissões após split. Exigido pelo BNA para registos contabilísticos.</p>
                 </div>
 
                 {/* IBAN do Comerciante — destino principal após split */}
@@ -10284,12 +10284,12 @@ function ConfiguracoesTecnicasView() {
               {spSecHeader("F","Webhooks e Notificações","URLs chamadas pelo motor quando uma transacção muda de estado","bg-orange-100 text-orange-700")}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
-                  {spField("webhook_url","URL de Webhook de Liquidação",{placeholder:"https://plataforma.kiwara.tech/webhooks/splitpay",hint:"POST enviado com payload assinado em cada mudança de estado: PENDING→CLEARING→SETTLED"})}
+                  {spField("webhook_url","URL de Webhook de Liquidação",{placeholder:"https://plataforma.propinaplus.tech/webhooks/splitpay",hint:"POST enviado com payload assinado em cada mudança de estado: PENDING→CLEARING→SETTLED"})}
                 </div>
                 {spField("webhook_secret","Segredo de Assinatura do Webhook",{secret:true,hint:"Chave HMAC-SHA256 para validar autenticidade do payload recebido"})}
                 {spField("webhook_retry_max","Nº Máximo de Retentativas",{type:"number",placeholder:"3",hint:"Tentativas antes de marcar webhook como falhado"})}
                 <div className="sm:col-span-2">
-                  {spField("notificacao_email_admin","E-mail de Alertas Operacionais",{placeholder:"ops@kiwara.tech",hint:"Recebe alertas de falhas de liquidação, certificados a expirar e erros críticos do motor"})}
+                  {spField("notificacao_email_admin","E-mail de Alertas Operacionais",{placeholder:"ops@propinaplus.tech",hint:"Recebe alertas de falhas de liquidação, certificados a expirar e erros críticos do motor"})}
                 </div>
               </div>
             </div>
@@ -10648,7 +10648,7 @@ function ConfiguracoesTecnicasView() {
                     <div className="divide-y divide-slate-100">
                       {[
                         { label: "🏫 Valor Líquido — Escola (Comerciante)", value: simMerchantResult.simulacao.liquido_comerciante_kz, color: "text-emerald-700", bg: "bg-emerald-50" },
-                        { label: "💠 Comissão — Plataforma Kiwara", value: simMerchantResult.simulacao.comissao_plataforma_kz, color: "text-indigo-700", bg: "bg-indigo-50" },
+                        { label: "💠 Comissão — Plataforma PropinaPlus", value: simMerchantResult.simulacao.comissao_plataforma_kz, color: "text-indigo-700", bg: "bg-indigo-50" },
                         { label: "📋 Retenção IRT — AGT", value: simMerchantResult.simulacao.retencao_irt_kz, color: "text-amber-700", bg: "bg-amber-50" },
                       ].map(row => (
                         <div key={row.label} className={`flex items-center justify-between px-5 py-4 ${row.bg}`}>
@@ -12633,7 +12633,7 @@ export default function AdminDashboard() {
               <Shield className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <span className="font-bold text-sm">Kiwara Tech</span>
+              <span className="font-bold text-sm">PropinaPlus</span>
               <span className="text-slate-400 text-xs ml-1.5 hidden md:inline">— Administração Central</span>
             </div>
           </div>
@@ -12728,7 +12728,7 @@ export default function AdminDashboard() {
                     <Shield className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <div className="font-bold text-sm leading-tight">Kiwara Tech</div>
+                    <div className="font-bold text-sm leading-tight">PropinaPlus</div>
                     <div className="text-xs text-slate-400">Administração Central</div>
                   </div>
                 </div>

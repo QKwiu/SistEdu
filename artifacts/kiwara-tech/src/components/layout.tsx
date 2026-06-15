@@ -73,10 +73,10 @@ export function Navbar() {
           {/* Logo + Company name */}
           <Link href="/" className="flex items-center gap-2.5 group">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg group-hover:shadow-primary/30 transition-all">
-              <span className="text-white font-extrabold text-lg leading-none">K</span>
+              <span className="text-white font-extrabold text-lg leading-none">P</span>
             </div>
             <span className="font-display font-bold text-xl tracking-tight text-slate-900">
-              Kiwara <span className="text-primary">Tech</span>
+              Propina<span className="text-primary">Plus</span>
             </span>
           </Link>
 
@@ -173,7 +173,7 @@ export function Navbar() {
               href="/escolar"
               className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium rounded-full bg-primary text-white shadow-md shadow-primary/20 hover:shadow-lg hover:-translate-y-0.5 hover:bg-primary/90 transition-all duration-200"
             >
-              Aderir ao Kiwara Escolar
+              Aderir ao PropinaPlus
             </Link>
           </nav>
 
@@ -236,7 +236,7 @@ export function Navbar() {
               onClick={() => setMobileMenuOpen(false)}
               className="mt-2 flex items-center justify-center p-4 rounded-xl bg-primary text-white font-medium shadow-md"
             >
-              Aderir ao Kiwara Escolar
+              Aderir ao PropinaPlus
             </Link>
           </motion.div>
         )}
@@ -256,9 +256,9 @@ export function Footer() {
           <div className="md:col-span-2">
             <Link href="/" className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-lg">
-                K
+                P
               </div>
-              <span className="font-display font-bold text-xl text-white">Kiwara Tech</span>
+              <span className="font-display font-bold text-xl text-white">PropinaPlus</span>
             </Link>
             <p className="text-slate-400 max-w-md leading-relaxed">
               Impulsionamos o sucesso de empresas e instituições em Angola através de soluções tecnológicas inovadoras, fiáveis e focadas em resultados reais.
@@ -284,7 +284,7 @@ export function Footer() {
           </div>
         </div>
         <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
-          <p>© {new Date().getFullYear()} Kiwara Tech. Todos os direitos reservados.</p>
+          <p>© {new Date().getFullYear()} PropinaPlus. Todos os direitos reservados.</p>
           <div className="flex items-center gap-6">
             <Link href="#" className="hover:text-white transition-colors">Política de Privacidade</Link>
             <Link href="#" className="hover:text-white transition-colors">Termos de Serviço</Link>

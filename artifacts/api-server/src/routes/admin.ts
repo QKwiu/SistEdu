@@ -1430,7 +1430,7 @@ router.post("/admin/colegios/:id/comunicar/publicar", adminAuth, async (req, res
     provider: comm.sms_provider || "mock",
     api_url: comm.sms_api_url,
     api_key: comm.sms_api_key,
-    sender_name: comm.sms_sender_name || "KiwaraEsc",
+    sender_name: comm.sms_sender_name || "PropinaPlus",
   };
 
   if (canal === "portal" || canal === "ambos") {
@@ -2294,7 +2294,7 @@ router.post("/admin/fcm-config/test", adminAuth, async (req, res) => {
     const { sendFcmBatch } = await import("./fcm.js");
     const result = await sendFcmBatch(
       creds, [fcm_token.trim()],
-      "🔔 Teste FCM — Kiwara Tech",
+      "🔔 Teste FCM — PropinaPlus",
       "Push notification de teste enviada com sucesso! As credenciais estão funcionais.",
       { tipo: "teste" }
     );
@@ -2392,7 +2392,7 @@ router.post("/admin/school/email/test", adminAuth, async (req, res) => {
           <tr>
             <td style="background:#1a56db;padding:24px 32px;">
               <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.6);">
-                Kiwara Tech · Backoffice Admin
+                PropinaPlus · Backoffice Admin
               </p>
               <h1 style="margin:8px 0 0;font-size:18px;font-weight:700;color:#fff;">
                 ✓ Diagnóstico de Configuração de E-mail
@@ -2448,7 +2448,7 @@ router.post("/admin/school/email/test", adminAuth, async (req, res) => {
 
               <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;
                         border-left:3px solid #dbeafe;padding-left:10px;">
-                Teste iniciado pelo painel de administração do Kiwara Tech.
+                Teste iniciado pelo painel de administração do PropinaPlus.
                 Nenhuma acção é necessária por parte da escola.
               </p>
             </td>
@@ -2458,7 +2458,7 @@ router.post("/admin/school/email/test", adminAuth, async (req, res) => {
           <tr>
             <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e5e7eb;">
               <p style="margin:0;font-size:11px;color:#9ca3af;">
-                Kiwara Tech · Diagnóstico automático · ${testedAt}
+                PropinaPlus · Diagnóstico automático · ${testedAt}
               </p>
             </td>
           </tr>

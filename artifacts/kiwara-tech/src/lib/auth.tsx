@@ -18,8 +18,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const SESSION_KEY = "kiwara_school_session";
-const TOKEN_KEY = "kiwara_school_token";
+const SESSION_KEY = "propinaplus_school_session";
+const TOKEN_KEY = "propinaplus_school_token";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SchoolSession | null>(() => {
@@ -65,7 +65,7 @@ export function useAuth() {
 }
 
 /* ─── Admin token helpers (module-level, safe to call anywhere) ─── */
-export const ADMIN_TOKEN_KEY = "kiwara_admin_token";
+export const ADMIN_TOKEN_KEY = "propinaplus_admin_token";
 
 export function getAdminToken(): string {
   return localStorage.getItem(ADMIN_TOKEN_KEY) ?? "";
@@ -80,8 +80,8 @@ export function clearAdminToken(): void {
 }
 
 /* ─── Staff token helpers ─── */
-export const STAFF_TOKEN_KEY = "kiwara_staff_token";
-export const STAFF_SESSION_KEY = "kiwara_staff_session";
+export const STAFF_TOKEN_KEY = "propinaplus_staff_token";
+export const STAFF_SESSION_KEY = "propinaplus_staff_session";
 
 export function getStaffToken(): string {
   return localStorage.getItem(STAFF_TOKEN_KEY) ?? "";
@@ -96,7 +96,7 @@ export function clearStaffToken(): void {
 }
 
 /* ─── Guardian token helpers ─── */
-export const GUARDIAN_TOKEN_KEY = "kiwara_guardian_token";
+export const GUARDIAN_TOKEN_KEY = "propinaplus_guardian_token";
 
 export function getGuardianToken(): string {
   return localStorage.getItem(GUARDIAN_TOKEN_KEY) ?? "";

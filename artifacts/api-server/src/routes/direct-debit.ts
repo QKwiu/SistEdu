@@ -1,5 +1,5 @@
 /**
- * KIWARA TECH — Motor de Débito Directo
+ * PROPINAPLUS — Motor de Débito Directo
  * ======================================
  * Implementa as regras ISO 20022 PAIN.008 / PAIN.002 adaptadas ao
  * ecossistema bancário angolano (EMIS / BNA).
@@ -465,13 +465,13 @@ async function sendPreNotification(mandateId: number): Promise<void> {
   const nextDebitDate = nextCollectionDate(m.debit_day);
   const dateStr = nextDebitDate.toLocaleDateString("pt-AO", { day: "2-digit", month: "long", year: "numeric" });
 
-  const msg = `Kiwara Tech - Débito Directo: A ${m.escola_nome} irá debitar a sua conta IBAN terminada em ${m.iban.slice(-4)} no valor a definir na data ${dateStr}. Ref. mandato: ${m.reference}. Em caso de dúvida contacte o secretariado.`;
+  const msg = `PropinaPlus - Débito Directo: A ${m.escola_nome} irá debitar a sua conta IBAN terminada em ${m.iban.slice(-4)} no valor a definir na data ${dateStr}. Ref. mandato: ${m.reference}. Em caso de dúvida contacte o secretariado.`;
 
   // Enviar SMS
   let smsResult = { success: false, messageId: undefined as string | undefined };
   if (m.telefone) {
     try {
-      const smsConfig = { provider: "generic", api_url: "", api_key: "", sender_name: "KiwaraTech" };
+      const smsConfig = { provider: "generic", api_url: "", api_key: "", sender_name: "PropinaPlus" };
       smsResult = await sendSMS(m.telefone, msg, smsConfig, m.school_id, "manual", `dd-prenotif-${mandateId}`);
     } catch (e) {
       console.error("[dd:pre-notif:sms]", e);
@@ -736,10 +736,10 @@ async function processPain002(entries: Pain002Entry[], reportDate: string, schoo
           // SMS de confirmação
           const encR = await pool.query("SELECT telefone FROM encarregados WHERE id=$1", [encarregado_id]);
           if (encR.rows[0]?.telefone) {
-            const smsConfig = { provider: "generic", api_url: "", api_key: "", sender_name: "KiwaraTech" };
+            const smsConfig = { provider: "generic", api_url: "", api_key: "", sender_name: "PropinaPlus" };
             await sendSMS(
               encR.rows[0].telefone,
-              `Kiwara Tech: Débito Directo processado com sucesso. Valor: ${instr.amount} AOA. Ref: ${reference}.`,
+              `PropinaPlus: Débito Directo processado com sucesso. Valor: ${instr.amount} AOA. Ref: ${reference}.`,
               smsConfig, school_id, "pagamento_confirmado", `dd-acsc-${instr.id}`
             ).catch(() => {});
           }
@@ -767,10 +767,10 @@ async function processPain002(entries: Pain002Entry[], reportDate: string, schoo
           );
           const encR = await pool.query("SELECT telefone FROM encarregados WHERE id=$1", [encarregado_id]);
           if (encR.rows[0]?.telefone) {
-            const smsConfig = { provider: "generic", api_url: "", api_key: "", sender_name: "KiwaraTech" };
+            const smsConfig = { provider: "generic", api_url: "", api_key: "", sender_name: "PropinaPlus" };
             await sendSMS(
               encR.rows[0].telefone,
-              `Kiwara Tech: O seu débito directo foi rejeitado (${entry.rejection_code ?? "sem código"}). Contacte o secretariado. Ref: ${reference}.`,
+              `PropinaPlus: O seu débito directo foi rejeitado (${entry.rejection_code ?? "sem código"}). Contacte o secretariado. Ref: ${reference}.`,
               smsConfig, school_id, "manual", `dd-rjct-${instr.id}`
             ).catch(() => {});
           }
@@ -1410,7 +1410,7 @@ router.post("/school/dd/mandates/:id/send-prenotification", schoolAuth, async (r
 });
 
 /* ══════════════════════════════════════════════════════
-   ADMIN — Plataforma Kiwara Tech
+   ADMIN — Plataforma PropinaPlus
 ══════════════════════════════════════════════════════ */
 
 // GET /admin/dd/overview — visão global de mandatos

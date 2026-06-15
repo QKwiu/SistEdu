@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Eye, EyeOff, RefreshCw, AlertCircle, CheckCircle2, Shield, ArrowLeft, Phone } from "lucide-react";
 
 const API = "/api";
-const GUARDIAN_TOKEN_KEY = "kiwara_guardian_token";
+const GUARDIAN_TOKEN_KEY = "propinaplus_guardian_token";
 
 interface SchoolInfo {
   name: string;

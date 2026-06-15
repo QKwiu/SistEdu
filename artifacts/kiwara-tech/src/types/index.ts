@@ -1,5 +1,5 @@
 /**
- * src/types/index.ts — Ponto central de tipos do frontend Kiwara Tech
+ * src/types/index.ts — Ponto central de tipos do frontend PropinaPlus
  *
  * Directrizes de uso:
  *  1. Não alterar lógica de negócio — apenas tipos

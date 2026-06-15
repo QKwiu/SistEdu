@@ -2,7 +2,7 @@
  * api-client.ts — shared API helper factory (DRY: replaces raw fetch + manual headers)
  *
  * Usage:
- *   const api = createApiClient("kiwara_admin_token");
+ *   const api = createApiClient("propinaplus_admin_token");
  *   const res = await api("/admin/stats");
  *   const data = await res.json();
  */

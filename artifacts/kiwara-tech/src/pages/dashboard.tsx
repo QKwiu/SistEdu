@@ -2365,7 +2365,7 @@ function AlunoFichaSlideOver({
               ${Number(d.desconto)>0?`<div class="row"><span>Desconto (Bolsa)</span><span>-${Number(d.desconto).toLocaleString("pt-AO")} Kz</span></div>`:""}
               <div class="row total"><span>Total</span><span>${(Number(d.montante??0)+Number(d.multa??0)-Number(d.desconto??0)).toLocaleString("pt-AO")} Kz</span></div>
               <div class="status">${d.status==="pago"?"✅ PAGO":"⏳ PENDENTE"}</div>
-              <p style="font-size:11px;color:#94a3b8;margin-top:20px;text-align:center">Emitido em ${new Date().toLocaleString("pt-AO")} · Kiwara Tech</p>
+              <p style="font-size:11px;color:#94a3b8;margin-top:20px;text-align:center">Emitido em ${new Date().toLocaleString("pt-AO")} · PropinaPlus</p>
               <script>window.print();</script></body></html>`);
               win.document.close();
             } catch {}
@@ -3160,7 +3160,7 @@ ${multa_regra && totalMultas > 0 ? `<div style="font-size:11px;color:#64748b;mar
 </div>` : ""}
 <div class="ftr">
   <div>Emitido em ${dataStr} às ${horaStr}</div>
-  <div style="font-style:italic">Documento gerado pelo sistema Kiwara Escolar</div>
+  <div style="font-style:italic">Documento gerado pelo sistema PropinaPlus</div>
 </div>
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}</script>
 </body></html>`;
@@ -7818,7 +7818,7 @@ function ComunicacaoView({ token }: { token: string }) {
   const [provider, setProvider] = useState("mock");
   const [apiUrl, setApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [senderName, setSenderName] = useState("KiwaraEsc");
+  const [senderName, setSenderName] = useState("PropinaPlus");
   const [eventos, setEventos] = useState<Record<string, boolean>>({
     nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true,
   });
@@ -7855,7 +7855,7 @@ function ComunicacaoView({ token }: { token: string }) {
         setProvider(comm.sms_provider ?? "mock");
         setApiUrl(comm.sms_api_url ?? "");
         setApiKey(comm.sms_api_key ?? "");
-        setSenderName(comm.sms_sender_name ?? "KiwaraEsc");
+        setSenderName(comm.sms_sender_name ?? "PropinaPlus");
         setEventos(comm.eventos ?? { nova_fatura: true, pagamento_confirmado: true, atraso_pagamento: true, multa_aplicada: true });
         setTemplates({ ...DEFAULT_TEMPLATES, ...(comm.sms_templates ?? {}) });
       });
@@ -8043,7 +8043,7 @@ function ComunicacaoView({ token }: { token: string }) {
                 <label className="block text-xs font-medium text-slate-600 mb-1">Nome do Remetente</label>
                 <input value={senderName} onChange={e => setSenderName(e.target.value)} maxLength={11}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="KiwaraEsc"/>
+                  placeholder="PropinaPlus"/>
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-slate-600 mb-1">URL do Endpoint (API do Provedor)</label>
@@ -12998,8 +12998,8 @@ export default function Dashboard() {
       {/* ── Desktop Sidebar (md+) ── */}
       <aside className="bg-slate-900 text-slate-300 w-64 flex-shrink-0 hidden md:flex flex-col sticky top-0 h-screen overflow-y-auto">
         <div className="h-16 flex items-center px-6 border-b border-slate-800">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold mr-3 text-sm">K</div>
-          <span className="font-display font-bold text-white text-base">Kiwara Escolar</span>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold mr-3 text-sm">P</div>
+          <span className="font-display font-bold text-white text-base">PropinaPlus</span>
         </div>
         <SidebarContent />
       </aside>
@@ -13023,8 +13023,8 @@ export default function Dashboard() {
             >
               <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold text-sm">K</div>
-                  <span className="font-display font-bold text-white text-base">Kiwara Escolar</span>
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-extrabold text-sm">P</div>
+                  <span className="font-display font-bold text-white text-base">PropinaPlus</span>
                 </div>
                 <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors">
                   <X className="w-4 h-4"/>

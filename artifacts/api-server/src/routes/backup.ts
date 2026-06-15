@@ -1,5 +1,5 @@
 /**
- * Kiwara Tech — Backup Admin Endpoints
+ * PropinaPlus — Backup Admin Endpoints
  *
  * GET  /admin/backup/history  — últimos N backups
  * POST /admin/backup/trigger  — dispara backup manual (protegido por adminAuth)

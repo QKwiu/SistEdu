@@ -122,7 +122,7 @@ function verifyPassword(plain: string, hash: string): boolean {
 }
 
 function generateTempPassword(): string {
-  return "Kiwara@" + crypto.randomBytes(4).toString("hex").toUpperCase();
+  return "Propina@" + crypto.randomBytes(4).toString("hex").toUpperCase();
 }
 
 /* ══════════════════════════════════════════

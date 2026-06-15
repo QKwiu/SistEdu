@@ -73,7 +73,7 @@ export async function sendSMS(
         body: JSON.stringify({
           to: normalized,
           message,
-          from: config.sender_name || "KiwaraEsc",
+          from: config.sender_name || "PropinaPlus",
         }),
       });
       const data: any = await resp.json().catch(() => ({}));
@@ -234,7 +234,7 @@ export async function sendEventSMS(
       provider: comm.sms_provider || "mock",
       api_url: comm.sms_api_url,
       api_key: comm.sms_api_key,
-      sender_name: comm.sms_sender_name || "KiwaraEsc",
+      sender_name: comm.sms_sender_name || "PropinaPlus",
     };
 
     const template = resolveTemplate(event, schoolTemplates, globalTemplates);

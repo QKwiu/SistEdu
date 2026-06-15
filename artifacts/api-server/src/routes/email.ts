@@ -160,14 +160,14 @@ router.post("/school/email-config/test", schoolAuth, async (req: Request, res: R
     const html = `
       <div style="font-family:sans-serif;max-width:560px;margin:auto">
         <h2 style="color:#1a56db">✓ Configuração de E-mail Activa</h2>
-        <p>Este e-mail confirma que as suas credenciais de e-mail estão correctamente configuradas no <strong>Kiwara Tech</strong>.</p>
+        <p>Este e-mail confirma que as suas credenciais de e-mail estão correctamente configuradas no <strong>PropinaPlus</strong>.</p>
         <p style="color:#6b7280;font-size:12px">Escola: ${school.name} · ${new Date().toLocaleString("pt-AO")}</p>
       </div>`;
 
     const result = await sendSchoolEmail(
       school.school_id,
       parse.data.to,
-      "✓ Teste de Configuração — Kiwara Tech",
+      "✓ Teste de Configuração — PropinaPlus",
       html
     );
 

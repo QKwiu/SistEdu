@@ -40,7 +40,7 @@ function RecoveryModal({ onClose }: { onClose: () => void }) {
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
             <p className="text-amber-200 text-sm leading-relaxed">
               As credenciais de acesso ao painel de administração central são geridas
-              directamente pela equipa técnica da <strong>Kiwara Tech</strong> através
+              directamente pela equipa técnica da <strong>PropinaPlus</strong> através
               das configurações do servidor.
             </p>
           </div>
@@ -48,13 +48,13 @@ function RecoveryModal({ onClose }: { onClose: () => void }) {
             Para recuperar o acesso, contacte o suporte técnico através dos seguintes meios:
           </p>
           <div className="space-y-2.5">
-            <a href="mailto:suporte@kiwara.tech"
+            <a href="mailto:suporte@propinaplus.tech"
               className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3 transition-colors group">
               <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
                 <Mail className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <p className="text-white text-sm font-medium group-hover:text-primary transition-colors">suporte@kiwara.tech</p>
+                <p className="text-white text-sm font-medium group-hover:text-primary transition-colors">suporte@propinaplus.tech</p>
                 <p className="text-slate-500 text-xs">E-mail de suporte técnico</p>
               </div>
             </a>
@@ -125,7 +125,7 @@ export default function AdminLogin() {
             <Shield className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-2xl font-bold text-white">Área de Administração</h1>
-          <p className="text-slate-400 text-sm mt-1">Kiwara Tech — Plataforma Central</p>
+          <p className="text-slate-400 text-sm mt-1">PropinaPlus — Plataforma Central</p>
         </div>
 
         {/* Card */}
@@ -195,7 +195,7 @@ export default function AdminLogin() {
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-6">
-          Kiwara Tech © {new Date().getFullYear()} — Uso restrito a administradores
+          PropinaPlus © {new Date().getFullYear()} — Uso restrito a administradores
         </p>
       </motion.div>
 

@@ -272,7 +272,7 @@ router.post("/admin/colegios/:id/bank/test-connection", adminAuth, async (req, r
         const r = await fetch(url, {
           method: "GET",
           signal: controller.signal,
-          headers: { "User-Agent": "KiwaraTech-BankPing/1.0" },
+          headers: { "User-Agent": "PropinaPlus-BankPing/1.0" },
         });
         clearTimeout(timer);
         return res.json({
